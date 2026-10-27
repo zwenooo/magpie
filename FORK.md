@@ -56,6 +56,8 @@ Fetches don't automatically import new upstream tags.
 
 On each merge, pay attention to:
 
+- Keep sponsor banners and promotional links out of both READMEs; retain
+  upstream attribution, license notices and privacy disclosures.
 - Agent registration, catalog fields, protocol names, key generation and
   the dry-run boundary in the thin adapter.
 - The five notice translations and their English template.
