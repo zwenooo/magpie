@@ -28,6 +28,8 @@ package agentenv
 // Vars are the variables, by the agent they belong to. A sandbox clears all
 // of them, and sets back the ones its own fixtures need.
 var Vars = []string{
+	// RTK may be installed by Cargo; tests must not inspect a live Cargo home.
+	"CARGO_HOME",
 	// Claude Code, Codex and Copilot CLI
 	"CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME",
 	// Claude Code's temp folder, the images its sessions were given
