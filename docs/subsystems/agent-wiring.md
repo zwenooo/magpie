@@ -8,50 +8,31 @@ supported agent: where its config lives, which fields matter and which
 values to offer. It also records what magpie set, so a later change made by
 something else shows up as drift.
 
-## Cursor through cursor-byok
+## Cursor managed by Magpie
 
-[`cursorbyok.go`](../../internal/agent/cursorbyok.go) registers
-`cursor-byok`, shown as **Cursor (via cursor-byok)**. It configures an
-independently installed cursor-byok desktop service; Cursor CLI and Cursor
-Private Inference keep their existing agents. The user completes Cursor
-setup in cursor-byok. magpie neither implements Cursor's private backend
-nor installs certificates, modifies Cursor or starts the service.
+The fork registers `cursor-byok` as **Cursor (Magpie)**. The
+[Agent adapter](../../internal/agent/cursorbyok.go) supplies selected models and
+an agent-scoped gateway key to [internal/cursorbyok](../../internal/cursorbyok).
+That package starts the embedded backend built from
+[native/cursor-backend](../../native/cursor-backend), with a private data folder,
+random control token, ready-file/PID verification and a lifetime lock. No
+external Cursor BYOK installation is discovered or required.
 
-[`internal/cursorbyok`](../../internal/cursorbyok) reads `service_settings.network_ports` from the existing
-`~/.cursor-byok-v3/cursor-byok.db`, through `sessions.OpenUntouched`, on all
-three desktop platforms. Only the numeric service port is used, at
-`127.0.0.1`; HTTP redirects and proxy forwarding are disabled. Writes go
-through `/__byok-api__/api/models`, never directly to the database. The
-contract is cursor-byok 1.0.1's v3 schema, source revision `31e9f5c`.
+First setup requires explicit consent on the Agents page before local trust
+and proxy changes. A background sync can only resume a completed connection;
+a failed first setup remains disconnected for an explicit retry. Status reads
+do not start the process or mutate Cursor. The core model journal retains
+partial-write recovery and never claims a pre-existing row by display name.
 
-The fork's Agent adapter supplies plain model and gateway values to
-`cursorbyok.Manager`; the package owns discovery, CRUD and journal state,
-without importing agent, provider, catalog, gateway or GUI. Registration
-is the only production hook in the shared agent list. See
-[fork maintenance](../../FORK.md) for the upstream merge boundary.
+The child restores only configuration/account values it still owns on disable
+or shutdown; user edits and real sign-ins stay. Windows trust is per-user;
+macOS uses the login keychain; Linux shows an administrator installation command.
+The CA is retained after disconnect. Magpie never forcibly restarts Cursor.
 
-Connecting adds the models `magpieModels("cursor-byok")` selects, with the
-gateway's agent key and native Chat, Responses or Messages endpoint. The
-provider field controls whether the list is offered; the user chooses a
-model in Cursor. Sync updates the connected list and retains user tuning.
-`cursor-byok.json` in magpie's config folder records each created model's
-hash, last values and pending writes; it is private because it contains the
-gateway key. Recording intent before an API write lets a retry reconcile a
-lost reply. Unreadable records, ports or API replies stop the operation.
-
-Disconnect removes only recorded models whose connection still matches,
-retains models edited into a different connection, and disables future
-sync. A group or display name alone never establishes ownership. Connection
-changes outside magpie are reported for the user to resolve by disconnecting
-and connecting again; file-based reapply does not overwrite them. The API
-agent has no editable `Path`, so file previews are unavailable, and dry-run
-requests never contact its service.
-
-`TestCursorBYOK*` uses the actual v3 model schema and a local control API
-fixture for connection, protocol mapping, synchronization, ownership,
-failures and disconnect. The fixture hashes were checked against the
-upstream Rust configuration source. The full Cursor Agent conversation
-path has not been verified. See [setup instructions](../cursor-byok.md).
+`TestCursorBYOK*`, runtime subprocess tests, `TestCursorBYOKBundledRuntime`,
+Rust `managed`/`managed_child` tests and `cursor-managed.test.cjs` cover these
+boundaries without modifying live user profiles or certificate trust. See
+[setup and limitations](../cursor-byok.md) and [fork maintenance](../../FORK.md).
 
 ## Responsibilities and sources of truth
 

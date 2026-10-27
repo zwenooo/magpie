@@ -1,14 +1,14 @@
 package agent
 
-// The cursor-byok protocol and journal live in internal/cursorbyok. This
-// adapter supplies Magpie's model selection, gateway key and agent hooks.
+// The agent adapter owns selection and consent; the bundled backend owns
+// Cursor's protocol and reversible local setup. No external app is required.
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
-	"testing"
-	"time"
 
 	"github.com/yetone/magpie/internal/appdir"
 	"github.com/yetone/magpie/internal/cursorbyok"
@@ -17,99 +17,221 @@ import (
 
 const CursorBYOKID = "cursor-byok"
 
-var noticeCursorBYOK = newNotice("Install and initialize cursor-byok separately, then keep it running. magpie manages only its model configurations; Cursor setup and the local service stay in cursor-byok. Restart Cursor and start a new conversation to refresh its model list.")
+var noticeCursorBYOK = newNotice("Magpie runs the bundled Cursor backend while connected. Restart Cursor and start a new conversation to use its models. Disconnect restores the Cursor settings managed by Magpie.")
 
-func cursorBYOKStatePath() string { return filepath.Join(appdir.Config(), "cursor-byok.json") }
+type CursorSetupRequiredError struct{}
 
-func cursorBYOKManager(db string) cursorbyok.Manager {
-	return cursorbyok.Manager{Database: db, StatePath: cursorBYOKStatePath()}
+func (*CursorSetupRequiredError) Error() string {
+	return "Connect Cursor from Magpie's Agents page and approve its local certificate and proxy setup first"
 }
 
+func cursorBYOKRoot() string      { return filepath.Join(appdir.Config(), "cursor-backend") }
+func cursorBYOKStatePath() string { return filepath.Join(cursorBYOKRoot(), "models.json") }
+func cursorBYOKConnected() bool   { return isFile(filepath.Join(cursorBYOKRoot(), "connected")) }
+func cursorBYOKApproved() bool {
+	b, err := os.ReadFile(filepath.Join(cursorBYOKRoot(), "approved"))
+	return err == nil && string(b) == "cursor-local-setup-v1\n"
+}
+
+// ApproveCursorBackend records the explicit user choice made in the setup
+// dialog. It does not start a backend or change trust/agent settings itself.
+func ApproveCursorBackend() error {
+	if disconnectDryRun {
+		return errors.New("Cursor setup is unavailable during a preview")
+	}
+	if err := os.MkdirAll(cursorBYOKRoot(), 0700); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(cursorBYOKRoot(), "approved"), []byte("cursor-local-setup-v1\n"), 0600)
+}
+
+type cursorBackend interface {
+	Start() (cursorbyok.Endpoint, error)
+	Current() (cursorbyok.Endpoint, bool)
+	Stop() error
+	Available() bool
+}
+
+var cursorBackends = struct {
+	sync.Mutex
+	byRoot map[string]*cursorbyok.Runtime
+}{byRoot: map[string]*cursorbyok.Runtime{}}
+var cursorSetupMu sync.Mutex
+var cursorBYOKRuntimeFor = func() cursorBackend {
+	root := cursorBYOKRoot()
+	cursorBackends.Lock()
+	defer cursorBackends.Unlock()
+	if cursorBackends.byRoot[root] == nil {
+		cursorBackends.byRoot[root] = cursorbyok.NewRuntime(root)
+	}
+	return cursorBackends.byRoot[root]
+}
+
+func StopCursorBackend() {
+	cursorBackends.Lock()
+	backends := make([]*cursorbyok.Runtime, 0, len(cursorBackends.byRoot))
+	for _, backend := range cursorBackends.byRoot {
+		backends = append(backends, backend)
+	}
+	cursorBackends.Unlock()
+	for _, backend := range backends {
+		_ = backend.Stop()
+	}
+}
+func cursorBYOKManager() cursorbyok.Manager {
+	return cursorbyok.Manager{StatePath: cursorBYOKStatePath()}
+}
 func cursorBYOKGateway() cursorbyok.Gateway {
-	url := gateway.URL()
-	return cursorbyok.Gateway{URL: url, Key: agentKeyAt(CursorBYOKID, url)}
+	u := gateway.URL()
+	return cursorbyok.Gateway{URL: u, Key: agentKeyAt(CursorBYOKID, u)}
 }
 
 func cursorBYOK(home string) *Agent {
-	dir := filepath.Join(home, ".cursor-byok-v3")
-	db := filepath.Join(dir, "cursor-byok.db")
+	dir := filepath.Join(home, ".cursor")
 	return &Agent{
-		ID: CursorBYOKID, Name: "Cursor (via cursor-byok)", Icon: "cursor", Dir: dir,
-		// No editable Path: DisconnectPreview must never contact the live
-		// service from its copied HOME. The API has no file diff to show.
-		detect:      func() bool { return isFile(db) },
+		ID: CursorBYOKID, Name: "Cursor (Magpie)", Icon: "cursor", Dir: dir,
+		detect:      func() bool { return isDir(dir) || isDir(cursorEditorDir(home)) },
 		ListsModels: true,
 		Notice:      func() string { return noticeCursorBYOK.String() },
-		Check:       func() string { return cursorBYOKCheck(db) },
-		Sync:        func() error { return cursorBYOKWrite(db, true, false) },
-		Fields: []Field{{
-			Key: "provider", Label: "provider",
+		Check:       cursorBYOKCheck,
+		Sync:        func() error { return cursorBYOKWrite(true, false) },
+		Fields: []Field{{Key: "provider", Label: "provider",
 			Get: func() string {
-				if cursorBYOKManager(db).Connected() {
+				if cursorBYOKConnected() || cursorBYOKManager().Connected() {
 					return magpieID
 				}
 				return ""
 			},
-			Set: func(v string) error { return cursorBYOKWrite(db, v != "", true) },
+			Set: func(v string) error { return cursorBYOKWrite(v != "", true) },
 			Options: func(map[string]string) []Option {
-				return []Option{{Value: magpieID, Label: "magpie", Icon: "magpie", Note: "magpie's models through cursor-byok"}}
+				return []Option{{Value: magpieID, Label: "magpie", Icon: "magpie", Note: "magpie's models in Cursor"}}
 			},
 		}},
 	}
 }
-
-func cursorBYOKCheck(db string) string {
-	// Get reads only the journal. Check is asked several times while a
-	// page is drawn, so a closed app is probed at most once in five seconds.
-	key := db + "\n" + gateway.URL()
-	if st, err := os.Stat(cursorBYOKStatePath()); err == nil {
-		key += st.ModTime().String()
+func cursorEditorDir(home string) string {
+	switch runtime.GOOS {
+	case "windows":
+		return filepath.Join(home, "AppData", "Roaming", "Cursor")
+	case "darwin":
+		return filepath.Join(home, "Library", "Application Support", "Cursor")
+	default:
+		return filepath.Join(home, ".config", "Cursor")
 	}
-	cursorBYOKChecked.Lock()
-	if !testing.Testing() && key == cursorBYOKChecked.key && time.Since(cursorBYOKChecked.at) < 5*time.Second {
-		detail := cursorBYOKChecked.detail
-		cursorBYOKChecked.Unlock()
+}
+func cursorBYOKCheck() string {
+	manager := cursorBYOKManager()
+	if !cursorBYOKConnected() {
+		if manager.Connected() {
+			return "Cursor setup is incomplete; apply again to finish it or disconnect to restore its settings"
+		}
+		return ""
+	}
+	if disconnectDryRun {
+		return "Cursor's live backend has no disconnect preview"
+	}
+	endpoint, ok := cursorBYOKRuntimeFor().Current()
+	if !ok {
+		return "Magpie's Cursor backend is not running; apply again to restart it"
+	}
+	manager.Control = &endpoint
+	if detail := manager.Check(cursorBYOKGateway()); detail != "" {
 		return detail
 	}
-	cursorBYOKChecked.Unlock()
-	detail := "cursor-byok's live service has no disconnect preview"
-	if !disconnectDryRun {
-		detail = cursorBYOKManager(db).Check(cursorBYOKGateway())
+	status, err := manager.Harness()
+	if err != nil {
+		return err.Error()
 	}
-	cursorBYOKChecked.Lock()
-	cursorBYOKChecked.key, cursorBYOKChecked.at, cursorBYOKChecked.detail = key, time.Now(), detail
-	cursorBYOKChecked.Unlock()
-	return detail
+	if status.Integration != "enabled" {
+		return "Cursor's local connection is not enabled; apply again to complete setup"
+	}
+	return ""
 }
-
-var cursorBYOKChecked struct {
-	sync.Mutex
-	key, detail string
-	at          time.Time
-}
-
-func cursorBYOKWrite(db string, on, explicit bool) error {
+func cursorBYOKWrite(on, explicit bool) error {
 	if disconnectDryRun {
-		return errors.New("cursor-byok's live service has no disconnect preview")
+		return errors.New("Cursor's live backend has no disconnect preview")
 	}
-	manager := cursorBYOKManager(db)
-	// Most agents are unconnected. Avoid reading their model catalog on the
-	// periodic sync; the manager checks its active state again under lock.
-	if !explicit && !manager.Connected() {
+	cursorSetupMu.Lock()
+	defer cursorSetupMu.Unlock()
+	manager := cursorBYOKManager()
+	if err := manager.ValidateState(); err != nil {
+		return err
+	}
+	if !explicit && !cursorBYOKConnected() {
 		return nil
+	}
+	if !on && !manager.Connected() && !cursorBYOKConnected() {
+		return nil
+	}
+	if !on {
+		// Save disconnect intent before touching the service. A failed
+		// teardown must never be re-enabled by a background catalog sync.
+		if err := os.Remove(filepath.Join(cursorBYOKRoot(), "connected")); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	if on && !cursorBYOKApproved() {
+		return &CursorSetupRequiredError{}
 	}
 	var models []cursorbyok.Model
 	if on {
 		for _, model := range magpieModels(CursorBYOKID) {
-			models = append(models, cursorbyok.Model{
-				ID: model.ID, Name: model.Name, APIs: model.APIs,
-				Context: model.Context, MaxTokens: maxTokens(model),
-			})
+			models = append(models, cursorbyok.Model{ID: model.ID, Name: model.Name, APIs: model.APIs, Context: model.Context, MaxTokens: maxTokens(model)})
+		}
+		if len(models) == 0 && explicit {
+			return (&Agent{ID: CursorBYOKID, Name: "Cursor"}).noModelLeft()
 		}
 	}
-	err := manager.Write(cursorBYOKGateway(), models, on, explicit)
-	if errors.Is(err, cursorbyok.ErrNoModels) {
-		return (&Agent{ID: CursorBYOKID, Name: "Cursor (via cursor-byok)"}).noModelLeft()
+	backend := cursorBYOKRuntimeFor()
+	endpoint, err := backend.Start()
+	if err != nil {
+		return err
 	}
-	return err
+	manager.Control = &endpoint
+	if !on {
+		if _, err = manager.Enable(false); err != nil {
+			return err
+		}
+		if err = manager.Write(cursorBYOKGateway(), nil, false, true); err != nil {
+			return err
+		}
+		return backend.Stop()
+	}
+	if err = manager.Write(cursorBYOKGateway(), models, true, explicit); err != nil {
+		return err
+	}
+	status, err := manager.Harness()
+	if err != nil {
+		return err
+	}
+	if status.CA != "ready" {
+		// Never change system trust from a background catalog refresh.
+		if !explicit {
+			return errors.New("Cursor setup needs approval on the Agents page")
+		}
+		status, err = manager.InitializeCA()
+		if err != nil {
+			return err
+		}
+		if status.CA != "ready" {
+			status, err = manager.TrustCA()
+			if err != nil {
+				if runtime.GOOS == "linux" {
+					ready, _ := manager.Harness()
+					if ready.InstallCommand != "" {
+						return fmt.Errorf("trust Magpie's local Cursor certificate, then connect again: %s", ready.InstallCommand)
+					}
+				}
+				return err
+			}
+		}
+		if status.CA != "ready" {
+			return fmt.Errorf("Cursor's local certificate is not trusted; complete system approval and apply again")
+		}
+	}
+	_, err = manager.Enable(true)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(cursorBYOKRoot(), "connected"), []byte("1\n"), 0600)
 }

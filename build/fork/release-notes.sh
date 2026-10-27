@@ -24,6 +24,7 @@ range=$sha
   printf -- '- Windows x64 / ARM64: `magpie-windows-amd64.exe` / `magpie-windows-arm64.exe`.\n'
   printf -- '- Linux x64 / ARM64: `magpie-linux-amd64` / `magpie-linux-arm64` (GTK 3 and WebKitGTK 4.1 required).\n'
   printf -- '- CLI: `magpie-cli-<os>-<arch>` for macOS, Linux, Windows and Android ARM64 (Termux).\n'
+  printf -- '- macOS, Windows and Linux include the Cursor backend; no separate Cursor BYOK installation is needed. Android/Termux does not support desktop Cursor. The bundled source license is in `THIRD-PARTY-NOTICES.txt`.\n'
   printf -- '- Verify downloads with `SHA256SUMS`. Windows/Linux are unsigned; macOS is ad-hoc signed unless this fork has Apple signing and notarization credentials configured.\n\n'
   printf 'This fork has no automatic update feed. Download updates from [this repository](https://github.com/zwenooo/magpie/releases).\n\n'
   printf '### Changes / 变更记录\n\n'
@@ -37,6 +38,7 @@ range=$sha
   printf -- '- Windows：x64 选择 `windows-amd64.exe`，ARM64 选择 `windows-arm64.exe`。\n'
   printf -- '- Linux：选择对应架构的 `magpie-linux-*`；桌面版需要 GTK 3 和 WebKitGTK 4.1。\n'
   printf -- '- 命令行版：`magpie-cli-<系统>-<架构>`，覆盖 macOS、Linux、Windows 和 Android ARM64（Termux）。\n'
+  printf -- '- macOS、Windows、Linux 已内置 Cursor 后端，无需单独安装 Cursor BYOK；Android/Termux 不支持桌面 Cursor。内置源码的许可证见 `THIRD-PARTY-NOTICES.txt`。\n'
   printf -- '- 使用 `SHA256SUMS` 校验下载文件。Windows/Linux 未签名；macOS 默认临时签名，配置本仓库的 Apple 凭据后才启用正式签名和公证。\n\n'
   printf '本 fork 尚未启用自动更新，请从[本仓库 Releases](https://github.com/zwenooo/magpie/releases)下载新版。变更提交见上方列表。\n'
 } > "$output"

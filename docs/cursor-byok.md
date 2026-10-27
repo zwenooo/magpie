@@ -1,54 +1,73 @@
-# Cursor through cursor-byok
+# Cursor managed by Magpie
 
-This integration is maintained in the [zwenooo fork](../FORK.md).
-
-magpie can manage the model configurations of a separately installed
-[cursor-byok](https://github.com/leookun/cursor-byok). The ordinary Cursor
-editor sends its requests to cursor-byok, which adapts them to magpie's
-gateway. Providers, routing groups, credentials and usage stay in magpie.
-This is separate from Cursor CLI, Cursor Private Inference and using a
-Cursor subscription as a provider.
+This fork bundles a headless Cursor-compatible backend. Install Magpie and
+Cursor; a separate Cursor BYOK application, Rust toolchain or runtime download
+is not required. Models, third-party API credentials and routing stay in
+Magpie. The backend comes from the MIT-licensed archived
+[`cursor-byok@31e9f5c`](https://github.com/leookun/cursor-byok/tree/31e9f5cbc98a7d28cffcb5efbb9323cd3e143354),
+maintained in this fork under `native/cursor-backend`.
 
 ## Connect
 
-1. Install and initialize cursor-byok using its own instructions. Keep it
-   running. magpie does not install it or configure Cursor, certificates,
-   proxies or backend interception.
-2. Add your API providers and models in magpie.
-3. Open **Agents**, find **Cursor (via cursor-byok)** and connect it. Use
-   its model selection to choose which magpie models to offer to Cursor.
-4. Restart Cursor, start a new conversation and select a magpie model in
-   Cursor's model picker. Keep both magpie and cursor-byok running.
+1. Add your model providers in Magpie and open Cursor once so its profile exists.
+2. On **Agents**, connect **Cursor (Magpie)**. The first attempt shows a dialog
+   explaining the bundled service, local certificate trust and Cursor proxy
+   settings. Cancel leaves those settings unchanged.
+3. Approve setup. Magpie extracts and starts the backend, synchronizes the model
+   selection, initializes its own local CA, and requests trust for it. Windows
+   uses the current user's certificate store; macOS uses the login keychain and
+   may request OS approval. Linux currently displays the administrator command
+   needed to trust this certificate; run it and connect again.
+4. Restart Cursor yourself, start a new conversation, and choose a Magpie model.
+   Magpie does not forcibly terminate Cursor or discard open work.
 
-The connection uses cursor-byok's local model management API. It reads the
-service port from the existing `~/.cursor-byok-v3/cursor-byok.db` on macOS,
-Windows and Linux; it never writes that database directly. This integration
-targets the v3 desktop configuration and control API in cursor-byok 1.0.1
-([source revision 31e9f5c](https://github.com/leookun/cursor-byok/tree/31e9f5c)).
-Older YAML-based releases and separately hosted instances are not detected.
+Magpie owns the backend's lifetime. A normal Magpie exit closes its child and
+attempts to restore the Cursor settings still owned by it. A locked or unreadable
+profile leaves the ownership journal for recovery on a later connection. After a crash, reconnect or a
+saved connection's next synchronization restarts the backend and reconciles
+its ownership records. A second Magpie cannot take the same runtime lock.
 
-## Model changes and disconnecting
+## Disconnect and state
 
-Changes to magpie's selected models are synchronized while cursor-byok is
-running. Existing cursor-byok models remain separate. magpie records which
-model configurations it created, and disconnecting removes only those
-configurations. It does not stop cursor-byok or undo Cursor's setup.
+Disconnect stops the proxy, restores previous Cursor proxy/account values that
+still equal what Magpie wrote, removes its managed model records, and stops the
+child. Later user changes and a real Cursor sign-in are preserved. The trusted
+local CA remains installed for future connections; disconnect does not remove
+certificate trust or erase saved model/provider configuration in Magpie.
 
-Keep the connection identity of managed models in magpie. Changing a
-managed model's endpoint, key, model ID or name in cursor-byok can change
-its identity; magpie reports the conflict instead of claiming an unrelated
-model. User-created models are never adopted just because their group or
-display name says magpie.
+All backend state lives under Magpie's config folder:
 
-If connecting or synchronizing reports an unavailable service, open
-cursor-byok and try again. A failed read leaves the ownership record in
-place. File previews are unavailable for this API-managed connection.
+```text
+cursor-backend/
+  approved                 User's explicit local-setup choice
+  connected                Completed connection, eligible for restart/sync
+  models.json              Ownership of model configurations
+  data/                    Backend database, private CA and restore journals
+  runtime/<sha256>/         Verified embedded executable extracted for this build
+```
 
-## Implementation boundary
+The previous prototype used an independently installed Cursor BYOK and
+`~/.cursor-byok-v3`. This implementation does not launch, read or modify that
+installation or automatically import its records. If it still manages Cursor's
+proxy, disable it in that application before connecting Magpie.
 
-[`internal/cursorbyok`](../internal/cursorbyok) owns the v3 protocol, local
-port discovery and journal reconciliation. It receives explicit paths and
-plain model/gateway values. It knows nothing about Magpie's model catalog,
-providers or UI. The [Agent adapter](../internal/agent/cursorbyok.go) handles
-selection, gateway keys, notices, caching and preview isolation. Existing
-connections and journal data are unchanged by this split.
+## Maintenance and verification
+
+`internal/cursorbyok` owns private control requests, process lifecycle and model
+reconciliation. The Agent adapter supplies Magpie's catalog/key and consent.
+The Rust backend handles Cursor wire protocols, certificate setup and reversible
+settings ownership; its control API requires a random per-run token and rejects
+browser-origin requests. It exposes only model and local harness operations.
+The old public Tab service and promotional/plugin management APIs are not used.
+
+Each Windows/macOS/Linux release architecture compiles a pinned Rust backend,
+checks its machine type, hashes it, embeds it into Magpie and runs a real child
+startup/shutdown test in a disposable profile. Android CLI and server-only
+Docker builds do not include a desktop Cursor backend. Source-only Go builds
+still compile, but cannot connect Cursor until the bundled payload is built.
+
+Tests cover model synchronization, authentication, consent, process ownership,
+startup without CA/profile changes, restored settings, and refusal to overwrite
+later edits. The archived protocol may need updates for newer Cursor versions.
+Actual user certificate approval and a real Cursor Agent conversation must be
+verified separately; a passing local backend smoke test is not that evidence.

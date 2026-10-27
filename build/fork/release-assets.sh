@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Upstream's public asset contract: 15 binaries/archives plus SHA256SUMS.
+# Upstream's 15 binaries/archives, bundled-code license and SHA256SUMS.
 set -euo pipefail
 cd "${1:?usage: release-assets.sh DIST}"
 expected=(
+  THIRD-PARTY-NOTICES.txt
   magpie-cli-android-arm64
   magpie-cli-darwin-amd64 magpie-cli-darwin-arm64
   magpie-cli-linux-amd64 magpie-cli-linux-arm64

@@ -19,6 +19,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Go is required; use the version in go.mod' }
     $targetArch = go env GOARCH
     if ($LASTEXITCODE -ne 0) { throw 'Cannot read Go target architecture' }
+    if ($targetOS -in @('windows', 'darwin', 'linux')) {
+        & (Join-Path $PSScriptRoot 'build-cursor-backend.ps1') -TargetOS $targetOS -TargetArch $targetArch
+    }
     $flavor = if ($NoGUI) { 'cli' } else { 'desktop' }
     $extension = if ($targetOS -eq 'windows') { '.exe' } else { '' }
     $output = "dist/magpie-fork-$flavor-$targetOS-$targetArch$extension"
@@ -29,6 +32,7 @@ try {
     $buildArgs += '.'
     & go @buildArgs
     if ($LASTEXITCODE -ne 0) { throw 'Fork build failed' }
+    Copy-Item -LiteralPath 'THIRD-PARTY-NOTICES.txt' -Destination 'dist' -Force
     Write-Output (Join-Path $repoRoot $output)
 } finally {
     Pop-Location

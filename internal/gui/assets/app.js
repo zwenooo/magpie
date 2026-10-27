@@ -133,6 +133,12 @@ async function api(path, body, heads, signal) {
     throw new Error(notJSON(res, text));
   }
   if (!res.ok) {
+    if (data?.code === "cursor_setup_required") {
+      const approved = await confirmAction(t("Connect Cursor with Magpie?"), t("Magpie will run its bundled Cursor backend, trust a local certificate for Cursor connections, and manage Cursor's proxy settings. Your existing settings are saved for disconnect. Cursor will need a restart; your operating system may ask for approval."), t("Set up and connect"));
+      if (!approved) throw new Error(t("Cursor setup cancelled"));
+      await api("cursor-backend/approve", {});
+      return api(path, body, heads, signal);
+    }
     const err = new Error(data?.error || `${res.status} ${res.statusText}`);
     if (data?.code === "runtime_unavailable") {
       err.code = data.code;

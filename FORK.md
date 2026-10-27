@@ -8,7 +8,8 @@ upstream's installation links and releases do not include it.
 ## Local features and boundaries
 
 ```text
-internal/cursorbyok/             Cursor BYOK API, schema, ownership and recovery
+internal/cursorbyok/             Bundled Cursor process, private API and ownership
+native/cursor-backend/           Vendored MIT headless backend maintained by us
 internal/agent/cursorbyok.go     Magpie Agent/catalog/key adapter
 internal/agent/agents.go         One registration in builtins
 internal/update/fork.go          Fork update policy and release identity
@@ -21,11 +22,12 @@ build/fork/                     Fork build and upstream merge commands
 `internal/cursorbyok` accepts plain `Model` and `Gateway` values plus explicit
 database/journal paths. It does not import the agent, provider, catalog,
 gateway or GUI packages. The adapter maps the current upstream catalog and
-agent key into those values. Cursor remains a separate program, with
-cursor-byok separately installed and initialized by the user.
+agent key into those values. Cursor remains a separate editor. Its compatible backend is bundled in Magpie,
+and managed by Magpie after explicit setup consent; no second app is installed.
 
-The connection ID `cursor-byok` and private `cursor-byok.json` journal format
-are stable across this extraction: existing connections need no migration.
+The connection ID remains `cursor-byok`; bundled backend state lives under
+`cursor-backend/` in Magpie configuration. External prototype state is not
+automatically migrated or connected.
 Tests of actual Agent connect/sync/disconnect and gateway forwarding remain
 beside the adapter; upstream protocol hash fixtures live in the isolated
 package. Small edits in shared agent tests give API-backed clients a real

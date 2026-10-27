@@ -28,6 +28,7 @@ var serving sync.WaitGroup
 // stopServing stops this process's gateway taking requests and returns
 // once those in flight have finished.
 func stopServing() {
+	agent.StopCursorBackend()
 	endBackend()
 	serving.Wait()
 }

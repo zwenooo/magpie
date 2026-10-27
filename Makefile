@@ -105,11 +105,12 @@ release-cli:
 # magpie.com, the console program a terminal runs for `magpie` and waits
 # for, which it writes beside itself (internal/update/com.go, #3737).
 WINVER = $(shell echo $(VERSION) | sed -E 's/^v//; s/[^0-9.].*//')
+WINDOWS_ARCHES ?= amd64 arm64
 release-windows:
 	@mkdir -p dist
 	@go run github.com/tc-hib/go-winres@v0.3.3 make --in build/windows/winres.json --arch amd64,arm64 --out rsrc \
 		--file-version "$(or $(WINVER),0.0.0)" --product-version "$(or $(WINVER),0.0.0)"
-	@for arch in amd64 arm64; do \
+	@for arch in $(WINDOWS_ARCHES); do \
 		echo "  windows/$$arch (app)"; \
 		CGO_ENABLED=0 GOOS=windows GOARCH=$$arch go build -trimpath -ldflags="-s -w" -o internal/update/launcher-$$arch.com ./internal/update/launcher || exit 1; \
 		CGO_ENABLED=0 GOOS=windows GOARCH=$$arch go build -tags production,comlauncher -trimpath -ldflags="$(LDFLAGS) -H windowsgui" -o dist/magpie-windows-$$arch.exe . || exit 1; \

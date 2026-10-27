@@ -37,8 +37,8 @@ publication waits for it to succeed.
 | Linux | amd64, arm64 | `magpie-linux-<arch>`, `magpie-cli-linux-<arch>` |
 | Android / Termux | arm64 | `magpie-cli-android-arm64` |
 
-That is 15 binaries/archives plus `SHA256SUMS`: the same 16-file contract
-as upstream. `build-*` artifacts hold platform outputs; `release-bundle`
+That is 15 binaries/archives plus `THIRD-PARTY-NOTICES.txt` and `SHA256SUMS`:
+17 release files including the bundled backend's license. `build-*` artifacts hold platform outputs; `release-bundle`
 contains the complete validated set and `release-notes` its bilingual notes.
 Notes are generated deterministically from Git history without a model API.
 
@@ -48,6 +48,15 @@ and WebKitGTK 4.1. Windows builds use upstream's `make release-windows`,
 including embedded console launchers, icons, resources and manifests.
 Windows and Linux GUI packages must start and serve their gateway on both
 architectures. The terminal versions are cross-compiled with cgo disabled.
+
+Six native `cursor-backend` jobs first compile the pinned Rust headless
+backend from `native/cursor-backend`. They run Rust ownership/authentication
+tests and a real child-process smoke test in disposable user profiles, then
+stage the backend and provenance into the Go embed directory. Each Go target
+receives only its matching native payload, verified by SHA-256 and executable
+machine type. macOS signs that payload before embedding it and also includes
+the signed executable in the app bundle for notarization. Android CLI omits
+the desktop backend. No independent Cursor BYOK installation is required.
 
 Windows/Linux desktop files are standalone executables, not MSI/DEB/RPM
 installers. Mac ZIP files contain `magpie.app`; DMG files also offer an
@@ -65,7 +74,7 @@ and push it, or select an existing matching tag in manual dispatch with
 `publish` enabled. All build/check jobs use one resolved SHA. Publication
 checks the remote tag again, requires it to identify that SHA and remain
 on `main`, verifies every file/hash, uploads a draft, then makes it public
-only after the complete 16-file set is present. The `vb` suffix identifies
+only after the complete 17-file set is present. The `vb` suffix identifies
 the fork revision, so these are stable fork releases, not GitHub prereleases.
 A published release cannot be
 silently overwritten by a rerun; an interrupted draft can be completed.

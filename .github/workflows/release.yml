@@ -81,8 +81,70 @@ jobs:
     permissions:
       contents: read
 
-  mac:
+  # Compile the vendored headless Cursor protocol bridge on its native target.
+  # It is embedded in Magpie, never fetched from an upstream release at runtime.
+  cursor-backend:
     needs: prepare
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target_os: darwin
+            arch: arm64
+          - os: macos-15-intel
+            target_os: darwin
+            arch: amd64
+          - os: windows-latest
+            target_os: windows
+            arch: amd64
+          - os: windows-11-arm
+            target_os: windows
+            arch: arm64
+          - os: ubuntu-22.04
+            target_os: linux
+            arch: amd64
+          - os: ubuntu-22.04-arm
+            target_os: linux
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Cache pinned Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/cursor-backend/target
+          key: cursor-backend-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('native/cursor-backend/Cargo.lock', 'native/cursor-backend/rust-toolchain.toml', 'native/cursor-backend/**/Cargo.toml') }}
+      - name: Build bundled Cursor backend
+        shell: pwsh
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '12.0'
+        run: ./build/fork/build-cursor-backend.ps1 -TargetOS '${{ matrix.target_os }}' -TargetArch '${{ matrix.arch }}' -Verify
+      - name: Verify bundled backend starts without touching Cursor
+        env:
+          MAGPIE_TEST_BUNDLED: '1'
+        run: go test -tags nogui ./internal/cursorbyok -run '^TestCursorBYOKBundled' -count=1 -timeout 5m
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: cursor-backend-${{ matrix.target_os }}-${{ matrix.arch }}
+          path: |
+            internal/cursorbyok/payload/magpie-cursor-backend*
+            internal/cursorbyok/payload/backend.json
+            internal/cursorbyok/payload/THIRD-PARTY-NOTICES.txt
+          if-no-files-found: error
+
+  mac:
+    needs: [prepare, cursor-backend]
     timeout-minutes: 65
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
@@ -107,6 +169,13 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cursor-backend-darwin-${{ matrix.arch }}
+          path: ${{ runner.temp }}/cursor-backend
+      - name: Stage verified Cursor backend
+        run: node build/fork/stage-cursor-backend.mjs "$RUNNER_TEMP/cursor-backend" darwin '${{ matrix.arch }}' '${{ needs.prepare.outputs.sha }}'
 
       - name: Probe macOS signing secrets
         id: signing
@@ -148,8 +217,20 @@ jobs:
           echo "Signing as: $IDENTITY"
           echo "IDENTITY=$IDENTITY" >> $GITHUB_ENV
 
-      - name: Build magpie.app
-        run: make app VERSION="$VERSION"
+      - name: Sign Cursor backend and build magpie.app
+        run: |
+          helper=internal/cursorbyok/payload/magpie-cursor-backend
+          if [ -n "$IDENTITY" ]; then
+            codesign --force --options runtime --timestamp --sign "$IDENTITY" "$helper"
+          else
+            codesign --force --sign - "$helper"
+          fi
+          codesign --verify --strict "$helper"
+          make app VERSION="$VERSION"
+          cp THIRD-PARTY-NOTICES.txt magpie.app/Contents/Resources/
+          # Include the helper as inspectable signed code for Apple's notary.
+          mkdir -p magpie.app/Contents/Helpers
+          cp "$helper" magpie.app/Contents/Helpers/
 
       - name: Set native bundle version fields
         if: needs.prepare.outputs.upstream_version != ''
@@ -258,7 +339,7 @@ jobs:
   # The terminal-only magpie (no GUI, no cgo) and the Windows app (WebView2,
   # no cgo either) cross-compile from one runner.
   cli:
-    needs: prepare
+    needs: [prepare, cursor-backend]
     timeout-minutes: 45
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
@@ -276,8 +357,12 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build
-        run: make release-cli release-windows VERSION="$VERSION"
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: cursor-backend-*
+          path: ${{ runner.temp }}/cursor-backends
+      - name: Build with the verified backend for each target
+        run: bash build/fork/release-bundled.sh "$RUNNER_TEMP/cursor-backends" '${{ needs.prepare.outputs.sha }}' "$VERSION"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -342,7 +427,7 @@ jobs:
   # The Linux app links GTK 3 and WebKitGTK 4.1, so each arch builds on its
   # own runner. Ubuntu 22.04 keeps the glibc requirement low.
   linux:
-    needs: prepare
+    needs: [prepare, cursor-backend]
     timeout-minutes: 45
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
@@ -373,6 +458,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev xvfb dbus-x11
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cursor-backend-linux-${{ matrix.arch }}
+          path: ${{ runner.temp }}/cursor-backend
+      - name: Stage verified Cursor backend
+        run: node build/fork/stage-cursor-backend.mjs "$RUNNER_TEMP/cursor-backend" linux '${{ matrix.arch }}' '${{ needs.prepare.outputs.sha }}'
 
       - name: Build
         run: make release-linux VERSION="$VERSION"
@@ -422,7 +514,9 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Verify complete asset set and checksums
-        run: bash build/fork/release-assets.sh dist
+        run: |
+          cp THIRD-PARTY-NOTICES.txt dist/
+          bash build/fork/release-assets.sh dist
       - name: Generate bilingual release notes
         env:
           VERSION: ${{ needs.prepare.outputs.version }}

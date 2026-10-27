@@ -52,6 +52,15 @@ func newCursorBYOKFixture(t *testing.T, home string) *cursorBYOKFixture {
 	f.server = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.server.Close)
 	f.port(home)
+	old := cursorBYOKRuntimeFor
+	cursorBYOKRuntimeFor = func() cursorBackend { return &fixtureCursorRuntime{f: f} }
+	t.Cleanup(func() { cursorBYOKRuntimeFor = old })
+	if err := os.MkdirAll(filepath.Join(home, ".cursor"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApproveCursorBackend(); err != nil {
+		t.Fatal(err)
+	}
 	return f
 }
 
@@ -65,7 +74,7 @@ func (f *cursorBYOKFixture) port(home string) {
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	path := filepath.Join(home, ".cursor-byok-v3", "cursor-byok.db")
+	path := filepath.Join(cursorBYOKRoot(), "data", "cursor-byok.db")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		f.t.Fatal(err)
 	}
@@ -197,6 +206,15 @@ func (f *cursorBYOKFixture) snapshot() map[string]map[string]any {
 }
 
 func (f *cursorBYOKFixture) serve(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Authorization") != "Bearer test-backend-token" {
+		http.Error(w, "unauthorized", 401)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/__byok-api__/api/harness/cursor") {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"ca":"ready","integration":"enabled","settings_applied":true}`)
+		return
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
@@ -510,6 +528,10 @@ func TestCursorBYOKPartialDisconnectCanRetry(t *testing.T) {
 	if !a.Wired() || len(f.snapshot()) != 1 {
 		t.Fatalf("partial disconnect lost the remaining model: wired %v, models %v", a.Wired(), f.snapshot())
 	}
+	before := f.snapshot()
+	if err := a.Sync(); err != nil || !reflect.DeepEqual(before, f.snapshot()) || cursorBYOKConnected() {
+		t.Fatalf("failed disconnect was re-enabled by sync: %v", err)
+	}
 	if err := a.Disconnect(); err != nil || a.Wired() || len(f.snapshot()) != 0 {
 		t.Fatalf("retry failed: %v, wired %v, models %v", err, a.Wired(), f.snapshot())
 	}
@@ -608,7 +630,14 @@ func TestCursorBYOKRecoversLostReplies(t *testing.T) {
 			if err == nil || len(f.snapshot()) != 1 {
 				t.Fatalf("missing reply was not reported after persisting: %v, %v", err, f.snapshot())
 			}
-			if err := a.Sync(); err != nil || len(f.snapshot()) != 1 {
+			// An interrupted first setup stays disconnected until explicitly
+			// retried; background catalog sync must never initialize trust.
+			if method == http.MethodPost {
+				err = a.Reapply()
+			} else {
+				err = a.Sync()
+			}
+			if err != nil || len(f.snapshot()) != 1 {
 				t.Fatalf("retry created a duplicate or failed: %v, %v", err, f.snapshot())
 			}
 			if err := a.Disconnect(); err != nil || len(f.snapshot()) != 0 {

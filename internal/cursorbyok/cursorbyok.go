@@ -1,8 +1,7 @@
 package cursorbyok
 
-// cursor-byok is installed and initialized separately. Its desktop service
-// owns its SQLite database and Cursor setup; magpie reads only the service
-// port and uses its model CRUD API. The schema and hash below are from
+// Magpie owns its embedded Cursor service and uses its private model API.
+// The schema and hash below are from
 // leookun/cursor-byok 1.0.1 (31e9f5c), server/src/model/configuration.rs.
 // A journal in magpie's folder records only models this integration creates.
 // An intent is saved before each request, so a lost reply can be recovered
@@ -22,15 +21,12 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/yetone/magpie/internal/edit"
 	"github.com/yetone/magpie/internal/filelock"
-	"github.com/yetone/magpie/internal/sessions"
-	_ "github.com/yetone/magpie/internal/sqlitedb"
 )
 
 // Model is the gateway model offered to cursor-byok. Output limits have
@@ -44,9 +40,12 @@ type Model struct {
 // Gateway is the endpoint and client key cursor-byok sends requests to.
 type Gateway struct{ URL, Key string }
 
-// Manager owns the connection journal and speaks to a separately running
-// cursor-byok service. Database is read only to discover its local port.
-type Manager struct{ Database, StatePath string }
+// Manager owns the model journal and speaks to a backend owned by Runtime.
+type Manager struct {
+	StatePath string
+	// Control points at a backend owned by Magpie. Missing endpoints fail closed.
+	Control *Endpoint
+}
 
 // ErrNoModels lets the caller present its own empty-catalog guidance.
 var ErrNoModels = errors.New("no models are available for cursor-byok")
@@ -127,30 +126,11 @@ func (m Manager) Connected() bool {
 	return err != nil || s.Active || len(s.Models) > 0
 }
 
-// address reads the port desktop persists at bind, including a
-// fallback port. OpenUntouched reads WAL without creating sidecars. Never
-// scan ports or follow an address supplied by another process.
-func address(path string) (string, error) {
-	if st, err := os.Stat(path); err != nil || st.IsDir() {
-		return "", errors.New("open cursor-byok once and keep it running before connecting")
-	}
-	db, closeDB, err := sessions.OpenUntouched(path)
-	if err != nil {
-		return "", errors.New("cursor-byok's service port cannot be read")
-	}
-	defer closeDB()
-	var raw string
-	var ports struct {
-		Service int `json:"service_port"`
-	}
-	if db.QueryRow(`SELECT value_json FROM service_settings WHERE setting_key = 'network_ports'`).Scan(&raw) != nil ||
-		json.Unmarshal([]byte(raw), &ports) != nil || ports.Service < 1 || ports.Service > 65535 {
-		return "", errors.New("cursor-byok has no valid saved service port; open it and try again")
-	}
-	return "http://127.0.0.1:" + strconv.Itoa(ports.Service), nil
-}
+// ValidateState lets the host report a corrupt journal even when a saved
+// disconnect intent suppresses automatic runtime work.
+func (m Manager) ValidateState() error { _, err := m.load(); return err }
 
-func ask(addr, method, path string, body, out any) error {
+func (m Manager) ask(addr, method, path string, body, out any) error {
 	var rd io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -166,9 +146,18 @@ func ask(addr, method, path string, body, out any) error {
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := client.Do(req)
+	if m.Control != nil {
+		req.Header.Set("Authorization", "Bearer "+m.Control.Token)
+	}
+	httpClient := client
+	if method != http.MethodGet && strings.Contains(path, "/harness/") {
+		copy := *client
+		copy.Timeout = 90 * time.Second
+		httpClient = &copy
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
-		return errors.New("cursor-byok isn't answering; open it and try again")
+		return errors.New("Magpie's bundled Cursor backend is not responding; retry or restart Magpie")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
@@ -185,9 +174,9 @@ func ask(addr, method, path string, body, out any) error {
 	return nil
 }
 
-func list(addr string) (map[string]modelConfig, error) {
+func (m Manager) list(addr string) (map[string]modelConfig, error) {
 	var list []modelConfig
-	if err := ask(addr, "GET", modelsPath, nil, &list); err != nil {
+	if err := m.ask(addr, "GET", modelsPath, nil, &list); err != nil {
 		return nil, err
 	}
 	if list == nil {
@@ -320,11 +309,11 @@ func (m Manager) Check(gw Gateway) string {
 	if !s.Active && len(s.Models) == 0 {
 		return ""
 	}
-	addr, err := address(m.Database)
+	addr, err := m.address()
 	if err != nil {
 		return err.Error()
 	}
-	rows, err := list(addr)
+	rows, err := m.list(addr)
 	if err != nil {
 		return err.Error()
 	}
@@ -384,11 +373,11 @@ func (m Manager) Write(gw Gateway, models []Model, on, explicit bool) error {
 			return ErrNoModels
 		}
 	}
-	addr, err := address(m.Database)
+	addr, err := m.address()
 	if err != nil {
 		return err
 	}
-	rows, err := list(addr)
+	rows, err := m.list(addr)
 	if err != nil {
 		return err
 	}
@@ -418,7 +407,7 @@ func (m Manager) Write(gw Gateway, models []Model, on, explicit bool) error {
 			// Missing/changed identity is now the user's. Never search by
 			// display name, group or model id to delete a replacement.
 			if cur != nil && sameConnection(cur, e.Last) {
-				if err := ask(addr, "DELETE", modelsPath+"/"+e.Hash, nil, nil); err != nil {
+				if err := m.ask(addr, "DELETE", modelsPath+"/"+e.Hash, nil, nil); err != nil {
 					return err
 				}
 				delete(rows, e.Hash)
@@ -496,12 +485,12 @@ func (m Manager) Write(gw Gateway, models []Model, on, explicit bool) error {
 		var saved modelConfig
 		if e.Hash == "" {
 			var created []modelConfig
-			err = ask(addr, "POST", modelsPath, map[string]any{"models": []modelConfig{e.Pending}}, &created)
+			err = m.ask(addr, "POST", modelsPath, map[string]any{"models": []modelConfig{e.Pending}}, &created)
 			if err == nil && len(created) == 1 {
 				saved = created[0]
 			}
 		} else {
-			err = ask(addr, "PUT", modelsPath+"/"+e.Hash, e.Pending, &saved)
+			err = m.ask(addr, "PUT", modelsPath+"/"+e.Hash, e.Pending, &saved)
 		}
 		if err != nil {
 			return err

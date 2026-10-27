@@ -44,6 +44,7 @@ jobs:
         run: |
           bash build/fork/release-checks.test.sh
           bash scripts/test-tap.sh
+          node --test build/fork/stage-cursor-backend.test.mjs
       - name: Verify UI preview trust boundary
         run: node --test .github/ui-preview/publish.test.mjs
 

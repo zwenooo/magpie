@@ -888,6 +888,13 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 	})
 	omarchyRoutes(mux, w)
 	fontRoutes(mux, isWeb(w) || !fonts.Available, fonts.List)
+	mux.HandleFunc("POST /api/cursor-backend/approve", func(rw http.ResponseWriter, r *http.Request) {
+		if err := agent.ApproveCursorBackend(); err != nil {
+			fail(rw, err)
+			return
+		}
+		writeJSON(rw, map[string]bool{"ok": true})
+	})
 	mux.HandleFunc("GET /api/state", func(rw http.ResponseWriter, r *http.Request) {
 		// the panel and its model picker load from here: an account still
 		// without its vendor's list (one whose try at start-up failed) is
@@ -2710,6 +2717,10 @@ func fail(rw http.ResponseWriter, err error) {
 	rw.Header().Set("Content-Type", "application/json")
 	rw.WriteHeader(http.StatusBadRequest)
 	out := map[string]string{"error": err.Error()}
+	var cursorSetup *agent.CursorSetupRequiredError
+	if errors.As(err, &cursorSetup) {
+		out["code"] = "cursor_setup_required"
+	}
 	var unavailable *agent.RuntimeUnavailableError
 	if errors.As(err, &unavailable) {
 		out["code"] = "runtime_unavailable"

@@ -109,6 +109,7 @@ if grep -F 'official change' "$fixture/notes" >/dev/null; then
 fi
 
 mkdir "$fixture/assets"
+printf 'MIT license notice\n' > "$fixture/assets/THIRD-PARTY-NOTICES.txt"
 for os in darwin linux windows; do
   for arch in amd64 arm64; do
     ext=
@@ -123,7 +124,7 @@ for arch in amd64 arm64; do
   for ext in dmg zip; do printf 'app\n' > "$fixture/assets/magpie-darwin-$arch.$ext"; done
 done
 bash "$scripts/release-assets.sh" "$fixture/assets" > "$fixture/log"
-[[ $(wc -l < "$fixture/assets/SHA256SUMS") == 15 ]]
+[[ $(wc -l < "$fixture/assets/SHA256SUMS") == 16 ]]
 printf 'unexpected\n' > "$fixture/assets/magpie-linux-amd64.new"
 if bash "$scripts/release-assets.sh" "$fixture/assets" > "$fixture/log" 2>&1; then
   echo 'An unexpected release asset was accepted.' >&2; exit 1
