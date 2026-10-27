@@ -1,0 +1,3 @@
+# Preserve upstream protocol/prompt bytes, including their intentional spaces.
+protocols/** -whitespace
+server/prompt/** -whitespace
