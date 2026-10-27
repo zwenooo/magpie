@@ -1,0 +1,44 @@
+name: Fork checks and builds
+
+on:
+  push:
+    branches: [main, 'feat/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fork:
+    if: github.repository == 'zwenooo/magpie'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Verify fork integration
+        run: go test -tags nogui ./internal/cursorbyok ./internal/agent ./internal/update -run 'TestCursorBYOK|TestPortMovesEveryAgent|TestDisconnectStaysThroughSync|TestGrokInstalled|TestFork' -count=1 -timeout 10m
+      - name: Vet
+        run: go vet -tags nogui ./...
+      - name: Race check
+        if: runner.os == 'Linux'
+        run: go test -race -tags nogui ./internal/cursorbyok ./internal/agent -run '^TestCursorBYOK' -count=1 -timeout 5m
+      - name: Build CLI
+        shell: pwsh
+        run: ./build/fork/build.ps1 -NoGUI
+      - name: Build Windows desktop
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./build/fork/build.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: magpie-fork-${{ runner.os }}
+          path: dist/magpie-fork-*
+          if-no-files-found: error

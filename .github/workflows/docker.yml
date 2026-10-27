@@ -13,6 +13,7 @@ env:
 
 jobs:
   build:
+    if: github.repository == 'yetone/magpie'
     name: build (${{ matrix.platform }})
     strategy:
       fail-fast: false

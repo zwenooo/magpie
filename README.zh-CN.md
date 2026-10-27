@@ -1,3 +1,5 @@
+> **zwenooo 独立维护版：**包含 Cursor BYOK 配置管理。构建方式、更新策略和合并上游流程见 [FORK.md](FORK.md)。下方上游下载链接不包含本 fork 的功能。
+
 <div align="center">
 
 <a href="https://usemagpie.ai/zh/"><img src="site/public/img/icon-256.png" width="112" alt="magpie"></a>

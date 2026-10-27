@@ -1,5 +1,7 @@
 # Cursor through cursor-byok
 
+This integration is maintained in the [zwenooo fork](../FORK.md).
+
 magpie can manage the model configurations of a separately installed
 [cursor-byok](https://github.com/leookun/cursor-byok). The ordinary Cursor
 editor sends its requests to cursor-byok, which adapts them to magpie's
@@ -41,3 +43,12 @@ display name says magpie.
 If connecting or synchronizing reports an unavailable service, open
 cursor-byok and try again. A failed read leaves the ownership record in
 place. File previews are unavailable for this API-managed connection.
+
+## Implementation boundary
+
+[`internal/cursorbyok`](../internal/cursorbyok) owns the v3 protocol, local
+port discovery and journal reconciliation. It receives explicit paths and
+plain model/gateway values. It knows nothing about Magpie's model catalog,
+providers or UI. The [Agent adapter](../internal/agent/cursorbyok.go) handles
+selection, gateway keys, notices, caching and preview isolation. Existing
+connections and journal data are unchanged by this split.

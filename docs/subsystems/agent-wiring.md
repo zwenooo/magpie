@@ -17,12 +17,18 @@ Private Inference keep their existing agents. The user completes Cursor
 setup in cursor-byok. magpie neither implements Cursor's private backend
 nor installs certificates, modifies Cursor or starts the service.
 
-`cursorBYOKAddress` reads `service_settings.network_ports` from the existing
+[`internal/cursorbyok`](../../internal/cursorbyok) reads `service_settings.network_ports` from the existing
 `~/.cursor-byok-v3/cursor-byok.db`, through `sessions.OpenUntouched`, on all
 three desktop platforms. Only the numeric service port is used, at
 `127.0.0.1`; HTTP redirects and proxy forwarding are disabled. Writes go
 through `/__byok-api__/api/models`, never directly to the database. The
 contract is cursor-byok 1.0.1's v3 schema, source revision `31e9f5c`.
+
+The fork's Agent adapter supplies plain model and gateway values to
+`cursorbyok.Manager`; the package owns discovery, CRUD and journal state,
+without importing agent, provider, catalog, gateway or GUI. Registration
+is the only production hook in the shared agent list. See
+[fork maintenance](../../FORK.md) for the upstream merge boundary.
 
 Connecting adds the models `magpieModels("cursor-byok")` selects, with the
 gateway's agent key and native Chat, Responses or Messages endpoint. The

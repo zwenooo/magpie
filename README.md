@@ -1,3 +1,5 @@
+> **zwenooo fork:** includes Cursor BYOK configuration management. See [FORK.md](FORK.md) for our builds, update policy and upstream merge procedure. The upstream downloads below do not include fork features.
+
 <div align="center">
 
 <a href="https://usemagpie.ai"><img src="site/public/img/icon-256.png" width="112" alt="magpie"></a>

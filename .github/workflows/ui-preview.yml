@@ -29,7 +29,7 @@ permissions: {}
 
 jobs:
   detect:
-    if: github.event.action != 'labeled' || github.event.label.name == 'ui-preview'
+    if: github.repository == 'yetone/magpie' && (github.event.action != 'labeled' || github.event.label.name == 'ui-preview')
     runs-on: ubuntu-latest
     permissions:
       contents: read

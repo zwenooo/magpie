@@ -42,12 +42,12 @@ import (
 const Site = "https://usemagpie.ai"
 
 // Feed is where the newest release is described. MAGPIE_UPDATE_FEED points
-// it elsewhere, for testing an update against a local server.
+// it elsewhere; this fork leaves it disabled unless explicitly configured.
 func Feed() string {
 	if f := os.Getenv("MAGPIE_UPDATE_FEED"); f != "" {
 		return f
 	}
-	return Site + "/api/latest"
+	return forkUpdateFeed
 }
 
 // Release is one published version.
@@ -84,7 +84,11 @@ func Latest(ctx context.Context) (*Release, error) { return LatestIn(ctx, "") }
 // InLang): the app's language, which What's new follows. On Settings'
 // Stable channel it is Stable's release (see Stable).
 func LatestIn(ctx context.Context, lang string) (*Release, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", withChannel(withLang(Feed(), lang)), nil)
+	feed := Feed()
+	if feed == "" {
+		return nil, errUpdatesDisabled
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", withChannel(withLang(feed, lang)), nil)
 	if err != nil {
 		return nil, err
 	}
