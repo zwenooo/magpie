@@ -3,8 +3,8 @@
 # Regenerate the Homebrew tap files — Formula/magpie.rb and Casks/magpie-app.rb —
 # from the SHA256SUMS of a published Release.
 #
-#   scripts/update-tap.sh 0.1.57
-#   TAP_OUT_DIR=/tmp/tap scripts/update-tap.sh 0.1.57
+#   scripts/update-tap.sh va.0.1.1725-vb.0.0.1
+#   TAP_OUT_DIR=/tmp/tap scripts/update-tap.sh va.0.1.1725-vb.0.0.1
 #   scripts/update-tap.sh --self-check
 #
 # TAP_RELEASE_REPO overrides the Release repo (default zwenooo/magpie);
@@ -13,6 +13,8 @@ set -euo pipefail
 
 REPO="${TAP_RELEASE_REPO:-zwenooo/magpie}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=../build/fork/release-version.sh
+source "$ROOT/build/fork/release-version.sh"
 OUT="${TAP_OUT_DIR:-$ROOT}"
 HOMEPAGE="https://github.com/zwenooo/magpie"
 [[ "$REPO" == "zwenooo/magpie" ]] || { echo "only this fork is an allowed tap release source" >&2; exit 1; }
@@ -22,7 +24,7 @@ die() { echo "update-tap: $*" >&2; exit 1; }
 
 REPO_URL="https://github.com/$REPO/releases/download"
 
-release_url() { echo "$REPO_URL/v$1"; }
+release_url() { echo "$REPO_URL/$1"; }
 
 # The checksum of one asset in a SHA256SUMS file, or a loud failure if the
 # asset is not in it — a release that is missing an asset must not produce a
@@ -35,21 +37,19 @@ sha() {  # $1 = SHA256SUMS contents, $2 = asset name
 }
 
 latest_version() {
-  local json
-  json="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")"
-  json="${json#*\"tag_name\": \"v}"
-  echo "${json%%\"*}"
+  curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" |
+    jq -er '.tag_name | select(type == "string" and length > 0)'
 }
 
 render() {
-  local version="$1"
-  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.+-][A-Za-z0-9.-]+)?$ ]] || die "invalid version"
+  parse_fork_release "$1" || die "invalid fork release tag: $1"
+  local version="$release_version" tag="$release_tag"
   local sums
   if [ -n "${TAP_SUMS_FILE:-}" ]; then
     sums="$(cat "$TAP_SUMS_FILE")"
   else
-    sums="$(curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors "$(release_url "$version")/SHA256SUMS")" ||
-      die "no SHA256SUMS in v$version of $REPO"
+    sums="$(curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors "$(release_url "$tag")/SHA256SUMS")" ||
+      die "no SHA256SUMS in $tag of $REPO"
   fi
 
   # Every checksum is resolved before anything is written.
@@ -68,25 +68,26 @@ render() {
 class Magpie < Formula
   desc "$DESC"
   homepage "$HOMEPAGE"
+  version "$version"
   license "MIT"
 
   on_macos do
     on_arm do
-      url "$REPO_URL/v$version/magpie-cli-darwin-arm64"
+      url "$REPO_URL/$tag/magpie-cli-darwin-arm64"
       sha256 "$cli_darwin_arm64"
     end
     on_intel do
-      url "$REPO_URL/v$version/magpie-cli-darwin-amd64"
+      url "$REPO_URL/$tag/magpie-cli-darwin-amd64"
       sha256 "$cli_darwin_amd64"
     end
   end
   on_linux do
     on_arm do
-      url "$REPO_URL/v$version/magpie-cli-linux-arm64"
+      url "$REPO_URL/$tag/magpie-cli-linux-arm64"
       sha256 "$cli_linux_arm64"
     end
     on_intel do
-      url "$REPO_URL/v$version/magpie-cli-linux-amd64"
+      url "$REPO_URL/$tag/magpie-cli-linux-amd64"
       sha256 "$cli_linux_amd64"
     end
   end
@@ -109,7 +110,7 @@ cask "magpie-app" do
   sha256 arm:   "$app_arm64",
          intel: "$app_amd64"
 
-  url "$REPO_URL/v#{version}/magpie-darwin-#{arch}.zip"
+  url "$REPO_URL/$tag/magpie-darwin-#{arch}.zip"
   name "magpie"
   desc "$DESC"
   homepage "$HOMEPAGE"
@@ -138,21 +139,24 @@ assert_same() {  # $1 = file, $2 = anchor, $3 = checksum expected on the same li
   grep -q "$2.*$3" "$1" || die "$2 in $1 is not paired with its checksum"
 }
 
-self_check() {
-  local version dir sums
-  version="$(latest_version)"
-  [ -n "$version" ] || die "cannot determine the latest Release of $REPO"
-  echo "self-check against v$version of $REPO"
+self_check() (
+  local tag version dir sums
+  tag="$(latest_version)" || die "cannot determine the latest Release of $REPO"
+  parse_fork_release "$tag" || die "latest Release is not a valid fork tag: $tag"
+  version="$release_version"
+  echo "self-check against $tag of $REPO"
 
   dir="$(mktemp -d)"
   trap 'rm -rf "${dir:-}"' EXIT
-  OUT="$dir" render "$version"
+  OUT="$dir" render "$tag"
 
   local formula="$dir/Formula/magpie.rb" cask="$dir/Casks/magpie-app.rb"
-  grep -q "/v$version/" "$formula" || die "formula is not at v$version"
-  grep -q "version \"$version\"" "$cask" || die "cask is not at v$version"
+  grep -Fq "/$tag/" "$formula" || die "formula is not at $tag"
+  grep -Fq "/$tag/" "$cask" || die "cask is not at $tag"
+  grep -Fq "version \"$version\"" "$formula" || die "formula version is not $version"
+  grep -Fq "version \"$version\"" "$cask" || die "cask version is not $version"
 
-  sums="$(curl -fsSL "$(release_url "$version")/SHA256SUMS")"
+  sums="$(curl -fsSL "$(release_url "$tag")/SHA256SUMS")"
   assert_next "$formula" 'magpie-cli-darwin-arm64"' "$(sha "$sums" magpie-cli-darwin-arm64)"
   assert_next "$formula" 'magpie-cli-darwin-amd64"' "$(sha "$sums" magpie-cli-darwin-amd64)"
   assert_next "$formula" 'magpie-cli-linux-arm64"'  "$(sha "$sums" magpie-cli-linux-arm64)"
@@ -167,10 +171,10 @@ self_check() {
   fi
 
   echo "self-check passed"
-}
+)
 
 case "${1:-}" in
   --self-check) self_check ;;
-  "" | -h | --help) die "usage: update-tap.sh <version>|--self-check" ;;
-  *) render "${1#v}" ;;
+  "" | -h | --help) die "usage: update-tap.sh <va.X.Y.Z-vb.X.Y.Z>|--self-check" ;;
+  *) render "$1" ;;
 esac

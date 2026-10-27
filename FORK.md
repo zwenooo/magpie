@@ -69,6 +69,14 @@ On each merge, pay attention to:
 
 ## Build and update
 
+Published fork tags use `va.<official>-vb.<fork>`, for example
+`va.0.1.1725-vb.0.0.1`. The official component must refer to an official
+release actually merged into this branch. Increment the fork component
+for our changes on that base; after moving to a new official release,
+start its fork component at `0.0.1`. Binary versions normalize this to
+`0.1.1725-vb.0.0.1`; download links retain the public tag. See
+[release version rules](docs/ci.md#build-versus-publish).
+
 Install the Go version specified by `go.mod`, then use PowerShell 7:
 
 ```powershell

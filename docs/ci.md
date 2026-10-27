@@ -60,21 +60,36 @@ Pushing a branch runs a build-only release workflow with version
 `fork-<commit>`. Download artifacts from Actions. A manual dispatch defaults
 to build-only too; `ref` can select a commit already containing this CI.
 
-To publish a version, create a `vX.Y.Z` tag at a commit on this fork's `main`
+To publish a version, create a `va.<official>-vb.<fork>` tag on this fork's `main`
 and push it, or select an existing matching tag in manual dispatch with
 `publish` enabled. All build/check jobs use one resolved SHA. Publication
 checks the remote tag again, requires it to identify that SHA and remain
 on `main`, verifies every file/hash, uploads a draft, then makes it public
-only after the complete 16-file set is present. A prerelease version gets
-the corresponding GitHub prerelease flag. A published release cannot be
+only after the complete 16-file set is present. The `vb` suffix identifies
+the fork revision, so these are stable fork releases, not GitHub prereleases.
+A published release cannot be
 silently overwritten by a rerun; an interrupted draft can be completed.
-Versions may carry a prerelease suffix; `+build` metadata is rejected so
-Git tags, package versions and Docker tags share one accepted format. An
-older stable publication does not replace a newer GitHub Latest release.
+Both components are three nonnegative integers with no leading zeros.
+For example, `va.0.1.1725-vb.0.0.1` is our first revision based on official
+`v0.1.1725`. Increase only the fork component for subsequent changes on the
+same official release. After merging another official release, update the
+official component and start that line at fork `0.0.1`.
+
+The public Git/Release/Docker tag preserves both labels. Binaries and
+Homebrew versions use `0.1.1725-vb.0.0.1`, which existing numeric version
+parsers accept. macOS uses the official number for its short version and
+the fork number for its numeric bundle version; the executable reports the
+full normalized version. Windows' numeric resources retain the official
+base. Public download/release links map back to the full `va...-vb...` tag.
+The workflow fetches the official `v<official>` tag from `yetone/magpie`
+and requires it to be an ancestor of the fork source: a label cannot claim
+upstream code that has not been merged. `+build`/extra prerelease suffixes
+are rejected. An older publication does not replace a newer Latest release.
 
 No tag or public Release is created by merely migrating this CI or running
 a branch build. Docker is separate: successful trusted `main` runs publish
-`ghcr.io/zwenooo/magpie:edge`; version tags produce the versioned manifest.
+`ghcr.io/zwenooo/magpie:edge`; version tags produce a manifest tagged with
+the complete public tag, such as `:va.0.1.1725-vb.0.0.1`.
 
 ## Optional credentials and services
 

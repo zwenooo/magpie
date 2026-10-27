@@ -37,7 +37,7 @@ func NotesFeed() string {
 // ReleasePage is version's page on GitHub, where its notes are when the
 // site can't give them (#661).
 func ReleasePage(version string) string {
-	return forkReleases + "/tag/v" + strings.TrimPrefix(strings.TrimSpace(version), "v")
+	return forkReleases + "/tag/" + forkReleaseTag(version)
 }
 
 // NotesBetween asks the site for the notes of every release after after

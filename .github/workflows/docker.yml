@@ -97,6 +97,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
+      - name: Resolve binary version
+        id: version
+        shell: bash
+        run: |
+          version="fork-${GITHUB_SHA:0:8}"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            source build/fork/release-version.sh
+            parse_fork_release "$GITHUB_REF_NAME" || { echo 'Expected va.OFFICIAL-vb.FORK tag' >&2; exit 1; }
+            version=$release_version
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v7
@@ -106,7 +118,7 @@ jobs:
           provenance: false
           push: true
           build-args: |
-            VERSION=${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || (github.repository == 'zwenooo/magpie' && format('fork-{0}', github.sha) || github.sha) }}
+            VERSION=${{ steps.version.outputs.version }}
           outputs: |
             type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true
           cache-from: type=gha,scope=${{ matrix.platform }}
@@ -137,6 +149,9 @@ jobs:
     outputs:
       digest: ${{ steps.manifest.outputs.digest }}
     steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v7
         with:
           path: ${{ runner.temp }}/digests
@@ -156,12 +171,10 @@ jobs:
         working-directory: ${{ runner.temp }}/digests
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            V="${GITHUB_REF_NAME#v}"
-            TAGS=(-t "$IMAGE:$V")
-            REF_TAG="$V"
-            if [[ "$V" != *-* ]]; then
-              TAGS+=(-t "$IMAGE:${V%.*}" -t "$IMAGE:${V%%.*}" -t "$IMAGE:latest")
-            fi
+            source "$GITHUB_WORKSPACE/build/fork/release-version.sh"
+            parse_fork_release "$GITHUB_REF_NAME" || { echo 'Expected va.OFFICIAL-vb.FORK tag' >&2; exit 1; }
+            TAGS=(-t "$IMAGE:$release_tag")
+            REF_TAG="$release_tag"
           else
             TAGS=(-t "$IMAGE:edge")
             REF_TAG=edge

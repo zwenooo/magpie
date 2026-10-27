@@ -90,4 +90,15 @@ func TestForkReleasePage(t *testing.T) {
 			t.Errorf("ReleasePage(%q) = %q", version, got)
 		}
 	}
+	for _, version := range []string{"0.1.1725-vb.0.0.1", "v0.1.1725-vb.0.0.1", " va.0.1.1725-vb.0.0.1 "} {
+		if got := ReleasePage(version); got != "https://github.com/zwenooo/magpie/releases/tag/va.0.1.1725-vb.0.0.1" {
+			t.Errorf("ReleasePage(%q) = %q", version, got)
+		}
+	}
+}
+
+func TestForkBinaryVersionKeepsNumericOrdering(t *testing.T) {
+	if !Released("0.1.1725-vb.0.0.1") || !Newer("0.1.1725-vb.0.0.10", "0.1.1725-vb.0.0.9") || !Newer("0.1.1726-vb.0.0.1", "0.1.1725-vb.9.9.9") {
+		t.Fatal("fork binary versions must retain both numeric version components")
+	}
 }

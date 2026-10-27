@@ -1,16 +1,24 @@
 #!/usr/bin/env bash
 # Deterministic bilingual notes: no external model credentials or announcements.
 set -euo pipefail
-version=${1:?usage: release-notes.sh VERSION SHA OUTPUT}
+version=${1:?usage: release-notes.sh VERSION_OR_TAG SHA OUTPUT}
 sha=${2:?missing source SHA}
 output=${3:?missing output path}
-previous=$(git describe --tags --match 'v[0-9]*' --abbrev=0 "$sha^" 2>/dev/null || true)
+scripts=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=release-version.sh
+source "$scripts/release-version.sh"
+parse_fork_release "$version" || true
+previous=$(git describe --tags --match 'va.*-vb.*' --abbrev=0 "$sha^" 2>/dev/null || true)
 range=$sha
 [[ -z "$previous" ]] || range=$previous..$sha
 {
   printf '# magpie fork %s\n\n' "$version"
   printf 'Independent build of [zwenooo/magpie](https://github.com/zwenooo/magpie), including the Cursor BYOK integration.\n\n'
   printf 'Source: [`%s`](https://github.com/zwenooo/magpie/commit/%s).\n\n' "$sha" "$sha"
+  if [[ -n "$release_tag" ]]; then
+    printf 'Official base: [`v%s`](https://github.com/yetone/magpie/tree/v%s). Fork revision: `%s`. Binary/package version: `%s`.\n\n' "$upstream_version" "$upstream_version" "$fork_version" "$release_version"
+    printf 'The `a` component identifies the official release; `b` identifies this fork\x27s revision. This is a stable fork release.\n\n'
+  fi
   printf '### Downloads\n\n'
   printf -- '- macOS Apple Silicon / Intel: `magpie-darwin-arm64` / `magpie-darwin-amd64` (`.dmg` or `.zip`).\n'
   printf -- '- Windows x64 / ARM64: `magpie-windows-amd64.exe` / `magpie-windows-arm64.exe`.\n'
@@ -22,6 +30,9 @@ range=$sha
   git log --no-merges -50 --format='- %s (`%h`)' "$range" --
   printf '\n<!-- lang:zh -->\n\n### 安装\n\n'
   printf '这是 [zwenooo/magpie](https://github.com/zwenooo/magpie) 独立维护的版本，包含 Cursor BYOK 集成。源代码提交：`%s`。\n\n' "$sha"
+  if [[ -n "$release_tag" ]]; then
+    printf '官方基线：`v%s`；本 fork 修订号：`%s`；安装包内版本号：`%s`。标签中的 `a` 表示官方版本，`b` 表示我们自己的修订号，是正式版本。\n\n' "$upstream_version" "$fork_version" "$release_version"
+  fi
   printf -- '- macOS：Apple Silicon 选择 `darwin-arm64`，Intel 选择 `darwin-amd64`，提供 DMG 和 ZIP。\n'
   printf -- '- Windows：x64 选择 `windows-amd64.exe`，ARM64 选择 `windows-arm64.exe`。\n'
   printf -- '- Linux：选择对应架构的 `magpie-linux-*`；桌面版需要 GTK 3 和 WebKitGTK 4.1。\n'

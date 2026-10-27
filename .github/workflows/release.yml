@@ -19,11 +19,11 @@ on:
         type: string
         default: ''
       version:
-        description: 'X.Y.Z version (blank: tag version or fork-commit)'
+        description: 'va.OFFICIAL-vb.FORK tag (blank: tag version or fork-commit)'
         type: string
         default: ''
       publish:
-        description: 'Publish to this fork; requires the matching v<version> tag on main'
+        description: 'Publish the matching va.OFFICIAL-vb.FORK tag on main'
         type: boolean
         default: false
 
@@ -50,6 +50,8 @@ jobs:
       tag: ${{ steps.source.outputs.tag }}
       publish: ${{ steps.source.outputs.publish }}
       prerelease: ${{ steps.source.outputs.prerelease }}
+      upstream_version: ${{ steps.source.outputs.upstream_version }}
+      fork_version: ${{ steps.source.outputs.fork_version }}
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
@@ -148,6 +150,15 @@ jobs:
 
       - name: Build magpie.app
         run: make app VERSION="$VERSION"
+
+      - name: Set native bundle version fields
+        if: needs.prepare.outputs.upstream_version != ''
+        env:
+          OFFICIAL_VERSION: ${{ needs.prepare.outputs.upstream_version }}
+          FORK_VERSION: ${{ needs.prepare.outputs.fork_version }}
+        run: |
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $OFFICIAL_VERSION" magpie.app/Contents/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $FORK_VERSION" magpie.app/Contents/Info.plist
 
       - name: Sign magpie.app
         run: |
@@ -415,8 +426,9 @@ jobs:
       - name: Generate bilingual release notes
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
           SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
-        run: bash build/fork/release-notes.sh "$VERSION" "$SOURCE_SHA" "$RUNNER_TEMP/release-notes.md"
+        run: bash build/fork/release-notes.sh "${TAG:-$VERSION}" "$SOURCE_SHA" "$RUNNER_TEMP/release-notes.md"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: release-bundle
@@ -461,7 +473,9 @@ jobs:
       - name: Recheck release tag and artifact integrity
         run: |
           [[ "$GITHUB_REPOSITORY" == zwenooo/magpie ]]
-          [[ "$TAG" == "v$VERSION" ]]
+          source build/fork/release-version.sh
+          parse_fork_release "$TAG"
+          [[ "$VERSION" == "$release_version" ]]
           git fetch --no-tags origin "refs/tags/$TAG"
           [[ $(git rev-parse 'FETCH_HEAD^{commit}') == "$SOURCE_SHA" ]] || { echo 'Release tag moved during the build.' >&2; exit 1; }
           git fetch --no-tags origin refs/heads/main
@@ -485,7 +499,9 @@ jobs:
           # Publishing an older stable version must not demote a newer Latest.
           latest_tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isLatest --jq '.[] | select(.isLatest) | .tagName')
           make_latest=false
-          if [[ "$PRERELEASE" == false ]] && { [[ -z "$latest_tag" ]] || [[ $(printf '%s\n%s\n' "$VERSION" "${latest_tag#v}" | sort -V | tail -1) == "$VERSION" ]]; }; then
+          latest_version=${latest_tag#v}
+          if parse_fork_release "$latest_tag"; then latest_version=$release_version; fi
+          if [[ "$PRERELEASE" == false ]] && { [[ -z "$latest_tag" ]] || [[ $(printf '%s\n%s\n' "$VERSION" "$latest_version" | sort -V | tail -1) == "$VERSION" ]]; }; then
             make_latest=true
           fi
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease="$PRERELEASE" --latest="$make_latest"
@@ -502,6 +518,7 @@ jobs:
       contents: write
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: ${{ needs.prepare.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -522,7 +539,7 @@ jobs:
             echo "Tap is already newer ($previous); leaving it unchanged."
             exit 0
           fi
-          bash scripts/update-tap.sh "$VERSION"
+          bash scripts/update-tap.sh "$TAG"
           git add Formula/magpie.rb Casks/magpie-app.rb
           git diff --cached --quiet && exit 0
           git config user.name 'github-actions[bot]'
