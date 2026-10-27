@@ -65,6 +65,13 @@ const head = (sha) => `---\n### 🎬 界面预览\n<sub>CI 用这个 PR 的代�
 
 async function detect() {
   const p = await gh(`/repos/${repo}/pulls/${pr}`);
+  // This also gates workflow_dispatch: its PR number may name a fork.
+  // Never run contributor-controlled code with the recording secret.
+  if (p.state !== "open" || p.head.repo?.full_name !== repo || p.base.repo?.full_name !== repo) {
+    if (process.env.GITHUB_OUTPUT) await fs.appendFile(process.env.GITHUB_OUTPUT, "ui=false\n");
+    console.log("Skipping UI preview: an open same-repository PR is required.");
+    return;
+  }
   const changed = await files();
   const forced = p.labels.some((l) => l.name === "ui-preview");
   const ui = forced || changed.some(UI);

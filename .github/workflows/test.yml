@@ -1,22 +1,52 @@
 name: Test
 
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Immutable source commit to verify
+        required: true
+        type: string
 
 # On main a run finishes: a release waits for a green run, and one cancelled
 # by every next push left none to wait for (LESSONS.md). A newer push still
 # replaces a run that hasn't started. A PR's run is cancelled by its next push.
 concurrency:
-  group: test-${{ github.ref }}
+  group: test-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
 
 jobs:
+  workflows:
+    name: Workflow and publishing contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate workflows
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.10
+          "$(go env GOPATH)/bin/actionlint" -shellcheck= -pyflakes=
+      - name: Verify release metadata, artifacts and tap generation
+        run: |
+          bash build/fork/release-checks.test.sh
+          bash scripts/test-tap.sh
+      - name: Verify UI preview trust boundary
+        run: node --test .github/ui-preview/publish.test.mjs
+
   test:
     name: test (${{ matrix.os }})
     strategy:
@@ -24,9 +54,13 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
 
       - uses: actions/setup-go@v5
         with:
@@ -67,7 +101,7 @@ jobs:
 
       - name: Test
         if: runner.os != 'Windows'
-        run: go test -tags "${{ steps.tags.outputs.tags }}" ./...
+        run: go test -timeout 60m -tags "${{ steps.tags.outputs.tags }}" ./...
 
       # Windows skips the Test step above, so the two plugin stderr tests run
       # here. The end-to-end one needs bun on PATH; without it it skips.
@@ -158,8 +192,12 @@ jobs:
           - goos: android
             goarch: arm64
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod

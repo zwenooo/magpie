@@ -1,10 +1,14 @@
-name: Fork checks and builds
+name: Fork integration checks
 
 on:
-  push:
-    branches: [main, 'feat/**']
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Immutable source commit to verify
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -15,11 +19,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -28,17 +35,5 @@ jobs:
       - name: Vet
         run: go vet -tags nogui ./...
       - name: Race check
-        if: runner.os == 'Linux'
+        if: runner.os != 'Windows'
         run: go test -race -tags nogui ./internal/cursorbyok ./internal/agent -run '^TestCursorBYOK' -count=1 -timeout 5m
-      - name: Build CLI
-        shell: pwsh
-        run: ./build/fork/build.ps1 -NoGUI
-      - name: Build Windows desktop
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: ./build/fork/build.ps1
-      - uses: actions/upload-artifact@v4
-        with:
-          name: magpie-fork-${{ runner.os }}
-          path: dist/magpie-fork-*
-          if-no-files-found: error

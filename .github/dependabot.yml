@@ -1,0 +1,9 @@
+# Keep Actions updates separate from application dependencies, as upstream's
+# release repository does.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

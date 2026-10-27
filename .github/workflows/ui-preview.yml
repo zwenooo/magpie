@@ -5,12 +5,12 @@ name: UI preview
 # clicking to see — of the real app built from it, in a fixed block at the
 # foot of its description. See .github/ui-preview/.
 #
-# Pull requests come from forks, so this runs on pull_request_target with
-# the scripts from main. The PR's code is only built and run in the record
-# job, which holds the DeepSeek key (environment ui-preview, no approval
-# asked: any PR's code can read it, so the key there is one with a low
-# limit) and nothing that can write to the repo. The publish job, which can
-# write, never runs the PR's code.
+# The scripts come from the default branch. Only a branch in this same
+# repository may be built with the DeepSeek key; external PRs are skipped,
+# including manually selected ones. Fork maintainers opt in with the
+# ENABLE_AI_UI_PREVIEW repository variable and their own ui-preview secret.
+# The recording job has no write permission; the publishing job never runs
+# the PR's code.
 
 on:
   pull_request_target:
@@ -29,7 +29,7 @@ permissions: {}
 
 jobs:
   detect:
-    if: github.repository == 'yetone/magpie' && (github.event.action != 'labeled' || github.event.label.name == 'ui-preview')
+    if: (github.repository == 'yetone/magpie' || (github.repository == 'zwenooo/magpie' && vars.ENABLE_AI_UI_PREVIEW == 'true')) && (github.event.action != 'labeled' || github.event.label.name == 'ui-preview')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -84,14 +84,13 @@ jobs:
           path: ci
           sparse-checkout: .github/ui-preview
           persist-credentials: false
-      # the fork's code, on purpose: this job is the one meant to run it,
-      # with a read-only token and no credentials left in the checkout
+      # detect accepts only open PRs whose head and base belong to this
+      # repository, then pins the checked commit for this read-only job.
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.detect.outputs.sha }}
           path: pr
           persist-credentials: false
-          allow-unsafe-pr-checkout: true
       - uses: actions/download-artifact@v4
         with:
           name: pr-info

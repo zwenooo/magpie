@@ -14,7 +14,8 @@ internal/agent/agents.go         One registration in builtins
 internal/update/fork.go          Fork update policy and release identity
 docs/cursor-byok.md              Setup and synchronization contract
 build/fork/                     Fork build and upstream merge commands
-.github/workflows/fork.yml       Fork checks and downloadable build artifacts
+.github/workflows/fork.yml       Fork integration checks on three platforms
+.github/workflows/release.yml    Full native packaging and gated own releases
 ```
 
 `internal/cursorbyok` accepts plain `Model` and `Gateway` values plus explicit
@@ -62,9 +63,9 @@ On each merge, pay attention to:
   the dry-run boundary in the thin adapter.
 - The five notice translations and their English template.
 - The small fork hooks in `internal/update/update.go` and `notes.go`.
-- The repository guards on upstream release, Docker publishing and UI
-  preview workflows. Fork CI builds artifacts; it does not publish images,
-  tags or releases, or dispatch to upstream's signing repository.
+- The own-repository release, Docker and UI preview targets and their
+  credential boundaries. The full workflow matrix and publication gates are
+  documented in [CI and release builds](docs/ci.md).
 
 ## Build and update
 
@@ -81,16 +82,17 @@ An uncommitted checkout adds `-dirty` to that version.
 Windows desktop builds do not require a separate frontend compilation.
 They use Wails' production runtime; the artifact is a standalone executable,
 not a signed installer. CI's Linux artifact is the terminal/web-server build.
-Native macOS/Linux GUI packaging still follows upstream's platform build
-requirements and has not been added to fork CI.
+CI also builds macOS DMG/ZIP and Linux desktop packages on native runners,
+both arm64 and amd64, plus all seven upstream CLI targets. See the complete
+[artifact and credential matrix](docs/ci.md).
 
 The fork disables the upstream update/notes feeds by default. A release
 build must not silently replace itself with the official binary and lose
 fork features. Until a fork feed is operated, update by downloading our
 CI artifacts or rebuilding this repository. `MAGPIE_UPDATE_FEED` and
 `MAGPIE_NOTES_FEED` remain explicit overrides for controlled feeds/tests.
-Release-page links point to `zwenooo/magpie`. No release is implied by a
-successful CI artifact build.
+Release-page links point to `zwenooo/magpie`. Branch builds produce artifacts; only a verified version tag and successful
+checks permit publication. CI does not operate an automatic update feed.
 
 ## Verification
 

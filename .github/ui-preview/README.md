@@ -21,7 +21,9 @@ When a PR touches `internal/gui/assets/` or the GUI's Go code, or carries the `u
    - the video's poster links to the player page, since GitHub won't embed a video it didn't host;
    - the screenshots are shown inline.
 
-Security: the recording job runs the PR's code without asking anyone. Any PR's code can therefore read `DEEPSEEK_API_KEY` (environment `ui-preview`), so the key there should have a low spending limit. That job has no write access, and the job that writes never runs the PR's code.
+Security: previews run only for open PRs whose source and target are branches in this repository. External-fork PRs are skipped, including manually selected PRs. The recording job can read `DEEPSEEK_API_KEY` (environment `ui-preview`), so it only runs code written by trusted repository contributors, with no write permission and no checkout credentials. The publishing job never runs the PR's code.
+
+In `zwenooo/magpie`, this workflow is opt-in. Set the repository variable `ENABLE_AI_UI_PREVIEW` to `true`, put your own `DEEPSEEK_API_KEY` in the `ui-preview` environment, and configure GitHub Pages to serve the root of the `ui-previews` branch for video playback. A low spending limit on the key is recommended. The workflow writes its preview block to the PR description and its media to that branch.
 
 To run it locally (run.sh builds and starts magpie itself):
 
@@ -31,3 +33,6 @@ DEEPSEEK_API_KEY=… DIFF_FILE=pr.diff PR_TITLE=… ./run.sh ../.. /tmp/out
 ```
 
 To re-run it for a PR, use `gh workflow run ui-preview.yml -f pr=<n>`.
+
+The recording trust boundary is checked without network access by
+`node --test .github/ui-preview/publish.test.mjs` from the repository root.
