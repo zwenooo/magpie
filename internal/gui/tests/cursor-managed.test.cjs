@@ -28,6 +28,41 @@ for (const engine of ["chromium", "webkit"]) {
           return route.fulfill({body:await fs.readFile(file),contentType});
         });
         await page.goto("http://magpie.test/");
+        const copy = await page.evaluate(() => {
+          const a = { id:"cursor-byok", name:"Cursor (Magpie)", icon:"cursor", wired:false, menu:true,
+            fields:[{key:"provider",label:"provider",value:"",options:[{value:"magpie",label:"magpie"}]}],
+            models:{shown:1,listed:1} };
+          const off = connectLine(a, "ok");
+          const on = {...a,wired:true};
+          const drift = connectLine({...on,drift:{kind:"unwired",detail:"fixture backend stopped"}}, "ok");
+          state.agents = [a]; showAllAgents = true; renderAgents();
+          return {
+            off:off.querySelector(".ag-st-t").textContent,
+            compact:connectSaid(a), on:connectLine(on,"ok").querySelector(".ag-st-t").textContent,
+            wantOff:t("Not connected · switch on to use Magpie's models in Cursor"),
+            wantOn:t("Connected · choose Magpie's models in Cursor"),
+            tip:connectSwitch(a).title,
+            wantTip:t("Magpie includes and manages the Cursor backend; no separate Cursor BYOK installation is needed."),
+            drift:drift.classList.contains("bad") && drift.querySelector(".ag-st-t").title === "fixture backend stopped",
+            sibling:connectSaid({...a,id:"claude",name:"Claude Code"}),
+            siblingExpected:t("Not connected · {agent} uses its own settings",{agent:"Claude Code"}),
+          };
+        });
+        assert.equal(copy.off,copy.wantOff);
+        assert.equal(copy.compact,copy.wantOff);
+        assert.equal(copy.on,copy.wantOn);
+        assert.equal(copy.tip,copy.wantTip);
+        assert.equal(copy.drift,true,"backend errors must retain priority over connected copy");
+        assert.equal(copy.sibling,copy.siblingExpected);
+        if(lang === "zh") assert.equal(copy.off,"未接入 · 开启后可在 Cursor 中使用 Magpie 的模型");
+        for(const width of [1100,420]) {
+          await page.setViewportSize({width,height:700});
+          assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth),"copy overflow");
+          if(process.env.ARTIFACT_DIR && lang === "zh" && engine === "chromium") {
+            await fs.mkdir(process.env.ARTIFACT_DIR,{recursive:true});
+            await page.screenshot({path:path.join(process.env.ARTIFACT_DIR,`cursor-copy-${width}.png`)});
+          }
+        }
         const start=()=>page.evaluate(()=>{window.setupResult=null;api("agents/connect/cursor-byok",{}).then(()=>window.setupResult="connected",()=>window.setupResult="cancelled");});
         await start();
         const dialog=page.getByRole("alertdialog");

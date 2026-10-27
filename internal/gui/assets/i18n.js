@@ -4,6 +4,9 @@
 // works. {name} slots are filled by t(str, vars).
 const I18N = {
   zh: {
+    "Not connected · switch on to use Magpie's models in Cursor": "未接入 · 开启后可在 Cursor 中使用 Magpie 的模型",
+    "Magpie includes and manages the Cursor backend; no separate Cursor BYOK installation is needed.": "Magpie 已内置并管理 Cursor 后端，无需另行安装 Cursor BYOK。",
+    "Connected · choose Magpie's models in Cursor": "已接入 · 请在 Cursor 中选择 Magpie 的模型",
     "Runs as": "运行方式",
     "Connect Cursor with Magpie?": "使用 Magpie 连接 Cursor？",
     "Cursor setup cancelled": "已取消 Cursor 设置",
@@ -4029,6 +4032,9 @@ const I18N = {
     "Where": "位置",
   },
   "zh-TW": {
+    "Not connected · switch on to use Magpie's models in Cursor": "未接入 · 開啟後可在 Cursor 中使用 Magpie 的模型",
+    "Magpie includes and manages the Cursor backend; no separate Cursor BYOK installation is needed.": "Magpie 已內建並管理 Cursor 後端，無需另外安裝 Cursor BYOK。",
+    "Connected · choose Magpie's models in Cursor": "已接入 · 請在 Cursor 中選擇 Magpie 的模型",
     "Runs as": "執行方式",
     "Connect Cursor with Magpie?": "使用 Magpie 連接 Cursor？",
     "Cursor setup cancelled": "已取消 Cursor 設定",
@@ -8039,6 +8045,9 @@ const I18N = {
     "Where": "位置",
   },
   ja: {
+    "Not connected · switch on to use Magpie's models in Cursor": "未接続 · オンにすると Cursor で Magpie のモデルを使えます",
+    "Magpie includes and manages the Cursor backend; no separate Cursor BYOK installation is needed.": "Cursor バックエンドは Magpie に内蔵されています。Cursor BYOK の別途インストールは不要です。",
+    "Connected · choose Magpie's models in Cursor": "接続済み · Cursor で Magpie のモデルを選んでください",
     "Runs as": "実行方法",
     "Connect Cursor with Magpie?": "Magpie で Cursor に接続しますか？",
     "Cursor setup cancelled": "Cursor の設定をキャンセルしました",
@@ -12051,6 +12060,9 @@ const I18N = {
     "Where": "場所",
   },
   de: {
+    "Not connected · switch on to use Magpie's models in Cursor": "Nicht verbunden · Aktivieren, um Magpie-Modelle in Cursor zu nutzen",
+    "Magpie includes and manages the Cursor backend; no separate Cursor BYOK installation is needed.": "Das Cursor-Backend ist in Magpie integriert und wird von Magpie verwaltet. Cursor BYOK muss nicht separat installiert werden.",
+    "Connected · choose Magpie's models in Cursor": "Verbunden · Magpie-Modelle in Cursor auswählen",
     "Runs as": "Ausführung als",
     "Connect Cursor with Magpie?": "Cursor mit Magpie verbinden?",
     "Cursor setup cancelled": "Cursor-Einrichtung abgebrochen",

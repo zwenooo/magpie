@@ -1115,6 +1115,7 @@ function connectable(a) {
 const PICKS_IN = { codex: "/model", claude: "/model", opencode: "/models", pi: "/model", droid: "/model", kimi: "/model", grok: "/model", "minimax-code": "/model", dsh: "/model", crush: "ctrl+p", omp: "/model", qwen: "/model", mimocode: "/model", deveco: "/models" };
 
 function connectSaid(a) {
+  if (a.id === "cursor-byok") return t(a.wired ? "Connected · choose Magpie's models in Cursor" : "Not connected · switch on to use Magpie's models in Cursor");
   if (!a.wired) return t("Not connected · {agent} uses its own settings", { agent: a.name });
   if (menuFromList(a)) return t("Connected · {n} models in {agent}'s model menu", { n: a.models.shown, agent: a.name });
   const at = PICKS_IN[a.id];
@@ -1149,6 +1150,7 @@ function connectSwitch(a) {
   s.setAttribute("aria-checked", a.wired ? "true" : "false");
   s.setAttribute("aria-label", t("Connect {agent} to magpie", { agent: a.name }));
   s.title = a.wired ? t("Connected · switch off to put back what {agent} had before magpie", { agent: a.name }) : t("Switch on and {agent}'s model list gets magpie's models", { agent: a.name });
+  if (a.id === "cursor-byok" && !a.wired) s.title = t("Magpie includes and manages the Cursor backend; no separate Cursor BYOK installation is needed.");
   s.append(el("i"));
   // the list opened from a failed connect, drawn again while it is open
   if (!a.wired) holdAgentModels(a, s);
@@ -1344,7 +1346,11 @@ function connectLine(a, kind) {
   }
   if (!a.wired) {
     const src = a.source || "";
-    if (a.id === "agy") say(t("Not connected · once connected, start it with magpie's command"));
+    if (a.id === "cursor-byok") {
+      say(connectSaid(a));
+      words.title = t("Magpie includes and manages the Cursor backend; no separate Cursor BYOK installation is needed.");
+    }
+    else if (a.id === "agy") say(t("Not connected · once connected, start it with magpie's command"));
     // not connected, yet through magpie for account failover (#1385): it
     // read as Codex on its own while magpie served every request, so the
     // line says why, and the accounts that turn it off are a click away
