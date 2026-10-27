@@ -4,6 +4,8 @@
 // works. {name} slots are filled by t(str, vars).
 const I18N = {
   zh: {
+    "Select models to make available in Cursor. Choose the model for each conversation in Cursor.": "选择提供给 Cursor 的模型。每个对话实际使用的模型，请在 Cursor 中选择。",
+    "Pick the models to offer in Cursor; connect when ready.": "先选择要提供给 Cursor 的模型，再开启接入。",
     "Not connected · switch on to use Magpie's models in Cursor": "未接入 · 开启后可在 Cursor 中使用 Magpie 的模型",
     "Magpie includes and manages the Cursor backend; no separate Cursor BYOK installation is needed.": "Magpie 已内置并管理 Cursor 后端，无需另行安装 Cursor BYOK。",
     "Connected · choose Magpie's models in Cursor": "已接入 · 请在 Cursor 中选择 Magpie 的模型",
@@ -4032,6 +4034,8 @@ const I18N = {
     "Where": "位置",
   },
   "zh-TW": {
+    "Select models to make available in Cursor. Choose the model for each conversation in Cursor.": "選擇提供給 Cursor 的模型。每個對話實際使用的模型，請在 Cursor 中選擇。",
+    "Pick the models to offer in Cursor; connect when ready.": "先選擇要提供給 Cursor 的模型，再開啟接入。",
     "Not connected · switch on to use Magpie's models in Cursor": "未接入 · 開啟後可在 Cursor 中使用 Magpie 的模型",
     "Magpie includes and manages the Cursor backend; no separate Cursor BYOK installation is needed.": "Magpie 已內建並管理 Cursor 後端，無需另外安裝 Cursor BYOK。",
     "Connected · choose Magpie's models in Cursor": "已接入 · 請在 Cursor 中選擇 Magpie 的模型",
@@ -8045,6 +8049,8 @@ const I18N = {
     "Where": "位置",
   },
   ja: {
+    "Select models to make available in Cursor. Choose the model for each conversation in Cursor.": "Cursor で利用できるモデルを選択します。各会話で使用するモデルは Cursor 内で選んでください。",
+    "Pick the models to offer in Cursor; connect when ready.": "Cursor に表示するモデルを選び、準備ができたら接続してください。",
     "Not connected · switch on to use Magpie's models in Cursor": "未接続 · オンにすると Cursor で Magpie のモデルを使えます",
     "Magpie includes and manages the Cursor backend; no separate Cursor BYOK installation is needed.": "Cursor バックエンドは Magpie に内蔵されています。Cursor BYOK の別途インストールは不要です。",
     "Connected · choose Magpie's models in Cursor": "接続済み · Cursor で Magpie のモデルを選んでください",
@@ -12060,6 +12066,8 @@ const I18N = {
     "Where": "場所",
   },
   de: {
+    "Select models to make available in Cursor. Choose the model for each conversation in Cursor.": "Hier die in Cursor verfügbaren Modelle auswählen. Das Modell für jede Unterhaltung wird in Cursor gewählt.",
+    "Pick the models to offer in Cursor; connect when ready.": "Modelle für Cursor auswählen und anschließend verbinden.",
     "Not connected · switch on to use Magpie's models in Cursor": "Nicht verbunden · Aktivieren, um Magpie-Modelle in Cursor zu nutzen",
     "Magpie includes and manages the Cursor backend; no separate Cursor BYOK installation is needed.": "Das Cursor-Backend ist in Magpie integriert und wird von Magpie verwaltet. Cursor BYOK muss nicht separat installiert werden.",
     "Connected · choose Magpie's models in Cursor": "Verbunden · Magpie-Modelle in Cursor auswählen",

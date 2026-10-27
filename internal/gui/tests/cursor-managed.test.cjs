@@ -13,10 +13,23 @@ for (const engine of ["chromium", "webkit"]) {
       await t.test(lang, async () => {
         const page = await browser.newPage();
         let approved = false, approvals = 0, connects = 0;
+        const models = ["First Fixture", "Second Fixture"].map((name,i)=>({id:`relay/m${i+1}`,name,group:"Relay",icon:"generic",hidden:false}));
+        const count = () => ({shown:models.filter(m=>!m.hidden).length,listed:models.length,names:models.filter(m=>!m.hidden).map(m=>m.name)});
+        const cursor = () => ({id:"cursor-byok",name:"Cursor (Magpie)",icon:"cursor",wired:false,menu:true,
+          fields:[{key:"provider",label:"provider",value:"",options:[{value:"magpie",label:"magpie"}]}],models:count()});
+        let modelSaves=0;
         await page.route("**/*", async (route) => {
           const u = new URL(route.request().url());
           if (u.pathname === "/boot.js") return route.fulfill({ contentType:"text/javascript", body:`window.bootPrefs={lang:${JSON.stringify(lang)},web:true};` });
-          if (u.pathname === "/api/state") return route.fulfill({ json:{agents:[],profiles:[],settings:{lang}} });
+          if (u.pathname === "/api/state") return route.fulfill({ json:{agents:[cursor()],profiles:[],settings:{lang}} });
+          if (u.pathname === "/api/agent-models/cursor-byok") {
+            if(route.request().method()==="POST") {
+              modelSaves++;
+              const hidden=route.request().postDataJSON().hidden;
+              for(const model of models) model.hidden=hidden.includes(model.id);
+            }
+            return route.fulfill({json:{models,count:count()}});
+          }
           if (u.pathname === "/api/cursor-backend/approve") { approvals++; approved = true; return route.fulfill({ json:{ok:true} }); }
           if (u.pathname === "/api/agents/connect/cursor-byok") {
             connects++;
@@ -57,12 +70,29 @@ for (const engine of ["chromium", "webkit"]) {
         if(lang === "zh") assert.equal(copy.off,"未接入 · 开启后可在 Cursor 中使用 Magpie 的模型");
         for(const width of [1100,420]) {
           await page.setViewportSize({width,height:700});
+          await page.locator('.row.agent[data-id="cursor-byok"] .ag-menu').waitFor();
           assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth),"copy overflow");
           if(process.env.ARTIFACT_DIR && lang === "zh" && engine === "chromium") {
             await fs.mkdir(process.env.ARTIFACT_DIR,{recursive:true});
             await page.screenshot({path:path.join(process.env.ARTIFACT_DIR,`cursor-copy-${width}.png`)});
           }
         }
+        const row=page.locator('.row.agent[data-id="cursor-byok"]');
+        await row.locator('.ag-menu').click();
+        const menu=page.locator('.am-pop:not(.leaving)');
+        await menu.waitFor();
+        assert.equal(await menu.locator('.am-d').innerText(),await page.evaluate(()=>t("Select models to make available in Cursor. Choose the model for each conversation in Cursor.")));
+        const saved=page.waitForResponse(r=>r.url().endsWith('/api/agent-models/cursor-byok') && r.request().method()==='POST');
+        await menu.locator('.am-mr',{hasText:"Second Fixture"}).click();
+        await saved;
+        assert.equal(modelSaves,1);
+        assert.equal(models[1].hidden,true);
+        assert.equal(approvals,0,"selecting models must not initialize local setup");
+        assert.equal(connects,0,"selecting models must not connect Cursor");
+        await page.keyboard.press('Escape');
+        await menu.waitFor({state:'detached'});
+        await page.waitForFunction(()=>document.querySelector('.row.agent[data-id="cursor-byok"] .ag-menu .v')?.textContent === "First Fixture");
+        assert.equal(await row.locator('.ag-conn').getAttribute('aria-checked'),"false");
         const start=()=>page.evaluate(()=>{window.setupResult=null;api("agents/connect/cursor-byok",{}).then(()=>window.setupResult="connected",()=>window.setupResult="cancelled");});
         await start();
         const dialog=page.getByRole("alertdialog");

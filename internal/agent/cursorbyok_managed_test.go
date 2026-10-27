@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/yetone/magpie/internal/cursorbyok"
+	"github.com/yetone/magpie/internal/provider"
 )
 
 type fixtureCursorRuntime struct{ f *cursorBYOKFixture }
@@ -60,5 +61,28 @@ func TestCursorBYOKIsDetectedFromCursor(t *testing.T) {
 	}
 	if !a.Detected() {
 		t.Fatal("Cursor editor was not detected")
+	}
+}
+
+func TestCursorBYOKModelSelectionBeforeConnectStartsNothing(t *testing.T) {
+	syncHome(t)
+	old := cursorBYOKRuntimeFor
+	cursorBYOKRuntimeFor = func() cursorBackend { t.Fatal("model selection started the Cursor backend"); return nil }
+	t.Cleanup(func() { cursorBYOKRuntimeFor = old })
+	if err := provider.SetHiddenModels(CursorBYOKID, []string{"relay/glm-4.6"}); err != nil {
+		t.Fatal(err)
+	}
+	a, err := Find(CursorBYOKID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	if a.Wired() {
+		t.Fatal("selecting models connected Cursor")
+	}
+	if _, err := os.Stat(cursorBYOKRoot()); !os.IsNotExist(err) {
+		t.Fatalf("model selection wrote backend state: %v", err)
 	}
 }

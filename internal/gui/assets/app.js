@@ -1243,6 +1243,7 @@ function fillMenuButton(b, a) {
   b.append(el("span", "chev", svg(CHEV, 11, 1.7)));
   const pick = t("Pick which models {agent} lists", { agent: a.name });
   b.title = pick + "\n" + t("{agent} reads its model list as it starts: quit and reopen it after a change", { agent: a.name });
+  if (a.id === "cursor-byok" && !a.wired) b.title = t("Pick the models to offer in Cursor; connect when ready.");
   b.setAttribute("aria-label", pick + ": " + menuSaid(c));
 }
 
@@ -1521,7 +1522,7 @@ function connectRow(a, row, who, { fields, extras, fieldBtn, sw, kind }) {
     if (launch) row.append(launch);
     if (start) row.append(startButton(a, start, fieldBtn));
     // Claude Desktop's: which models its own menu lists
-    else if (menuFromList(a)) row.append(menuButton(a));
+    else if (menuFromList(a) || (a.id === "cursor-byok" && a.models)) row.append(menuButton(a));
     row.append(sw);
   } else if (kind === "empty") {
     const add = el("button", "ag-add", t("Add a provider"));
@@ -3260,7 +3261,9 @@ async function openAgentModels(a, anchor, ev) {
   box.setAttribute("aria-label", t("{agent}'s model list", { agent: a.name }));
   const head = el("div", "am-head");
   head.append(el("div", "am-t", t("{agent}'s model list", { agent: a.name })),
-    el("div", "am-d", t("Models turned off don't show in {agent}'s model picker; other agents can still use them.", { agent: a.name })));
+    el("div", "am-d", a.id === "cursor-byok"
+      ? t("Select models to make available in Cursor. Choose the model for each conversation in Cursor.")
+      : t("Models turned off don't show in {agent}'s model picker; other agents can still use them.", { agent: a.name })));
   // the models the agent reaches itself, not through magpie, shown in its
   // picker beside magpie's or left out (MizuIro-H, #1642): not in the list
   // below, which is magpie's catalog, so a switch of their own

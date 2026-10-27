@@ -10,7 +10,9 @@ maintained in this fork under `native/cursor-backend`.
 ## Connect
 
 1. Add your model providers in Magpie and open Cursor once so its profile exists.
-2. On **Agents**, connect **Cursor (Magpie)**. The first attempt shows a dialog
+2. On **Agents**, use the model list beside **Cursor (Magpie)** to choose which
+   models to offer, then turn on its connection. Selecting the list while off
+   does not start the backend or change certificate/proxy settings. The first connection shows a dialog
    explaining the bundled service, local certificate trust and Cursor proxy
    settings. Cancel leaves those settings unchanged.
 3. Approve setup. Magpie extracts and starts the backend, synchronizes the model
