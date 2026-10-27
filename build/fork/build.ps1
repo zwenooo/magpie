@@ -22,6 +22,7 @@ try {
     New-Item -ItemType Directory -Force -Path 'dist' | Out-Null
     $buildArgs = @('build', '-trimpath', '-ldflags', "-s -w -X main.version=$Version", '-o', $output)
     if ($NoGUI) { $buildArgs += @('-tags', 'nogui') }
+    else { $buildArgs += @('-tags', 'production') }
     $buildArgs += '.'
     & go @buildArgs
     if ($LASTEXITCODE -ne 0) { throw 'Fork build failed' }

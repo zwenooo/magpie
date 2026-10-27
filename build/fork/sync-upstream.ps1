@@ -10,7 +10,7 @@ try {
     if ($LASTEXITCODE -ne 0 -or $source -notmatch '^(https://github\.com/|git@github\.com:)yetone/magpie(\.git)?$') {
         throw 'upstream must point to yetone/magpie'
     }
-    git fetch upstream main
+    git fetch --no-tags upstream main
     if ($LASTEXITCODE -ne 0) { throw 'Fetching upstream failed' }
     git merge --no-edit upstream/main
     if ($LASTEXITCODE -ne 0) { throw 'Resolve the reported conflicts, or use git merge --abort; nothing was pushed' }

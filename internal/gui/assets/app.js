@@ -1370,6 +1370,16 @@ function connectLine(a, kind) {
     return line;
   }
   line.classList.add("on");
+  // Codex on magpie while its ChatGPT account is used up: the line says
+  // until when, the hover (and the row opened) what is off till then
+  if (a.appOut) {
+    const o = a.appOut;
+    if (o.stuck) say(t("On magpie · quit and reopen the {agent} app to send", { agent: a.name }), "wait");
+    else if (o.until) say(t("On magpie until {when} · ChatGPT allowance used up", { when: resetClock(new Date(o.until)) }));
+    else say(t("On magpie until the reset · ChatGPT allowance used up"));
+    words.title = appOutSaid(a);
+    return line;
+  }
   if (a.appRestart) {
     say(t("Connected · restart {agent} to use it", { agent: a.name }), "wait");
     line.append(appRestart(a));
@@ -1886,6 +1896,19 @@ function appReopen(bundle) {
   return go;
 }
 
+// appOutSaid: why Codex is on magpie while its ChatGPT account is used up,
+// and what of the Codex app is off till the reset (the app turns its
+// ChatGPT side off with magpie its provider, and greys Send without)
+function appOutSaid(a) {
+  const o = a.appOut || {};
+  let s = o.user
+    ? t("{user}'s ChatGPT allowance is used up, so magpie serves {agent}'s turns until it resets.", { user: o.user, agent: a.name })
+    : t("{agent}'s ChatGPT allowance is used up, so magpie serves its turns until it resets.", { agent: a.name });
+  s += " " + t("Till then the {agent} app's ChatGPT side is off: cloud tasks, its usage meter and Log out. It all comes back on its own at the reset.", { agent: a.name });
+  if (o.stuck) s += " " + t("magpie couldn't restart the {agent} app's app-server: quit the app and open it again to send.", { agent: a.name });
+  return s;
+}
+
 // appRestart: a desktop app running on what it read before magpie's last
 // change (agent.AppBehind) is quit and opened again
 function appRestart(a) {
@@ -1967,6 +1990,12 @@ function connectPanel(a, { fields, fieldBtn }) {
         if (c.kind === "app" && a.id === "codex" && c.bundle) l.append(appReopen(c.bundle));
         parts.push(l);
       }
+    }
+    // on magpie while its ChatGPT account is used up, and what is off
+    if (a.appOut) {
+      const w = line(el("span", "ag-dot"), el("span", "", appOutSaid(a)));
+      w.classList.add("ag-warn", "ag-app-out");
+      parts.unshift(w);
     }
     kv(t("In {agent}", { agent: a.name }), ...parts);
   } else if (menuFromList(a)) {
@@ -13027,7 +13056,6 @@ function renderAccounts(a, p) {
   const pv = a.agent === "codex" ? providers || {} : {};
   if (pv.codexDaemon) list.append(renderCodexDaemon(pv.codexDaemon));
   if (pv.codexApp) list.append(renderCodexApp(pv.codexApp));
-  if (pv.codexAppOut) list.append(renderCodexAppOut(pv.codexAppOut));
   if (signing?.agent === a.agent) list.append(renderSigning(sub));
   else {
     const add = el("button", "acc add");
@@ -13085,15 +13113,6 @@ function codexNote(cls, n, s) {
   tt.append(el("span", "n", n), el("span", "s", s));
   box.append(el("span", "mark", "!"), tt);
   return box;
-}
-
-// renderCodexAppOut: the account the Codex app is on ran out, which greys
-// its Send for magpie's models too till it reopens: magpie reopens it on
-// macOS once idle (reopening), else the user does.
-function renderCodexAppOut(out) {
-  return codexNote(" app-out", t("The Codex app can't send on {user}'s used-up account", { user: out.user }), out.reopening
-  ? t("magpie serves its turns now, but the app reads that only as it opens. magpie quits it and opens it again once no turn is running.")
-  : t("magpie serves its turns now, but the app reads that only as it opens. Quit it and open it again to send."));
 }
 
 // Accounts brought in from another tool's export instead of signing in
@@ -20954,7 +20973,8 @@ function modelOpt(x) {
 }
 
 // renderCodexDescriptions picks the model for descriptions independently
-// of titles; an empty setting preserves Codex's requested model.
+// of titles; an empty setting preserves Codex's requested model, off
+// answers with no description.
 function renderCodexDescriptions(s) {
   const models = s.titleModels || [];
   const named = (id) => {
@@ -20965,10 +20985,12 @@ function renderCodexDescriptions(s) {
   const b = el("button", "rt-cond on");
   b.type = "button";
   b.setAttribute("aria-label", t("Codex thread descriptions"));
-  if (v) b.append(icon(models.find((x) => x.id === v)?.icon || "generic"), el("span", "", named(v)));
+  if (v === "off") b.append(el("span", "", t("Off")));
+  else if (v) b.append(icon(models.find((x) => x.id === v)?.icon || "generic"), el("span", "", named(v)));
   else b.append(icon("generic"), el("span", "", t(SAME_SESSION)));
   b.onclick = (ev) => openPicker({ id: "", name: "", fields: [] }, { key: "codexDescriptions", label: "model", value: v, options: [
     { value: "", label: t(SAME_SESSION), note: t("as Codex sends them when the session is on Codex’s own model"), icon: "generic", reset: true },
+    { value: "off", label: t("Off"), note: t("no description, nothing sent"), reset: true },
     ...models.map(modelOpt)],
   onPick: (id) => {
     if (id === v) return;
@@ -21889,6 +21911,8 @@ function renderRedact(s, keep) {
   // plain words, matched as written unless the user asks for any case
   row(t("Masked words in any case"), t("A word also matches in other capitals: Nightjar masks NIGHTJAR and nightjar too"),
     onOff(s.redactWordsAnyCase, (redactWordsAnyCase) => savePrefs({ ...keep, redactWordsAnyCase }))).id = "redactWordsAnyCaseRow";
+  row(t("Whole words only"), t("A word is not masked inside a longer one: ABC masks ABC and 'ABC' but not XABCD, and 123456 not 0.123456"),
+    onOff(s.redactWordsWhole, (redactWordsWhole) => savePrefs({ ...keep, redactWordsWhole }))).id = "redactWordsWholeRow";
   renderRedactRules(s, row);
   renderMaskActions(s);
   renderMaskTry(s);
@@ -23034,7 +23058,7 @@ function prefsKeep(s) {
     uiFont: s.uiFont || null, codeFont: s.codeFont || null,
     otel: s.otel || {},
     trayUsages: s.trayUsages || [],
-    redact: !!s.redact, redactPersonal: !!s.redactPersonal, redactKinds: s.redactKinds || {}, redactWords: s.redactWords || [], redactWordsAnyCase: !!s.redactWordsAnyCase, redactShape: !!s.redactShape, codexWarmup: s.codexWarmup || "",
+    redact: !!s.redact, redactPersonal: !!s.redactPersonal, redactKinds: s.redactKinds || {}, redactWords: s.redactWords || [], redactWordsAnyCase: !!s.redactWordsAnyCase, redactWordsWhole: !!s.redactWordsWhole, redactShape: !!s.redactShape, codexWarmup: s.codexWarmup || "",
     claudeWarmup: s.claudeWarmup || "", codexWarmAt: s.codexWarmAt || "", claudeWarmAt: s.claudeWarmAt || "",
     codexWarmAts: warmTimes(s.codexWarmAts, s.codexWarmAt), claudeWarmAts: warmTimes(s.claudeWarmAts, s.claudeWarmAt), workbuddyCheckin: !!s.workbuddyCheckin, traeCheckin: !!s.traeCheckin, minimaxCheckin: !!s.minimaxCheckin, qoderCheckin: !!s.qoderCheckin, noStats: !!s.noStats, noUsageStats: !!s.noUsageStats,
     memberModel: !!s.memberModel, noLoopGuard: !!s.noLoopGuard, claudeLeanPrompt: !!s.claudeLeanPrompt, refusalRetries: s.refusalRetries ?? null,

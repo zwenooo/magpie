@@ -1,5 +1,10 @@
 # Notes for coding agents
 
+This is the independently maintained `zwenooo/magpie` fork. Read
+[FORK.md](FORK.md) for local feature boundaries, build/update policy and
+upstream synchronization before making fork-specific changes. `origin`
+is our push target; `upstream` is the source of upstream merges.
+
 ## Subsystem design and review
 
 Before changing a documented subsystem, read its
