@@ -131,3 +131,27 @@ upstream. Preserve own-repository checkout/publish targets, SHA gates,
 read-only PR jobs and secret boundaries. Dependabot checks Actions weekly.
 Do not reinstate the old relay into `yetone/magpie-releases`, its install
 links, certificate identity, announcement webhook, or generated tap files.
+
+## Initial migration validation
+
+The first native run at `09eed188`
+([Actions](https://github.com/zwenooo/magpie/actions/runs/40488071980)) passed
+both macOS packaging jobs, both Linux desktop builds, all CLI/Windows
+cross-builds, native Windows amd64/arm64 launch checks, the exact 16-file
+bundle check, and fork integration checks on all three systems. It provides
+`release-bundle` and individual `build-*` download artifacts. This is build
+evidence, not a claim that the full application suite has passed.
+
+The prior full Test run at `3087fdc5` exposed two test-fixture defects fixed
+separately: provider backup tests created a process-global channel in
+separate synctest bubbles; process environment tests inspected the child
+before startup had completed. The fixes preserve assertions and production
+behavior, with repeated Linux verification.
+
+`TestRestartHandsTheGatewayOver` also reported a connection reset in the
+prior run. An isolated HTTP-server reproduction demonstrates an accepted
+request can be discarded during `http.Server.Shutdown`; inheriting the
+listener alone does not protect that window. Twenty race-enabled repeats
+of the integration test passed, so it is intermittent, not resolved.
+Its test remains enabled and a failing quality job continues to block a
+release. Accepted-connection draining needs a separate runtime fix.
