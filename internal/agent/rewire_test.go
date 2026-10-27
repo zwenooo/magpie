@@ -47,6 +47,7 @@ func TestPortMovesEveryAgent(t *testing.T) {
 	claudeManaged = func() string { return filepath.Join(home, "managed-settings.json") }
 	t.Cleanup(func() { claudeManaged = managed })
 	almaApp := startAlma(t)
+	newCursorBYOKFixture(t, home)
 	os.MkdirAll(filepath.Join(home, ".hanako", "agents", "hana"), 0o755)
 	os.WriteFile(filepath.Join(home, ".hanako", "agents", "hana", "config.yaml"), []byte("agent:\n  name: Hana\n"), 0o644)
 	// AstrBot is connected once it has written its settings

@@ -114,6 +114,7 @@ func builtins(home, cfg string) []*Agent {
 		goose(home, cfg),
 		cursor(home),
 		cursorLocal(),
+		cursorBYOK(home),
 		zed(home, cfg),
 		vscode(home, cfg),
 		vscodeInsidersAgent(home, cfg),

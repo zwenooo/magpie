@@ -26,9 +26,11 @@ func TestSyncKeepsAnAddressOnAnotherMachine(t *testing.T) {
 	writeFile(t, filepath.Join(home, ".astrbot", "data", "cmd_config.json"), astrbotConfig)
 	setPort(t, 3591)
 	for _, a := range All() {
-		// Alma is told through its running app, and Cursor's local
-		// gateway is started by launchctl: neither is in the sandbox
-		if a.Check == nil || a.Launch != nil || a.WSL != "" || a.Native != nil || a.ID == "alma" || a.ID == "cursorlocal" {
+		// Alma and Cursor BYOK keep models in their running apps; the
+		// files below cannot edit them. BYOK's endpoint ownership is tested
+		// by TestCursorBYOKUserChangesConnection. Cursor's local gateway is
+		// started by launchctl, outside this sandbox too.
+		if a.Check == nil || a.Launch != nil || a.WSL != "" || a.Native != nil || a.ID == "alma" || a.ID == "cursor-byok" || a.ID == "cursorlocal" {
 			continue
 		}
 		var key, want string

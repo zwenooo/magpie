@@ -164,6 +164,12 @@ func TestDriftUnwiredEveryAgent(t *testing.T) {
 		if a.Check == nil || a.Launch != nil || a.Native != nil {
 			continue
 		}
+		// Cursor BYOK keeps models in its running service, not this file
+		// walk. Its ownership journal is magpie's, not an editable config;
+		// changed identities are kept in TestCursorBYOKUserChangesConnection.
+		if a.ID == "cursor-byok" {
+			continue
+		}
 		// a WSL agent's files live in the distro, beyond the sandbox home:
 		// picking a model here writes the user's real configs
 		if a.WSL != "" {

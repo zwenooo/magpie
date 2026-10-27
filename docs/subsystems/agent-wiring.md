@@ -8,6 +8,45 @@ supported agent: where its config lives, which fields matter and which
 values to offer. It also records what magpie set, so a later change made by
 something else shows up as drift.
 
+## Cursor through cursor-byok
+
+[`cursorbyok.go`](../../internal/agent/cursorbyok.go) registers
+`cursor-byok`, shown as **Cursor (via cursor-byok)**. It configures an
+independently installed cursor-byok desktop service; Cursor CLI and Cursor
+Private Inference keep their existing agents. The user completes Cursor
+setup in cursor-byok. magpie neither implements Cursor's private backend
+nor installs certificates, modifies Cursor or starts the service.
+
+`cursorBYOKAddress` reads `service_settings.network_ports` from the existing
+`~/.cursor-byok-v3/cursor-byok.db`, through `sessions.OpenUntouched`, on all
+three desktop platforms. Only the numeric service port is used, at
+`127.0.0.1`; HTTP redirects and proxy forwarding are disabled. Writes go
+through `/__byok-api__/api/models`, never directly to the database. The
+contract is cursor-byok 1.0.1's v3 schema, source revision `31e9f5c`.
+
+Connecting adds the models `magpieModels("cursor-byok")` selects, with the
+gateway's agent key and native Chat, Responses or Messages endpoint. The
+provider field controls whether the list is offered; the user chooses a
+model in Cursor. Sync updates the connected list and retains user tuning.
+`cursor-byok.json` in magpie's config folder records each created model's
+hash, last values and pending writes; it is private because it contains the
+gateway key. Recording intent before an API write lets a retry reconcile a
+lost reply. Unreadable records, ports or API replies stop the operation.
+
+Disconnect removes only recorded models whose connection still matches,
+retains models edited into a different connection, and disables future
+sync. A group or display name alone never establishes ownership. Connection
+changes outside magpie are reported for the user to resolve by disconnecting
+and connecting again; file-based reapply does not overwrite them. The API
+agent has no editable `Path`, so file previews are unavailable, and dry-run
+requests never contact its service.
+
+`TestCursorBYOK*` uses the actual v3 model schema and a local control API
+fixture for connection, protocol mapping, synchronization, ownership,
+failures and disconnect. The fixture hashes were checked against the
+upstream Rust configuration source. The full Cursor Agent conversation
+path has not been verified. See [setup instructions](../cursor-byok.md).
+
 ## Responsibilities and sources of truth
 
 | Part | Responsibility | Source |
