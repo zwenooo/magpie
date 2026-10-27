@@ -10,6 +10,9 @@ try {
         $revision = git rev-parse --short HEAD
         if ($LASTEXITCODE -ne 0) { throw 'Cannot read the source revision' }
         $Version = "fork-$revision"
+        $changes = git status --porcelain
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot read the working tree status' }
+        if ($changes) { $Version += '-dirty' }
     }
     if ($Version -notmatch '^[A-Za-z0-9._+-]+$') { throw 'Invalid version' }
     $targetOS = go env GOOS

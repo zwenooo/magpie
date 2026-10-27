@@ -75,6 +75,7 @@ Install the Go version specified by `go.mod`, then use PowerShell 7:
 
 Outputs are named `dist/magpie-fork-<flavor>-<os>-<arch>`. Without a supplied
 version they report `fork-<commit>`, so they are clearly source builds.
+An uncommitted checkout adds `-dirty` to that version.
 Windows desktop builds do not require a separate frontend compilation.
 They use Wails' production runtime; the artifact is a standalone executable,
 not a signed installer. CI's Linux artifact is the terminal/web-server build.
