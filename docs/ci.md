@@ -173,10 +173,17 @@ separate synctest bubbles; process environment tests inspected the child
 before startup had completed. The fixes preserve assertions and production
 behavior, with repeated Linux verification.
 
-`TestRestartHandsTheGatewayOver` also reported a connection reset in the
-prior run. An isolated HTTP-server reproduction demonstrates an accepted
-request can be discarded during `http.Server.Shutdown`; inheriting the
-listener alone does not protect that window. Twenty race-enabled repeats
-of the integration test passed, so it is intermittent, not resolved.
-Its test remains enabled and a failing quality job continues to block a
-release. Accepted-connection draining needs a separate runtime fix.
+`TestRestartHandsTheGatewayOver` and later `TestHandedOverGatewayFinishesItsStream`
+exposed an accepted-connection gap in `http.Server.Shutdown`. This fork now
+includes upstream fix `11c427eaa61bd5e2be3aa727cd823cf3f50a3460` (#3568):
+handoff immediately stops the old listener, then waits for Serve to return
+and accepted connections to deliver their first request (at most five seconds)
+before beginning shutdown. The upstream regression tests fail on the old
+implementation with an unanswered POST/EOF or a request served by the old
+gateway after handoff; all four handoff tests pass 20 race-enabled repeats
+on Linux after the fix. The release gate remains enabled.
+
+This does not guarantee lossless transfer for idle keep-alive connections,
+TLS connections still in the local first-byte sniff, or connections queued on
+`make dev`'s separate SO_REUSEPORT listener. Those are the upstream fix's
+documented limits; ordinary quit keeps its existing two-second drain.
