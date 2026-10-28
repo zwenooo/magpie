@@ -7,12 +7,14 @@ use axum::{
 use prost::Message;
 use serde_json::Value;
 
-use crate::{api::cursor::proxy, local_app, Result};
+use crate::{
+    api::cursor::proxy,
+    local_app::{self, LOCAL_AUTH_ID, LOCAL_EMAIL},
+    Result,
+};
 
 use super::entitlement::FreeEntitlementCache;
 
-const LOCAL_AUTH_ID: &str = "cursor-local-user";
-const LOCAL_EMAIL: &str = "cursor@ai.com";
 const LOCAL_ULTRA_PLAN_INCLUDED_CENTS: i32 = 20_000;
 
 #[derive(Clone, PartialEq, Message)]
@@ -430,9 +432,59 @@ mod tests {
     };
 
     use axum::body::Bytes;
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     use futures_util::stream;
 
     use super::*;
+
+    #[tokio::test]
+    async fn local_identity_responses_match_the_existing_local_jwt() {
+        let store = crate::store::Store::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let proxy = proxy::CursorProxy::for_test(
+            crate::network::NetworkClients::new(store.clone()),
+            "http://127.0.0.1:1".into(),
+        );
+        let authorization = local_app::local_cursor_authorization();
+        let token = authorization.strip_prefix("Bearer ").unwrap();
+        let payload: Value = serde_json::from_slice(
+            &URL_SAFE_NO_PAD
+                .decode(token.split('.').nth(1).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        // Keep previously injected sessions valid while fixing the RPC identity.
+        assert_eq!(payload["sub"], "magpie-cursor-local-user");
+        assert_eq!(payload["email"], "cursor@magpie.local");
+        let request = || {
+            Request::builder()
+                .header(header::AUTHORIZATION, &authorization)
+                .body(Body::empty())
+                .unwrap()
+        };
+        let email = get_email(Extension(proxy.clone()), request())
+            .await
+            .unwrap();
+        let email =
+            GetEmailResponse::decode(to_bytes(email.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        let metadata = get_user_meta(Extension(proxy.clone()), request())
+            .await
+            .unwrap();
+        let metadata =
+            GetUserMetaResponse::decode(to_bytes(metadata.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        let me = get_me(Extension(proxy), request()).await.unwrap();
+        let me =
+            GetMeResponse::decode(to_bytes(me.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(email.email, payload["email"]);
+        assert_eq!(metadata.email, payload["email"]);
+        assert_eq!(me.email.as_deref(), payload["email"].as_str());
+        assert_eq!(me.auth_id, payload["sub"]);
+        assert_eq!(ultra_profile()["paymentId"], payload["sub"]);
+        store.pool().close().await;
+    }
 
     #[tokio::test]
     async fn local_account_response_consumes_request_body_before_replying() {

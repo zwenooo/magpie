@@ -10,7 +10,9 @@ maintained in this fork under `native/cursor-backend`.
 ## Connect
 
 1. Add your model providers in Magpie and open Cursor once so its profile exists.
-2. On **Agents**, use the model list beside **Cursor (Magpie)** to choose which
+2. Quit Cursor before applying its connection so it cannot overwrite newly
+   applied account state from an older in-memory session. On **Agents**, use
+   the model list beside **Cursor (Magpie)** to choose which
    models to offer, then turn on its connection. Selecting the list while off
    does not start the backend or change certificate/proxy settings. The first connection shows a dialog
    explaining the bundled service, local certificate trust and Cursor proxy
@@ -20,8 +22,22 @@ maintained in this fork under `native/cursor-backend`.
    uses the current user's certificate store; macOS uses the login keychain and
    may request OS approval. Linux currently displays the administrator command
    needed to trust this certificate; run it and connect again.
-4. Restart Cursor yourself, start a new conversation, and choose a Magpie model.
+4. Open Cursor, start a new conversation, and choose a Magpie model.
    Magpie does not forcibly terminate Cursor or discard open work.
+
+When Cursor has no complete account session, the bundled backend provides a
+local identity for using configured third-party models. A real Cursor sign-in
+is not required for this local connection. Existing complete account sessions
+are preserved; an incomplete session is saved in the ownership journal before
+the local identity is written. Local identity responses and token refresh stay
+consistent with the injected identity. Cursor's online account/cloud features
+are separate from local model routing.
+
+If Cursor still shows **Log In / Sign Up**, quit it completely, apply the
+connection again in Magpie, and reopen it. Choose the configured Magpie model
+explicitly; **Auto** uses Cursor's official selection. The local model catalog
+waits at most two seconds for the official catalog before returning local
+models, so an unresponsive official endpoint cannot hide configured models.
 
 Magpie owns the backend's lifetime. A normal Magpie exit closes its child and
 attempts to restore the Cursor settings still owned by it. A locked or unreadable
@@ -69,7 +85,11 @@ Docker builds do not include a desktop Cursor backend. Source-only Go builds
 still compile, but cannot connect Cursor until the bundled payload is built.
 
 Tests cover model synchronization, authentication, consent, process ownership,
-startup without CA/profile changes, restored settings, and refusal to overwrite
-later edits. The archived protocol may need updates for newer Cursor versions.
-Actual user certificate approval and a real Cursor Agent conversation must be
-verified separately; a passing local backend smoke test is not that evidence.
+startup without CA/profile changes, restored settings, incomplete-session
+recovery, local identity/refresh consistency, bounded catalog forwarding, and
+refusal to overwrite later edits. The archived protocol may need updates for
+newer Cursor versions. On Windows with Cursor 3.27.22, applying the connection
+with Cursor closed restored the local-identity workspace without a real
+sign-in. Metadata routing and a direct Magpie provider request also passed.
+A full conversation from the real Cursor UI remains to be verified; those
+checks and a passing local backend smoke test are not that evidence.

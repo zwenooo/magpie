@@ -18,6 +18,9 @@ use crate::{
 };
 
 use self::{ca::CaManager, proxy::ProxyRuntime};
+pub(crate) use account::{
+    local_token as local_cursor_token, EMAIL as LOCAL_EMAIL, SUBJECT as LOCAL_AUTH_ID,
+};
 
 pub(crate) fn proxy_host_allowed(host: &str) -> bool {
     proxy::is_cursor_host(host)

@@ -1,4 +1,6 @@
 //! Publishes the configured model catalog to Cursor.
+use std::time::Duration;
+
 use axum::{
     body::{Body, Bytes},
     extract::{Extension, State},
@@ -212,6 +214,9 @@ struct DefaultModelNudgeDataResponse {
 }
 
 const CLI_LOCAL_MODEL_API_KEY: &str = "cursor-byok-local";
+// The configured models remain usable when Cursor's own catalog is offline.
+// Bound both the upstream response headers and body, without limiting chats.
+const CATALOG_UPSTREAM_TIMEOUT: Duration = Duration::from_secs(2);
 
 const CONTEXTS: [(&str, &str); 5] = [
     ("200k", "200K"),
@@ -272,13 +277,7 @@ pub async fn available_models(
         models: available_models,
     }
     .encode_to_vec();
-    match proxy::forward_buffered(&proxy, request).await {
-        Ok(upstream) => merge_response(upstream, local),
-        Err(error) => {
-            tracing::warn!(%error, "Cursor AvailableModels upstream unavailable; using local catalog");
-            Ok(local_response(local))
-        }
-    }
+    catalog_response(&proxy, request, local).await
 }
 
 pub async fn usable_models(
@@ -304,10 +303,31 @@ pub async fn usable_models(
             .collect(),
     }
     .encode_to_vec();
-    match proxy::forward_buffered(&proxy, request).await {
-        Ok(upstream) => merge_response(upstream, local),
-        Err(error) => {
-            tracing::warn!(%error, "Cursor GetUsableModels upstream unavailable; using local catalog");
+    catalog_response(&proxy, request, local).await
+}
+
+async fn catalog_response(
+    proxy: &CursorProxy,
+    request: Request<Body>,
+    local: Vec<u8>,
+) -> Result<Response<Body>> {
+    let path = request.uri().path().to_owned();
+    match tokio::time::timeout(
+        CATALOG_UPSTREAM_TIMEOUT,
+        proxy::forward_buffered(proxy, request),
+    )
+    .await
+    {
+        Ok(Ok(upstream)) => merge_response(upstream, local),
+        Ok(Err(error)) => {
+            tracing::warn!(%error, path, "Cursor model catalog upstream unavailable; using local catalog");
+            Ok(local_response(local))
+        }
+        Err(_) => {
+            tracing::warn!(
+                path,
+                "Cursor model catalog upstream timed out; using local catalog"
+            );
             Ok(local_response(local))
         }
     }
@@ -769,8 +789,245 @@ fn usable_model(model: &ModelConfig) -> agent::ModelDetails {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+
+    use axum::{body::to_bytes, routing::post, Router};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tower::ServiceExt;
+
     use super::*;
-    use crate::model::{ModelType, OPENAI_CHAT_ENDPOINT};
+    use crate::{
+        cursor::prompting::{PromptAssets, PromptCompiler},
+        model::{ModelConfigInput, ModelInvocation, ModelType, OPENAI_CHAT_ENDPOINT},
+        network::NetworkClients,
+        provider::{Provider, ProviderStream},
+        store::{ProxyMode, ProxySettingsInput, Store},
+    };
+
+    const AVAILABLE_PATH: &str = "/aiserver.v1.AiService/AvailableModels";
+    const USABLE_PATH: &str = "/agent.v1.AgentService/GetUsableModels";
+
+    struct NoProviderCalls;
+
+    impl Provider for NoProviderCalls {
+        fn stream(
+            &self,
+            _: ModelInvocation,
+            _: tokio_util::sync::CancellationToken,
+        ) -> ProviderStream {
+            panic!("listing models must not call a model provider")
+        }
+    }
+
+    struct TestUpstream {
+        url: String,
+        received: Arc<AtomicBool>,
+        task: tokio::task::JoinHandle<()>,
+    }
+
+    impl Drop for TestUpstream {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    // A stalled response is deliberately never released. The test's ten-second
+    // watchdog is well outside the catalog's two-second upstream allowance.
+    async fn upstream(response: Vec<u8>) -> TestUpstream {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let received = Arc::new(AtomicBool::new(false));
+        let observed = received.clone();
+        let task = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                let mut bytes = [0; 1024];
+                let length = socket.read(&mut bytes).await.unwrap();
+                assert_ne!(length, 0, "request ended before its headers");
+                request.extend_from_slice(&bytes[..length]);
+            }
+            observed.store(true, Ordering::SeqCst);
+            socket.write_all(&response).await.unwrap();
+            std::future::pending::<()>().await;
+        });
+        TestUpstream {
+            url,
+            received,
+            task,
+        }
+    }
+
+    async fn catalog_router(upstream: &TestUpstream) -> (tempfile::TempDir, Store, Router, String) {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::connect(&format!(
+            "sqlite://{}",
+            directory.path().join("catalog.db").display()
+        ))
+        .await
+        .unwrap();
+        // An explicit loopback proxy disables the developer's system proxy;
+        // NetworkClients bypasses it for the loopback test server.
+        store
+            .set_proxy_settings(ProxySettingsInput {
+                mode: ProxyMode::Custom,
+                address: "http://127.0.0.1:9".into(),
+                auth_enabled: false,
+                username: String::new(),
+                password: None,
+            })
+            .await
+            .unwrap();
+        let input: ModelConfigInput =
+            serde_json::from_value(serde_json::to_value(model()).unwrap()).unwrap();
+        let saved = store.create_model(&input).await.unwrap();
+        let clients = NetworkClients::new(store.clone());
+        let registry = TransportRegistry::new(
+            store.clone(),
+            Arc::new(NoProviderCalls),
+            PromptCompiler::new(PromptAssets::embedded().unwrap()),
+        );
+        let router = Router::new()
+            .route(AVAILABLE_PATH, post(available_models))
+            .route(USABLE_PATH, post(usable_models))
+            .layer(Extension(CursorProxy::for_test(
+                clients,
+                upstream.url.clone(),
+            )))
+            .with_state(registry);
+        (directory, store, router, saved.model_hash)
+    }
+
+    async fn check_stalled_upstream(path: &str, partial_response: &'static [u8]) {
+        let mut upstream = upstream(partial_response.to_vec()).await;
+        let (_directory, store, router, model_hash) = catalog_router(&upstream).await;
+        let response = tokio::time::timeout(
+            Duration::from_secs(10),
+            router.oneshot(Request::post(path).body(Body::empty()).unwrap()),
+        )
+        .await
+        .expect("local catalog must arrive even when Cursor upstream never finishes")
+        .unwrap();
+        assert!(upstream.received.load(Ordering::SeqCst));
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "application/proto"
+        );
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        if path == AVAILABLE_PATH {
+            let catalog = AvailableModelsAddition::decode(body).unwrap();
+            assert_eq!(catalog.model_names, vec![model_hash.clone()]);
+            assert_eq!(catalog.models[0].name, model_hash);
+        } else {
+            let catalog = UsableModelsAddition::decode(body).unwrap();
+            assert_eq!(catalog.models.len(), 1);
+            assert_eq!(catalog.models[0].model_id, model_hash);
+        }
+        upstream.task.abort();
+        let _ = (&mut upstream.task).await;
+        store.pool().close().await;
+    }
+
+    #[tokio::test]
+    async fn catalog_falls_back_when_upstream_never_sends_headers() {
+        tokio::join!(
+            check_stalled_upstream(AVAILABLE_PATH, b""),
+            check_stalled_upstream(USABLE_PATH, b""),
+        );
+    }
+
+    #[tokio::test]
+    async fn catalog_falls_back_when_upstream_body_stalls() {
+        const PARTIAL: &[u8] =
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/proto\r\nContent-Length: 10\r\n\r\n\x0a";
+        tokio::join!(
+            check_stalled_upstream(AVAILABLE_PATH, PARTIAL),
+            check_stalled_upstream(USABLE_PATH, PARTIAL),
+        );
+    }
+
+    async fn check_merged_upstream(path: &str, framed: bool) {
+        let payload = if path == AVAILABLE_PATH {
+            AvailableModelsAddition {
+                model_names: vec!["official-model".into()],
+                models: vec![AvailableModel {
+                    name: "official-model".into(),
+                    ..Default::default()
+                }],
+            }
+            .encode_to_vec()
+        } else {
+            UsableModelsAddition {
+                models: vec![agent::ModelDetails {
+                    model_id: "official-model".into(),
+                    ..Default::default()
+                }],
+            }
+            .encode_to_vec()
+        };
+        let body = if framed {
+            let mut frame = BytesMut::new();
+            frame.put_u8(0);
+            frame.put_u32(payload.len() as u32);
+            frame.extend_from_slice(&payload);
+            frame.to_vec()
+        } else {
+            payload
+        };
+        let mut response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/proto\r\nX-Catalog: official\r\nContent-Length: {}\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        response.extend_from_slice(&body);
+        let mut upstream = upstream(response).await;
+        let (_directory, store, router, model_hash) = catalog_router(&upstream).await;
+        let response = router
+            .oneshot(Request::post(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert!(upstream.received.load(Ordering::SeqCst));
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["x-catalog"], "official");
+        let length: usize = response.headers()[header::CONTENT_LENGTH]
+            .to_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(length, body.len());
+        let (was_framed, payload) = unary_payload(&body).unwrap();
+        assert_eq!(was_framed, framed);
+        if path == AVAILABLE_PATH {
+            let catalog = AvailableModelsAddition::decode(payload).unwrap();
+            assert_eq!(catalog.model_names, vec!["official-model", &model_hash]);
+            assert_eq!(catalog.models.len(), 2);
+            assert_eq!(catalog.models[0].name, "official-model");
+            assert_eq!(catalog.models[1].name, model_hash);
+        } else {
+            let catalog = UsableModelsAddition::decode(payload).unwrap();
+            assert_eq!(catalog.models.len(), 2);
+            assert_eq!(catalog.models[0].model_id, "official-model");
+            assert_eq!(catalog.models[1].model_id, model_hash);
+        }
+        upstream.task.abort();
+        let _ = (&mut upstream.task).await;
+        store.pool().close().await;
+    }
+
+    #[tokio::test]
+    async fn catalog_keeps_upstream_models_and_framing() {
+        tokio::join!(
+            check_merged_upstream(AVAILABLE_PATH, false),
+            check_merged_upstream(AVAILABLE_PATH, true),
+            check_merged_upstream(USABLE_PATH, false),
+            check_merged_upstream(USABLE_PATH, true),
+        );
+    }
 
     fn model() -> ModelConfig {
         ModelConfig {

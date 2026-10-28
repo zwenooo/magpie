@@ -3,18 +3,21 @@ use std::path::{Path, PathBuf};
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde_json::json;
-use sqlx::{Connection, Row, SqliteConnection};
+use sqlx::{Connection, SqliteConnection};
 
 use crate::{Error, Result};
 
-const EMAIL: &str = "cursor@magpie.local";
+pub(crate) const EMAIL: &str = "cursor@magpie.local";
 const SIGN_UP_TYPE: &str = "Google";
-const SUBJECT: &str = "magpie-cursor-local-user";
+pub(crate) const SUBJECT: &str = "magpie-cursor-local-user";
 const MEMBERSHIP_TYPE: &str = "ultra";
 const SUBSCRIPTION_STATUS: &str = "active";
 
 pub async fn inject_if_missing() -> Result<()> {
-    inject_if_missing_at(&state_db_path()?).await
+    let journal = crate::config::is_magpie_managed()
+        .then(journal_path)
+        .transpose()?;
+    inject_if_missing_at(&state_db_path()?, journal.as_deref()).await
 }
 
 fn state_db_path() -> Result<PathBuf> {
@@ -38,7 +41,7 @@ fn state_db_path() -> Result<PathBuf> {
     }
 }
 
-async fn inject_if_missing_at(path: &Path) -> Result<()> {
+async fn inject_if_missing_at(path: &Path, journal: Option<&Path>) -> Result<()> {
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
@@ -53,14 +56,19 @@ async fn inject_if_missing_at(path: &Path) -> Result<()> {
     .await?;
 
     let token = local_token()?;
-    let account = sqlx::query("SELECT CAST(value AS TEXT) AS value FROM ItemTable WHERE key = ?")
-        .bind("cursorAuth/accessToken")
-        .fetch_optional(&mut connection)
-        .await?;
-    if account.is_some_and(|row| {
-        row.try_get::<String, _>("value")
-            .is_ok_and(|value| !value.trim().is_empty() && value != token)
-    }) {
+    // Cursor considers a session usable only with both tokens. Keep complete
+    // user sessions (including opaque safeStorage values) without decrypting.
+    // An incomplete pair must not prevent local setup from finishing.
+    let complete_foreign_session: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ItemTable WHERE key IN \
+         ('cursorAuth/accessToken', 'cursorAuth/refreshToken') \
+         AND length(trim(CAST(value AS TEXT))) > 0 AND CAST(value AS TEXT) != ?",
+    )
+    .bind(&token)
+    .fetch_one(&mut connection)
+    .await?;
+    if complete_foreign_session == 2 {
+        connection.close().await?;
         return Ok(());
     }
 
@@ -73,8 +81,8 @@ async fn inject_if_missing_at(path: &Path) -> Result<()> {
         ("cursorAuth/stripeMembershipType", MEMBERSHIP_TYPE),
         ("cursorAuth/stripeSubscriptionStatus", SUBSCRIPTION_STATUS),
     ];
-    if crate::config::is_magpie_managed() {
-        save_managed_journal(&mut connection, &values).await?;
+    if let Some(journal) = journal {
+        save_managed_journal(journal, &mut connection, &values).await?;
     }
     let mut transaction = connection.begin().await?;
     for (key, value) in values {
@@ -85,6 +93,7 @@ async fn inject_if_missing_at(path: &Path) -> Result<()> {
             .await?;
     }
     transaction.commit().await?;
+    connection.close().await?;
     tracing::info!(
         email = EMAIL,
         subject = SUBJECT,
@@ -104,10 +113,10 @@ fn journal_path() -> Result<PathBuf> {
 }
 
 async fn save_managed_journal(
+    path: &Path,
     connection: &mut SqliteConnection,
     values: &[(&str, &str)],
 ) -> Result<()> {
-    let path = journal_path()?;
     // A crash/reconnect retains the first snapshot. Parse failures never erase it.
     match std::fs::read(&path) {
         Ok(data) => {
@@ -203,7 +212,7 @@ fn is_local_cursor_token(token: &str) -> bool {
     local_token().is_ok_and(|local| local == token)
 }
 
-pub(super) fn local_token() -> Result<String> {
+pub(crate) fn local_token() -> Result<String> {
     let header = URL_SAFE_NO_PAD.encode(br#"{"alg":"HS256","typ":"JWT"}"#);
     let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&json!({
         "sub": SUBJECT,
@@ -219,6 +228,130 @@ pub(super) fn local_token() -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn write_fixture(path: &Path, values: &[(&str, &str)]) {
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(path)
+            .create_if_missing(true);
+        let mut connection = SqliteConnection::connect_with(&options).await.unwrap();
+        sqlx::query("CREATE TABLE ItemTable (key TEXT UNIQUE, value BLOB)")
+            .execute(&mut connection)
+            .await
+            .unwrap();
+        for (key, value) in values {
+            sqlx::query("INSERT INTO ItemTable VALUES (?, ?)")
+                .bind(key)
+                .bind(value)
+                .execute(&mut connection)
+                .await
+                .unwrap();
+        }
+        connection.close().await.unwrap();
+    }
+
+    async fn fixture_rows(path: &Path) -> std::collections::BTreeMap<String, String> {
+        let options = sqlx::sqlite::SqliteConnectOptions::new().filename(path);
+        let mut connection = SqliteConnection::connect_with(&options).await.unwrap();
+        let rows: Vec<(String, String)> =
+            sqlx::query_as("SELECT key, CAST(value AS TEXT) FROM ItemTable ORDER BY key")
+                .fetch_all(&mut connection)
+                .await
+                .unwrap();
+        connection.close().await.unwrap();
+        rows.into_iter().collect()
+    }
+
+    #[tokio::test]
+    async fn incomplete_sessions_are_journaled_before_local_setup_and_restore_exactly() {
+        let directory = tempfile::tempdir().unwrap();
+        for (index, initial) in [
+            vec![("cursorAuth/accessToken", "previous-access")],
+            vec![("cursorAuth/refreshToken", "previous-refresh")],
+            vec![
+                ("cursorAuth/accessToken", "previous-access"),
+                ("cursorAuth/refreshToken", " "),
+            ],
+            vec![
+                ("cursorAuth/accessToken", ""),
+                ("cursorAuth/refreshToken", "previous-refresh"),
+            ],
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let path = directory.path().join(format!("state-{index}.vscdb"));
+            let journal_path = directory.path().join(format!("owned-{index}.json"));
+            write_fixture(&path, &initial).await;
+            let before = fixture_rows(&path).await;
+            inject_if_missing_at(&path, Some(&journal_path))
+                .await
+                .unwrap();
+            let written = fixture_rows(&path).await;
+            let token = local_token().unwrap();
+            assert_eq!(written["cursorAuth/accessToken"], token);
+            assert_eq!(written["cursorAuth/refreshToken"], token);
+            assert_eq!(written["cursorAuth/cachedEmail"], EMAIL);
+            assert_eq!(written["cursorAuth/stripeMembershipAuthId"], SUBJECT);
+            let journal_bytes = std::fs::read(&journal_path).unwrap();
+            let journal: AccountJournal = serde_json::from_slice(&journal_bytes).unwrap();
+            for (key, value) in &before {
+                assert_eq!(journal.before.get(key), Some(&Some(value.clone())));
+            }
+            inject_if_missing_at(&path, Some(&journal_path))
+                .await
+                .unwrap();
+            assert_eq!(std::fs::read(&journal_path).unwrap(), journal_bytes);
+            let options = sqlx::sqlite::SqliteConnectOptions::new().filename(&path);
+            let mut connection = SqliteConnection::connect_with(&options).await.unwrap();
+            restore_journal(&mut connection, &journal).await.unwrap();
+            connection.close().await.unwrap();
+            assert_eq!(fixture_rows(&path).await, before);
+        }
+    }
+
+    #[tokio::test]
+    async fn complete_user_sessions_remain_opaque_and_unchanged() {
+        let directory = tempfile::tempdir().unwrap();
+        for (index, (access, refresh)) in [
+            ("real-access", "real-refresh"),
+            (
+                "cursor-safe-storage:v1:opaque-access",
+                "cursor-safe-storage:v1:opaque-refresh",
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let path = directory.path().join(format!("state-{index}.vscdb"));
+            let journal = directory.path().join(format!("owned-{index}.json"));
+            write_fixture(
+                &path,
+                &[
+                    ("cursorAuth/accessToken", access),
+                    ("cursorAuth/refreshToken", refresh),
+                    ("cursorAuth/cachedEmail", "existing@example.test"),
+                ],
+            )
+            .await;
+            let before = std::fs::read(&path).unwrap();
+            inject_if_missing_at(&path, Some(&journal)).await.unwrap();
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+            assert!(!journal.exists());
+        }
+    }
+
+    #[tokio::test]
+    async fn broken_account_journal_prevents_partial_session_changes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("state.vscdb");
+        let journal = directory.path().join("owned.json");
+        write_fixture(&path, &[("cursorAuth/accessToken", "previous-access")]).await;
+        std::fs::write(&journal, b"broken").unwrap();
+        let before = fixture_rows(&path).await;
+        assert!(inject_if_missing_at(&path, Some(&journal)).await.is_err());
+        assert_eq!(fixture_rows(&path).await, before);
+        assert_eq!(std::fs::read(&journal).unwrap(), b"broken");
+    }
 
     #[tokio::test]
     async fn managed_restore_preserves_new_signin_and_restores_owned_fields() {
@@ -260,7 +393,7 @@ mod tests {
     async fn reinjection_repairs_local_membership_cache() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("state.vscdb");
-        inject_if_missing_at(&path).await.unwrap();
+        inject_if_missing_at(&path, None).await.unwrap();
 
         let mut connection = SqliteConnection::connect(&format!("sqlite:{}", path.display()))
             .await
@@ -277,7 +410,7 @@ mod tests {
             .unwrap();
         drop(connection);
 
-        inject_if_missing_at(&path).await.unwrap();
+        inject_if_missing_at(&path, None).await.unwrap();
 
         let mut connection = SqliteConnection::connect(&format!("sqlite:{}", path.display()))
             .await

@@ -212,6 +212,7 @@ fn is_local_path(path: &str) -> bool {
             | "/aiserver.v1.AnalyticsService/BootstrapStatsig"
             | "/auth/full_stripe_profile"
             | "/auth/stripe_profile"
+            | crate::cursor::services::token_refresh::PATH
     )
 }
 
@@ -279,6 +280,24 @@ mod tests {
             "/auth/stripe_profile",
         ] {
             assert!(is_local_path(path), "{path} must not reach Cursor upstream");
+        }
+    }
+
+    #[test]
+    fn cursor_token_refresh_routes_only_existing_cursor_hosts_locally() {
+        let relay = CursorRelay {
+            backend: "127.0.0.1:4000".parse().unwrap(),
+            tab_mode: Arc::new(RwLock::new(TabMode::Direct)),
+            relay_token: Some("private-relay-token".into()),
+        };
+        for (uri, local) in [
+            ("https://api2.cursor.sh/oauth/token", true),
+            ("https://api3.cursor.sh/oauth/token", true),
+            ("https://example.com/oauth/token", false),
+            ("https://cursor.com/oauth/token", false),
+        ] {
+            let request = relay.prepare(Request::post(uri).body(Body::empty()).unwrap());
+            assert_eq!(request.uri().host() == Some("127.0.0.1"), local, "{uri}");
         }
     }
 }

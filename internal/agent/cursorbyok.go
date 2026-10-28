@@ -17,7 +17,7 @@ import (
 
 const CursorBYOKID = "cursor-byok"
 
-var noticeCursorBYOK = newNotice("Magpie runs the bundled Cursor backend while connected. Restart Cursor and start a new conversation to use its models. Disconnect restores the Cursor settings managed by Magpie.")
+var noticeCursorBYOK = newNotice("Magpie runs the bundled Cursor backend while connected. Cursor must be fully closed when setting up or reapplying the connection. After setup, open Cursor and start a new conversation to use Magpie's models. Disconnect restores the Cursor settings managed by Magpie.")
 
 type CursorSetupRequiredError struct{}
 

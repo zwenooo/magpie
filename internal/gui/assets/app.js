@@ -134,7 +134,7 @@ async function api(path, body, heads, signal) {
   }
   if (!res.ok) {
     if (data?.code === "cursor_setup_required") {
-      const approved = await confirmAction(t("Connect Cursor with Magpie?"), t("Magpie will run its bundled Cursor backend, trust a local certificate for Cursor connections, and manage Cursor's proxy settings. Your existing settings are saved for disconnect. Cursor will need a restart; your operating system may ask for approval."), t("Set up and connect"));
+      const approved = await confirmAction(t("Connect Cursor with Magpie?"), t("Quit Cursor completely before continuing. Magpie will run its bundled Cursor backend, trust a local certificate for Cursor connections, and manage Cursor's proxy settings. Your existing settings are saved for disconnect. Your operating system may ask for approval. Open Cursor again after setup."), t("Set up and connect"));
       if (!approved) throw new Error(t("Cursor setup cancelled"));
       await api("cursor-backend/approve", {});
       return api(path, body, heads, signal);

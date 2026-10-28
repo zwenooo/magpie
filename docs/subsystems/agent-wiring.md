@@ -24,6 +24,14 @@ a failed first setup remains disconnected for an explicit retry. Status reads
 do not start the process or mutate Cursor. The core model journal retains
 partial-write recovery and never claims a pre-existing row by display name.
 
+For Cursor without a complete account session, the bundled backend writes a
+local identity after journaling the previous fields. Both access and refresh
+tokens are required to preserve an existing session; opaque encrypted pairs
+remain untouched. Local account RPCs and refresh responses use the same
+identity as the injected JWT. Cursor must be closed while applying this state
+so an older in-memory session cannot overwrite it on exit. A complete real
+sign-in remains the user's, and its refresh requests continue upstream.
+
 The child restores only configuration/account values it still owns on disable
 or shutdown; user edits and real sign-ins stay. Windows trust is per-user;
 macOS uses the login keychain; Linux shows an administrator installation command.

@@ -99,6 +99,11 @@ for (const engine of ["chromium", "webkit"]) {
         await dialog.waitFor();
         const expected=await page.evaluate(()=>t("Connect Cursor with Magpie?"));
         assert.equal(await dialog.locator("h2").innerText(),expected);
+        const setupText = "Quit Cursor completely before continuing. Magpie will run its bundled Cursor backend, trust a local certificate for Cursor connections, and manage Cursor's proxy settings. Your existing settings are saved for disconnect. Your operating system may ask for approval. Open Cursor again after setup.";
+        const setupExpected = await page.evaluate(s => t(s), setupText);
+        assert.equal(await dialog.locator("#actionConfirmMessage").innerText(), setupExpected);
+        if (lang !== "en") assert.notEqual(setupExpected, setupText);
+        if (lang === "zh") assert.ok(setupExpected.startsWith("继续前，请完全退出 Cursor。"));
         assert.equal(approvals,0);
         await dialog.locator("button").first().click();
         await page.waitForFunction(()=>window.setupResult === "cancelled");

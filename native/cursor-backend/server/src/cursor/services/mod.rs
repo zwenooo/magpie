@@ -12,4 +12,5 @@ pub mod model_catalog;
 pub mod observability;
 pub mod server_config;
 pub mod tab;
+pub mod token_refresh;
 pub mod usage;

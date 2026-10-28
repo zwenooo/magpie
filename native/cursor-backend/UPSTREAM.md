@@ -10,7 +10,8 @@ embeds `magpie-cursor-backend`, launches it as its child, and owns its lifetime.
 
 Local changes are limited to the `managed` module/entrypoint, control routing,
 data isolation, private IPC, opt-in initialization, settings/account ownership,
-and app shutdown. The archived Cursor/provider protocol implementation remains
+and app shutdown. Model catalog requests have a two-second upstream deadline;
+local identity responses and token refresh use the injected identity. The archived Cursor/provider protocol implementation remains
 in its original directories to make future protocol fixes traceable.
 
 Invocation: `--data-dir ABS --control-token-file ABS --ready-file ABS`.

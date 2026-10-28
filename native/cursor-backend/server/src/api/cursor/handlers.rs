@@ -21,7 +21,7 @@ use crate::{
         },
         services::{
             account, analytics, commit_message, compatibility, entitlement::FreeEntitlementCache,
-            knowledge, model_catalog, server_config, tab,
+            knowledge, model_catalog, server_config, tab, token_refresh,
         },
         transport::{TransportParent, TransportRegistry},
     },
@@ -158,6 +158,8 @@ fn router_with_proxy(
         .merge(tab::router())
         .route_layer(DefaultBodyLimit::disable())
         .route_layer(RequestDecompressionLayer::new())
+        // Official refresh bodies keep their content encoding and bytes.
+        .route(token_refresh::PATH, post(token_refresh::refresh))
         .fallback(proxy::forward)
         .method_not_allowed_fallback(proxy::forward)
         .layer(Extension(proxy))
