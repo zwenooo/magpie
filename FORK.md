@@ -135,8 +135,8 @@ asset download may use the user's configured mirror and must still match
 its SHA-256. See [application updates](docs/ci.md#application-updates).
 
 Releases through `va.0.1.1725-vb.0.0.5` have the old disabled-feed policy.
-They need one manual installation of the update-enabled release, planned
-as `va.0.1.1725-vb.0.0.6`, or a later version. After that, checks and downloads
+They need one manual installation of `va.0.1.1725-vb.0.0.6` or a later
+update-enabled release. After that, checks and downloads
 follow the saved settings. Homebrew CLI installs continue to use
 `brew upgrade`; the macOS cask can update from within the app. Branch builds
 produce artifacts; only a verified version tag and successful checks permit

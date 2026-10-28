@@ -174,7 +174,7 @@ binary downloads retain the existing mirror setting and hash verification.
 
 Releases through `va.0.1.1725-vb.0.0.5` cannot discover this change because
 their built-in feeds are disabled. Install an update-enabled package manually
-once; the first such release is planned as `va.0.1.1725-vb.0.0.6`. Later
+once; the first such release is `va.0.1.1725-vb.0.0.6`. Later
 updates follow the installed application's settings. GitHub network errors
 or API rate limits can delay a check; manual downloads remain available.
 
