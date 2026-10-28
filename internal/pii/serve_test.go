@@ -1,6 +1,7 @@
 package pii
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -497,6 +498,36 @@ func TestGPUHungTwiceMovesToCPU(t *testing.T) {
 	}
 	if st := Now(); st.GPU || !strings.Contains(st.GPUError, "didn't answer in") {
 		t.Fatalf("Now = %+v, want on the CPU saying the GPU didn't answer", st)
+	}
+}
+
+// Wait may close stdout before a timed-out helper's reader observes EOF.
+// Either ordering must report why magpie ended it, not a closed pipe.
+func TestTimedOutHelperClosedPipeKeepsTheCause(t *testing.T) {
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = read.Close(); _ = write.Close() })
+	if err := read.Close(); err != nil {
+		t.Fatal(err)
+	}
+	h := &helper{exited: make(chan struct{}), stderr: &tail{}}
+	close(h.exited)
+	cause := "didn't answer in 300ms (1 KB on the GPU), so magpie ended it"
+	h.slow.Store(&cause)
+	r := &reader{r: bufio.NewReader(read)}
+	r.u32()
+	if !errors.Is(r.err, os.ErrClosed) {
+		t.Fatalf("closed stdout = %v, want a closed-file read", r.err)
+	}
+	if got := r.fail(h).Error(); got != "pf-serve "+cause {
+		t.Fatalf("timeout after stdout closed = %q, want the recorded timeout", got)
+	}
+	parseErr := errors.New("status 99")
+	r.err = parseErr
+	if got := r.fail(h); got != parseErr {
+		t.Fatalf("a protocol error was replaced by exit advice: %v", got)
 	}
 }
 

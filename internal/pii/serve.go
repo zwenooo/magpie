@@ -689,7 +689,9 @@ func (r *reader) bytes(n int) []byte {
 }
 
 func (r *reader) fail(h *helper) error {
-	if errors.Is(r.err, io.EOF) || errors.Is(r.err, io.ErrUnexpectedEOF) {
+	// Wait closes stdout after the timeout kills the helper. The reader
+	// may see a closed pipe instead of EOF; both need the recorded cause.
+	if errors.Is(r.err, io.EOF) || errors.Is(r.err, io.ErrUnexpectedEOF) || errors.Is(r.err, os.ErrClosed) {
 		return fmt.Errorf("pf-serve %s", h.died())
 	}
 	return r.err
