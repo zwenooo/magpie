@@ -32,6 +32,9 @@ var Grace = 10 * time.Minute
 // tick is how often Keep looks again.
 var tick = 5 * time.Second
 
+// nextBeat is the aligned timer; tests advance its wakeups explicitly.
+var nextBeat = beat.Next
+
 // hold takes the system's sleep off, and with display the display's too,
 // until the release it returns is called; a test stands in for it.
 var hold = takeHold
@@ -110,7 +113,7 @@ func Keep(ctx context.Context, level func() Level, state func() State) {
 		case <-ctx.Done():
 			return
 		case <-changed:
-		case <-beat.Next(every):
+		case <-nextBeat(every):
 		}
 	}
 }

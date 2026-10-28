@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yetone/magpie/internal/beat"
 	"github.com/yetone/magpie/internal/filememo"
 )
 
@@ -148,17 +147,51 @@ func TestKeepDisplay(t *testing.T) {
 	<-done
 }
 
-// Turned off, Keep looks at the setting again when it is written, not each
-// few seconds (#3185), and turning it on is still taken at once.
+// keepBeat is one timer Keep requested. The test chooses when it fires,
+// so a shared clock boundary cannot be mistaken for an extra poll.
+type keepBeat struct {
+	every time.Duration
+	fire  chan time.Time
+}
+
+func keepBeats(t *testing.T, ctx context.Context) func() keepBeat {
+	t.Helper()
+	waits := make(chan keepBeat, 1)
+	old := nextBeat
+	nextBeat = func(every time.Duration) <-chan time.Time {
+		b := keepBeat{every: every, fire: make(chan time.Time, 1)}
+		select {
+		case waits <- b:
+		case <-ctx.Done():
+		}
+		return b.fire
+	}
+	t.Cleanup(func() { nextBeat = old })
+	return func() keepBeat {
+		t.Helper()
+		select {
+		case b := <-waits:
+			return b
+		case <-time.After(2 * time.Second):
+			t.Fatal("Keep did not reach its next wait")
+			return keepBeat{}
+		}
+	}
+}
+
+// Turned off, Keep waits for writes and the slower external-change beat,
+// not its active tick. A clock boundary legitimately reads the setting
+// again even if it falls immediately after the first read.
 func TestKeepOffWaitsForTheSetting(t *testing.T) {
 	oldHold, oldTick := hold, tick
-	defer func() { hold, tick = oldHold, oldTick }()
+	t.Cleanup(func() { hold, tick = oldHold, oldTick })
 	tick = time.Millisecond
 	var held atomic.Int32
 	hold = func(bool) (func(), error) { held.Add(1); return func() { held.Add(-1) }, nil }
 	var looks atomic.Int32
 	var on atomic.Bool
 	ctx, cancel := context.WithCancel(context.Background())
+	next := keepBeats(t, ctx)
 	done := make(chan struct{})
 	go func() {
 		Keep(ctx, func() Level {
@@ -170,83 +203,55 @@ func TestKeepOffWaitsForTheSetting(t *testing.T) {
 		}, func() State { return State{Busy: true} })
 		close(done)
 	}()
-	defer func() { cancel(); <-done }()
-	for end := time.Now().Add(2 * time.Second); looks.Load() == 0; time.Sleep(time.Millisecond) {
-		if time.Now().After(end) {
-			t.Fatal("Keep never looked at the setting")
-		}
+	t.Cleanup(func() { cancel(); <-done })
+	first := next()
+	if first.every != filememo.OthersEvery() || looks.Load() != 1 || held.Load() != 0 {
+		t.Fatalf("off: interval %s, looks %d, held %d", first.every, looks.Load(), held.Load())
 	}
-	time.Sleep(50 * time.Millisecond)
-	if n := looks.Load(); n != 1 {
-		t.Fatalf("turned off, Keep looked at the setting %d times in 50ms with nothing written", n)
+	// Cross the next shared clock boundary without writing anything.
+	first.fire <- time.Now()
+	second := next()
+	if second.every != filememo.OthersEvery() || looks.Load() != 2 || held.Load() != 0 {
+		t.Fatalf("external-change beat: interval %s, looks %d, held %d", second.every, looks.Load(), held.Load())
 	}
 	on.Store(true)
 	filememo.Forget()
-	for end := time.Now().Add(2 * time.Second); held.Load() != 1; time.Sleep(time.Millisecond) {
-		if time.Now().After(end) {
-			t.Fatal("turning the setting on held nothing")
-		}
+	// No timer fires here: the write alone must wake the loop.
+	third := next()
+	if third.every != tick || looks.Load() != 3 || held.Load() != 1 {
+		t.Fatalf("setting enabled: interval %s, looks %d, held %d", third.every, looks.Load(), held.Load())
 	}
 }
 
-// Turned off, a setting turned on while Keep looks, after the look read it,
-// is looked at again at once, not at the beat after: Keep waits on the
-// Written it took before the look, which that write closes.
+// A write during the setting read closes the channel captured before it.
+// Keep must read again without a timer wakeup.
 func TestKeepOffSeesAWriteDuringTheLook(t *testing.T) {
 	oldHold := hold
-	defer func() { hold = oldHold }()
-	hold = func(bool) (func(), error) { return func() {}, nil }
-	type write struct{ at, next time.Time }
-	wrote := make(chan write, 1)
-	// when this test's level is asked again: a hold could be taken by a
-	// Keep that another test's failure left running
-	again := make(chan time.Time, 1)
-	var on atomic.Bool
+	t.Cleanup(func() { hold = oldHold })
+	var held atomic.Int32
+	hold = func(bool) (func(), error) { held.Add(1); return func() { held.Add(-1) }, nil }
+	var looks atomic.Int32
 	ctx, cancel := context.WithCancel(context.Background())
+	next := keepBeats(t, ctx)
 	done := make(chan struct{})
 	go func() {
 		Keep(ctx, func() Level {
-			if on.Load() {
-				select {
-				case again <- time.Now():
-				default:
-				}
+			if looks.Add(1) > 1 {
 				return System
 			}
-			// the beat Keep waits for, turned off (beat.Next: the next
-			// multiple of OthersEvery on the clock), 2s away at least, so
-			// that a look at once has room before it
-			every := filememo.OthersEvery()
-			next := time.Now().Truncate(every).Add(every)
-			if time.Until(next) < 2*time.Second {
-				<-beat.Next(every)
-				next = time.Now().Truncate(every).Add(every)
-			}
-			// the user turns it on just after this read, as settings.save
-			// writes it (filememo.Forget)
-			at := time.Now()
-			on.Store(true)
 			filememo.Forget()
-			wrote <- write{at, next}
 			return Off
 		}, func() State { return State{Busy: true} })
 		close(done)
 	}()
-	defer func() { cancel(); <-done }()
-	var w write
-	select {
-	case w = <-wrote:
-	case <-time.After(10 * time.Second):
-		t.Fatal("Keep never looked at the setting")
+	t.Cleanup(func() { cancel(); <-done })
+	first := next()
+	if first.every != filememo.OthersEvery() {
+		t.Fatalf("off interval %s, want %s", first.every, filememo.OthersEvery())
 	}
-	select {
-	case at := <-again:
-		// both on the wall clock, as beat.Next goes by it (Truncate drops
-		// the monotonic reading)
-		if !at.Before(w.next) {
-			t.Fatalf("turned on during the look, the setting was looked at again %v after it was written, at the beat (%s), not at once", at.Sub(w.at), w.next.Format(time.TimeOnly))
-		}
-	case <-time.After(time.Until(w.next) + 10*time.Second):
-		t.Fatal("turned on during the look, the setting was never looked at again")
+	// Deliberately leave first.fire pending: the write must suffice.
+	second := next()
+	if second.every != tick || looks.Load() != 2 || held.Load() != 1 {
+		t.Fatalf("write during read: interval %s, looks %d, held %d", second.every, looks.Load(), held.Load())
 	}
 }
