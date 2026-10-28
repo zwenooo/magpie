@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -23,6 +25,16 @@ import (
 // a check asked for tries it once more.
 func TestUpdateThatWontStart(t *testing.T) {
 	body := []byte("new magpie")
+	if runtime.GOOS == "windows" {
+		// InstallBinaryAside validates a real PE by starting it suspended,
+		// then terminating it without executing instructions. Text would fail
+		// there, before this test reaches the later relaunch refusal.
+		var err error
+		body, err = os.ReadFile(filepath.Join(os.Getenv("SystemRoot"), "System32", "PING.EXE"))
+		if err != nil {
+			t.Fatal("read native suspended-start fixture:", err)
+		}
+	}
 	sum := sha256.Sum256(body)
 	var downloads atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -57,6 +69,16 @@ func TestUpdateThatWontStart(t *testing.T) {
 	wasRelaunch := relaunchBinary
 	relaunchBinary = func(exe, old string, window bool, view string) error {
 		relaunched.Add(1)
+		installed, err := os.ReadFile(exe)
+		if err != nil || !bytes.Equal(installed, body) {
+			t.Fatal("relaunch was called before installing the downloaded executable:", err)
+		}
+		if runtime.GOOS == "windows" {
+			previous, err := os.ReadFile(old)
+			if err != nil || string(previous) != "running magpie" {
+				t.Fatal("Windows did not preserve the previous executable for rollback:", err)
+			}
+		}
 		// what update.RelaunchBinary does when Windows refuses the new exe:
 		// the running one put back, and says so
 		os.WriteFile(exe, []byte("running magpie"), 0o755)
