@@ -1,12 +1,16 @@
 package provider
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -239,7 +243,8 @@ func TestCodexAppHomeHelper(t *testing.T) {
 	if os.Getenv("MAGPIE_CODEX_HOME_HELPER") != "1" {
 		return
 	}
-	time.Sleep(30 * time.Second)
+	fmt.Fprintln(os.Stdout, "ready")
+	_, _ = io.Copy(io.Discard, os.Stdin)
 }
 
 // Only the app-servers on magpie's Codex home are restarted: one under
@@ -250,12 +255,48 @@ func TestCodexAppServersOnHome(t *testing.T) {
 	}
 	start := func(env ...string) int {
 		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
 		cmd := proc.CommandContext(ctx, os.Args[0], "-test.run=^TestCodexAppHomeHelper$")
-		cmd.Env = append([]string{"MAGPIE_CODEX_HOME_HELPER=1"}, env...)
+		// Preserve the sandbox marker and platform folders so TestMain
+		// keeps this fixture. Each child gets only the homes named here.
+		cmd.Env = slices.DeleteFunc(os.Environ(), func(v string) bool {
+			return strings.HasPrefix(v, "HOME=") || strings.HasPrefix(v, "CODEX_HOME=")
+		})
+		cmd.Env = append(cmd.Env, "MAGPIE_CODEX_HOME_HELPER=1")
+		cmd.Env = append(cmd.Env, env...)
+		stdin, err := cmd.StdinPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = stdin.Close() })
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { cancel(); _ = cmd.Wait() })
+		// Start reports exec success, before the runtime and TestMain are
+		// ready. Read the environment only once the helper is waiting.
+		ready := make(chan error, 1)
+		readDone := make(chan struct{})
+		t.Cleanup(func() { cancel(); _ = cmd.Wait(); <-readDone })
+		go func() {
+			defer close(readDone)
+			line, err := bufio.NewReader(stdout).ReadString('\n')
+			if err == nil && strings.TrimSpace(line) != "ready" {
+				err = fmt.Errorf("helper said %q, want ready", line)
+			}
+			ready <- err
+		}()
+		select {
+		case err := <-ready:
+			if err != nil {
+				t.Fatalf("helper readiness: %v", err)
+			}
+		case <-time.After(20 * time.Second):
+			t.Fatal("helper did not become ready within 20s")
+		}
 		return cmd.Process.Pid
 	}
 	ctx := context.Background()
