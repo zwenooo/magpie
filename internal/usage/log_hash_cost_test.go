@@ -119,8 +119,10 @@ func TestUsageReadAfterAppendHashesNothingOnAFineClock(t *testing.T) {
 			if !tc.fine {
 				logChangeTime = func(info os.FileInfo) time.Time { return changeTime(info).Truncate(time.Second) }
 			}
-			// each read comes 150 ms after the append before it
-			logIndexNow = func() time.Time { return time.Now().Add(150 * time.Millisecond) }
+			// Keep the read 150 ms after the clock stamp under test. Adding
+			// 150 ms to wall time made a truncated stamp older than a full
+			// second near the tick's end, when zero hashing is correct.
+			logIndexNow = func() time.Time { return logChangeTime(mustStat(t)).Add(150 * time.Millisecond) }
 			Summarize(Today)
 			hash := logRecordHash
 			var hashed int64
