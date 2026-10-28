@@ -513,6 +513,9 @@ tools) and `since`. It also gives `ends`, when its timer lets it go
 (`endIn` records it at each reset), and Claude Code's RSS. `live` is
 `claudeRoom`'s count, one-off asks included. `magpie claude-code runs`
 prints the list under the bound and says what the processes are.
+PID is an atomic snapshot published only after the process tree has started;
+a run still starting reports 0. Readers never inspect `exec.Cmd.Process` while
+`Start` is assigning it, so listing runs can safely overlap process creation.
 On 10-27, a sandbox `magpie serve` with a made-up Claude sign-in and real
 Claude Code 2.1.311 against a mock API got 8 concurrent subagent-like
 requests. It kept 6 Claude Code and 6 helpers, and the list named the same

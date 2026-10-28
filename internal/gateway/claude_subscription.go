@@ -131,7 +131,10 @@ type subscriptionRun struct {
 	token  string
 	model  string
 	cmd    *exec.Cmd
-	tree   *proc.Tree // cmd once started, with all it starts
+	// processID is published only after StartTree returns. Readers may
+	// already see the run while Cmd.Start is still writing cmd.Process.
+	processID atomic.Int64
+	tree      *proc.Tree // cmd once started, with all it starts
 	// the read ends of Claude Code's output, and their readers
 	outputs []*os.File
 	reading sync.WaitGroup
@@ -3875,6 +3878,7 @@ func (r *subscriptionRun) launch() error {
 		return err
 	}
 	exited := make(chan struct{})
+	r.processID.Store(int64(r.cmd.Process.Pid))
 	r.mu.Lock()
 	r.tree, r.exited = t, exited
 	r.mu.Unlock()
