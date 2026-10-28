@@ -10,7 +10,7 @@ func TestForkCodeZPresetAndImport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Name != "CodeZ" || p.Preset != "codez" || p.Key != "" || p.Catalog != "" {
+	if p.Name != "CodeZ" || p.Preset != "codez" || p.Icon != "codez" || p.Key != "" || p.Catalog != "" {
 		t.Fatalf("CodeZ must be a key-based provider with its own live model list: %+v", p)
 	}
 	if p.Chat != "https://api.codezsy.com/v1" || p.Responses != p.Chat || p.Anthropic != "https://api.codezsy.com" {
@@ -32,5 +32,16 @@ func TestForkCodeZPresetAndImport(t *testing.T) {
 	}
 	if Preset("openai").Chat != "https://api.openai.com/v1" || Preset("openrouter").Kind != KindRelay {
 		t.Fatal("upstream presets changed")
+	}
+	for _, icon := range []string{"generic", "", "file:custom-logo.png", "openai"} {
+		existing := p
+		existing.Icon = icon
+		want := icon
+		if icon == "generic" || icon == "" {
+			want = "codez"
+		}
+		if got := normalize(existing).Icon; got != want {
+			t.Fatalf("existing CodeZ icon %q became %q, want %q", icon, got, want)
+		}
 	}
 }

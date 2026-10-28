@@ -8,7 +8,7 @@ const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
 const assets = path.resolve(__dirname, "../assets");
 const codez = {
-  id: "codez", name: "CodeZ", icon: "generic", kind: "relay",
+  id: "codez", name: "CodeZ", icon: "codez", kind: "relay",
   chat: "https://api.codezsy.com/v1", responses: "https://api.codezsy.com/v1",
   anthropic: "https://api.codezsy.com", website: "https://codezsy.com",
   keysUrl: "https://codezsy.com/console/token",
@@ -73,7 +73,10 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.deepEqual(await sheet.locator(".kind b").allTextContents(), [labels.relays]);
         assert.equal(await tile.locator(".badge").count(), 0);
         assert.match(await tile.getAttribute("title"), /api\.codezsy\.com/);
-        assert.equal(await tile.locator('img[src*="codez"]').count(), 0, "generic icon needs no new logo");
+        const logo = tile.locator('img[src="icons/codez.png"]');
+        await logo.waitFor();
+        await logo.evaluate(img => img.decode());
+        assert.ok(await logo.evaluate(img => img.naturalWidth === 256 && img.naturalHeight === 256), "CodeZ logo loads from the bundled image");
         await tile.click();
         const editor = page.locator("#modal .editor");
         await editor.waitFor();

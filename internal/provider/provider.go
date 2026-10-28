@@ -1396,7 +1396,7 @@ func normalize(p Provider) Provider {
 	p.Headers = cleanHeaders(p.Headers)
 	p.ExtraBody = cleanExtraBody(p.ExtraBody)
 	if pr := Preset(p.Preset); pr != nil {
-		if p.Icon == "" {
+		if p.Icon == "" || forkUsesPresetIcon(p) {
 			p.Icon = pr.Icon
 		}
 		if p.Catalog == "" {
