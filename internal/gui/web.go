@@ -134,6 +134,7 @@ func (w *Web) Wait() error {
 	<-w.quit
 	time.Sleep(200 * time.Millisecond) // the answer to the Quit gets out
 	w.srv.Close()
+	stopCursorBackend()
 	if !webReexec.Load() {
 		return nil
 	}

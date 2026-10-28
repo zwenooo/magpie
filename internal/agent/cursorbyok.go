@@ -5,10 +5,12 @@ package agent
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
+	syncatomic "sync/atomic"
 
 	"github.com/yetone/magpie/internal/appdir"
 	"github.com/yetone/magpie/internal/cursorbyok"
@@ -54,9 +56,11 @@ type cursorBackend interface {
 
 var cursorBackends = struct {
 	sync.Mutex
-	byRoot map[string]*cursorbyok.Runtime
-}{byRoot: map[string]*cursorbyok.Runtime{}}
+	byRoot map[string]cursorBackend
+}{byRoot: map[string]cursorBackend{}}
 var cursorSetupMu sync.Mutex
+var cursorBackendStopping bool // under cursorSetupMu; this process must not reconnect while exiting
+var cursorSetupActive syncatomic.Bool
 var cursorBYOKRuntimeFor = func() cursorBackend {
 	root := cursorBYOKRoot()
 	cursorBackends.Lock()
@@ -67,16 +71,51 @@ var cursorBYOKRuntimeFor = func() cursorBackend {
 	return cursorBackends.byRoot[root]
 }
 
-func StopCursorBackend() {
+// CursorBackendRunning observes only runtimes already owned by this process.
+// A setup in progress also prevents starting another app beside this one.
+func CursorBackendRunning() bool {
+	if cursorSetupActive.Load() {
+		return true
+	}
 	cursorBackends.Lock()
-	backends := make([]*cursorbyok.Runtime, 0, len(cursorBackends.byRoot))
+	defer cursorBackends.Unlock()
+	for _, backend := range cursorBackends.byRoot {
+		if _, running := backend.Current(); running {
+			return true
+		}
+	}
+	return false
+}
+
+// StopCursorBackend waits for setup and the owned child to finish, then keeps
+// background catalog sync from restarting it while this process exits.
+func StopCursorBackend() bool {
+	cursorSetupMu.Lock()
+	defer cursorSetupMu.Unlock()
+	cursorBackendStopping = true
+	cursorBackends.Lock()
+	backends := make([]cursorBackend, 0, len(cursorBackends.byRoot))
 	for _, backend := range cursorBackends.byRoot {
 		backends = append(backends, backend)
 	}
 	cursorBackends.Unlock()
+	wasRunning := false
 	for _, backend := range backends {
-		_ = backend.Stop()
+		_, running := backend.Current()
+		wasRunning = wasRunning || running
+		if err := backend.Stop(); err != nil {
+			log.Printf("Cursor backend shutdown: %v", err)
+		}
 	}
+	return wasRunning
+}
+
+// ResumeCursorBackend restores a saved connection if restarting the app failed.
+func ResumeCursorBackend() error {
+	cursorSetupMu.Lock()
+	cursorBackendStopping = false
+	cursorSetupMu.Unlock()
+	return cursorBYOKWrite(true, false)
 }
 func cursorBYOKManager() cursorbyok.Manager {
 	return cursorbyok.Manager{StatePath: cursorBYOKStatePath()}
@@ -153,6 +192,11 @@ func cursorBYOKWrite(on, explicit bool) error {
 	}
 	cursorSetupMu.Lock()
 	defer cursorSetupMu.Unlock()
+	if cursorBackendStopping {
+		return errors.New("Magpie is shutting down its Cursor backend")
+	}
+	cursorSetupActive.Store(true)
+	defer cursorSetupActive.Store(false)
 	manager := cursorBYOKManager()
 	if err := manager.ValidateState(); err != nil {
 		return err

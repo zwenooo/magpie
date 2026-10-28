@@ -10,7 +10,7 @@ cask "magpie-app" do
   desc "Pick the model each AI coding agent on your machine uses"
   homepage "https://github.com/zwenooo/magpie"
 
-  # The fork has no automatic update feed; update through Homebrew.
+  # This release predates in-app updates; upgrade it through Homebrew.
   depends_on :macos
 
   app "magpie.app"

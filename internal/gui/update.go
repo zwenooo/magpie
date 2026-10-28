@@ -695,6 +695,13 @@ func restartInto(web, window bool, view string, bySelf bool) bool {
 	if !updates.install(true) {
 		return false
 	}
+	// Cursor's private process and settings lock cannot be handed to another
+	// app. Finish restoring them before a replacement process starts, including
+	// Windows, whose launcher starts the successor before this process exits.
+	handover := handsOver()
+	if stopCursorBackend() {
+		handover = false // a setup that started after the first check is stopped too
+	}
 	updatedInApp(version) // its first start leaves the notes to Settings (#525)
 	if web {
 		webReexec.Store(true)
@@ -702,8 +709,8 @@ func restartInto(web, window bool, view string, bySelf bool) bool {
 	}
 	// on a Mac or Linux the new version takes the gateway over while this
 	// one finishes its requests (handover.go)
-	if bundle != "" && beginHandover(bundle, "", window || !bySelf, "") ||
-		bundle == "" && beginHandover("", exe, window, view) {
+	if handover && (bundle != "" && beginHandover(bundle, "", window || !bySelf, "") ||
+		bundle == "" && beginHandover("", exe, window, view)) {
 		return true
 	}
 	var err error
@@ -722,10 +729,18 @@ func restartInto(web, window bool, view string, bySelf bool) bool {
 		updates.mu.Lock()
 		updates.wontStart(err)
 		updates.mu.Unlock()
+		if resumeErr := resumeCursorBackend(); resumeErr != nil {
+			log.Println("Cursor backend restart recovery:", resumeErr)
+		}
 		return false
 	}
 	if err != nil {
 		log.Println("update:", err)
+		os.Remove(filepath.Join(settings.Dir(), updatedInAppFile))
+		if resumeErr := resumeCursorBackend(); resumeErr != nil {
+			log.Println("Cursor backend restart recovery:", resumeErr)
+		}
+		return false
 	}
 	return true
 }

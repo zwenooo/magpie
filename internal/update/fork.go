@@ -9,14 +9,15 @@ import (
 // Keep this fork's distribution policy here so upstream update machinery
 // can merge unchanged. No default feed may replace it with an upstream build.
 const (
-	forkUpdateFeed = ""
-	forkNotesFeed  = ""
+	forkGitHubAPI  = "https://api.github.com/repos/zwenooo/magpie"
+	forkUpdateFeed = forkGitHubAPI + "/releases"
+	forkNotesFeed  = forkUpdateFeed
 	forkReleases   = "https://github.com/zwenooo/magpie/releases"
 )
 
 var (
-	errUpdatesDisabled = errors.New("this fork has no automatic update feed; download releases from " + forkReleases)
-	errNotesDisabled   = errors.New("this fork has no release notes feed; read release notes at " + forkReleases)
+	errUpdatesDisabled = errors.New("automatic update checks are disabled; download releases from " + forkReleases)
+	errNotesDisabled   = errors.New("release notes checks are disabled; read release notes at " + forkReleases)
 )
 
 var forkVersion = regexp.MustCompile(`^(?:va\.|v)?((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)-vb\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))$`)

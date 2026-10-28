@@ -45,6 +45,15 @@ profile leaves the ownership journal for recovery on a later connection. After a
 saved connection's next synchronization restarts the backend and reconciles
 its ownership records. A second Magpie cannot take the same runtime lock.
 
+An update restart closes this backend and waits for its cleanup before launching
+the replacement Magpie, which reconnects from the saved connection. If launching
+the replacement fails, the current Magpie resumes that connection. While Cursor's
+backend is running, updates use the ordinary restart path on every platform,
+waiting for active gateway requests instead of starting two Magpie processes
+with the same backend lock. A Cursor conversation waiting on a tool is not an
+active gateway request; continuing that entire turn through an update is not
+guaranteed. Finish such work before restarting Magpie. Cursor itself stays open.
+
 ## Disconnect and state
 
 Disconnect stops the proxy, restores previous Cursor proxy/account values that

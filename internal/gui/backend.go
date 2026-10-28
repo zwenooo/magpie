@@ -25,10 +25,17 @@ var backendCtx, endBackend = context.WithCancel(context.Background())
 // serving is the gateway this process serves, until it has finished.
 var serving sync.WaitGroup
 
+// Update and shutdown lifecycle hooks; tests never start the user's backend.
+var (
+	cursorBackendRunning = agent.CursorBackendRunning
+	stopCursorBackend    = agent.StopCursorBackend
+	resumeCursorBackend  = agent.ResumeCursorBackend
+)
+
 // stopServing stops this process's gateway taking requests and returns
 // once those in flight have finished.
 func stopServing() {
-	agent.StopCursorBackend()
+	stopCursorBackend()
 	endBackend()
 	serving.Wait()
 }

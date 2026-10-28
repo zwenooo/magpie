@@ -26,7 +26,8 @@ range=$sha
   printf -- '- CLI: `magpie-cli-<os>-<arch>` for macOS, Linux, Windows and Android ARM64 (Termux).\n'
   printf -- '- macOS, Windows and Linux include the Cursor backend; no separate Cursor BYOK installation is needed. Android/Termux does not support desktop Cursor. The bundled source license is in `THIRD-PARTY-NOTICES.txt`.\n'
   printf -- '- Verify downloads with `SHA256SUMS`. Windows/Linux are unsigned; macOS is ad-hoc signed unless this fork has Apple signing and notarization credentials configured.\n\n'
-  printf 'This fork has no automatic update feed. Download updates from [this repository](https://github.com/zwenooo/magpie/releases).\n\n'
+  printf 'This build checks [this fork\x27s GitHub Releases](https://github.com/zwenooo/magpie/releases) for updates and release notes. Automatic checks, downloads and restart follow your existing settings; the Stable channel keeps the weekly three-day waiting period. No separate update server or GitHub token is needed.\n\n'
+  printf 'If you use `va.0.1.1725-vb.0.0.5` or earlier, install this download manually once: those versions cannot discover updates. After this installation, updates come from this fork. Homebrew CLI users should continue to use `brew upgrade`.\n\n'
   printf '### Changes / 变更记录\n\n'
   git log --no-merges -50 --format='- %s (`%h`)' "$range" --
   printf '\n<!-- lang:zh -->\n\n### 安装\n\n'
@@ -40,5 +41,6 @@ range=$sha
   printf -- '- 命令行版：`magpie-cli-<系统>-<架构>`，覆盖 macOS、Linux、Windows 和 Android ARM64（Termux）。\n'
   printf -- '- macOS、Windows、Linux 已内置 Cursor 后端，无需单独安装 Cursor BYOK；Android/Termux 不支持桌面 Cursor。内置源码的许可证见 `THIRD-PARTY-NOTICES.txt`。\n'
   printf -- '- 使用 `SHA256SUMS` 校验下载文件。Windows/Linux 未签名；macOS 默认临时签名，配置本仓库的 Apple 凭据后才启用正式签名和公证。\n\n'
-  printf '本 fork 尚未启用自动更新，请从[本仓库 Releases](https://github.com/zwenooo/magpie/releases)下载新版。变更提交见上方列表。\n'
+  printf '本版本直接从[我们自己的 GitHub Releases](https://github.com/zwenooo/magpie/releases)检查更新和读取更新说明，无需额外更新服务器或 GitHub Token。自动检查、下载和重启仍遵循现有设置；稳定渠道保留每周选择已发布至少三天版本的规则。\n\n'
+  printf '如果正在使用 `va.0.1.1725-vb.0.0.5` 或更早版本，需要手动下载安装本版本一次，因为旧版尚未启用更新源。此后按设置获取本 fork 的后续更新。Homebrew CLI 仍使用 `brew upgrade`。变更提交见上方列表。\n'
 } > "$output"

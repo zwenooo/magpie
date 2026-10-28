@@ -26,9 +26,12 @@ type Note struct {
 }
 
 // NotesFeed is where the notes of past releases are listed.
-// MAGPIE_NOTES_FEED opts this fork into an explicitly configured feed.
+// MAGPIE_NOTES_FEED overrides the built-in GitHub release adapter; off disables it.
 func NotesFeed() string {
 	if f := os.Getenv("MAGPIE_NOTES_FEED"); f != "" {
+		if f == "off" {
+			return ""
+		}
 		return f
 	}
 	return forkNotesFeed
@@ -74,6 +77,9 @@ func NotesBack(ctx context.Context, upto string, n int, lang string) ([]Note, er
 // askNotes is the site's list for q, each release's notes in lang.
 func askNotes(ctx context.Context, q url.Values, lang string) ([]Note, error) {
 	feed := NotesFeed()
+	if feed == forkNotesFeed {
+		return forkNotes(ctx, lang)
+	}
 	if feed == "" {
 		return nil, errNotesDisabled
 	}

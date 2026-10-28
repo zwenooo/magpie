@@ -13,6 +13,7 @@ native/cursor-backend/           Vendored MIT headless backend maintained by us
 internal/agent/cursorbyok.go     Magpie Agent/catalog/key adapter
 internal/agent/agents.go         One registration in builtins
 internal/update/fork.go          Fork update policy and release identity
+internal/update/fork_github.go   GitHub Releases adapter and channel selection
 internal/provider/fork_presets.go Fork-owned provider presets (CodeZ)
 internal/provider/fork_partners.go Partner-feed policy (off by default)
 docs/cursor-byok.md              Setup and synchronization contract
@@ -115,13 +116,31 @@ CI also builds macOS DMG/ZIP and Linux desktop packages on native runners,
 both arm64 and amd64, plus all seven upstream CLI targets. See the complete
 [artifact and credential matrix](docs/ci.md).
 
-The fork disables the upstream update/notes feeds by default. A release
-build must not silently replace itself with the official binary and lose
-fork features. Until a fork feed is operated, update by downloading our
-CI artifacts or rebuilding this repository. `MAGPIE_UPDATE_FEED` and
-`MAGPIE_NOTES_FEED` remain explicit overrides for controlled feeds/tests.
-Release-page links point to `zwenooo/magpie`. Branch builds produce artifacts; only a verified version tag and successful
-checks permit publication. CI does not operate an automatic update feed.
+Updates and release notes come directly from the public GitHub Releases API
+for `zwenooo/magpie`; no separate feed server or GitHub token is required.
+The adapter accepts published, non-preview `va.<official>-vb.<fork>` releases
+from this repository, requires the complete 17-file release set and its
+SHA-256 manifest, and passes verified asset metadata to the existing updater.
+It does not discover official upstream binaries or privacy-filter releases.
+The default channel offers each formal fork release. Stable keeps upstream's
+weekly selection: the newest release already three days old at Monday
+00:00 UTC, or a newer release marked urgent.
+
+The application's existing automatic-check, automatic-download and restart
+settings still control when an update is fetched and installed. Setting
+`MAGPIE_UPDATE_FEED=off` or `MAGPIE_NOTES_FEED=off` disables that feed;
+explicit URLs keep the existing custom feed formats. Release metadata and
+checksums come from GitHub directly through the configured proxy, while an
+asset download may use the user's configured mirror and must still match
+its SHA-256. See [application updates](docs/ci.md#application-updates).
+
+Releases through `va.0.1.1725-vb.0.0.5` have the old disabled-feed policy.
+They need one manual installation of the update-enabled release, planned
+as `va.0.1.1725-vb.0.0.6`, or a later version. After that, checks and downloads
+follow the saved settings. Homebrew CLI installs continue to use
+`brew upgrade`; the macOS cask can update from within the app. Branch builds
+produce artifacts; only a verified version tag and successful checks permit
+publication.
 
 ## Verification
 
@@ -131,6 +150,7 @@ files). Pin `GOPATH`, `GOMODCACHE` and `GOCACHE` before changing HOME.
 ```text
 go test -tags nogui ./internal/cursorbyok ./internal/agent ./internal/update -run 'TestCursorBYOK|TestPortMovesEveryAgent|TestDisconnectStaysThroughSync|TestGrokInstalled|TestFork' -count=1
 go test -tags nogui ./internal/provider ./internal/stats -run 'TestFork|TestPartners|TestPartner|TestCountPartner|TestNoticePartners|TestSendPartnerCounts' -count=1
+go test -tags nogui ./internal/update -run '^TestFork' -count=1
 node --test internal/gui/tests/fork-providers.test.cjs
 go test -race -tags nogui ./internal/cursorbyok ./internal/agent -run '^TestCursorBYOK' -count=1
 go vet ./...

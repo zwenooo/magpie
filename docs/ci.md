@@ -138,6 +138,57 @@ Docker and releases use this repository's normal `GITHUB_TOKEN` with only
 the needed job permissions. Workflow settings must allow the required
 contents/package writes; no personal token is embedded in the repository.
 
+## Application updates
+
+The update-enabled fork reads release metadata and notes directly from
+`https://api.github.com/repos/zwenooo/magpie/releases`. It needs no hosted
+feed service, access token or upstream release credentials. The small adapter
+in `internal/update/fork_github.go` supplies upstream's existing download,
+SHA-256 verification, staging and installation code.
+
+Only published, non-preview releases with a valid
+`va.<official>-vb.<fork>` tag and this repository's release page qualify.
+Before offering a download, the adapter requires the complete 17-file set,
+including `THIRD-PARTY-NOTICES.txt` and `SHA256SUMS`, validates asset URLs and
+sizes, and reads the checksums from GitHub. Missing, duplicate or conflicting
+checksums fail the check. Downloaded bytes must match the selected asset's
+SHA-256 before installation. Drafts, ordinary upstream `v*` releases and
+`pf-v*` helper releases are not application updates.
+
+The default channel offers the highest formal fork version. The Stable
+channel preserves upstream's weekly rule: at Monday 00:00 UTC, select the
+newest release published at least 72 hours earlier; a newer release whose
+notes contain `**Urgent release:**` can be offered immediately. Ineligible
+or unavailable metadata does not mean the installed version is current:
+the check reports the error and links to this fork's Releases page.
+
+Existing settings still govern automatic checking, downloading and restarting.
+The defaults check every six hours and download a discovered update; automatic
+restart remains off. Turning off automatic checks leaves manual checks
+available. Turning off automatic downloads shows the available version until
+the user requests its download. `MAGPIE_UPDATE_FEED=off` and
+`MAGPIE_NOTES_FEED=off` independently disable these feeds. Explicit custom
+URLs continue to use the original update/notes JSON formats. Update metadata
+and checksum requests use the configured proxy but bypass asset mirrors;
+binary downloads retain the existing mirror setting and hash verification.
+
+Releases through `va.0.1.1725-vb.0.0.5` cannot discover this change because
+their built-in feeds are disabled. Install an update-enabled package manually
+once; the first such release is planned as `va.0.1.1725-vb.0.0.6`. Later
+updates follow the installed application's settings. GitHub network errors
+or API rate limits can delay a check; manual downloads remain available.
+
+The three-platform fork check already runs every `TestFork*` test in
+`internal/update`, including GitHub selection, notes, pagination, trust
+boundaries and checksums. The full Test workflow also runs that package on
+Linux/macOS and compiles it on Windows. The fork workflow runs the GUI check,
+download and Cursor restart regressions on all three platforms, with race
+checks on Linux and macOS. A focused local check is:
+
+```sh
+go test -tags nogui ./internal/update -run '^TestFork' -count=1
+```
+
 ## Homebrew and helper releases
 
 After a successful stable application Release, `scripts/update-tap.sh`
@@ -153,8 +204,16 @@ brew install zwenooo/magpie/magpie
 brew install --cask zwenooo/magpie/magpie-app
 ```
 
-The fork's automatic application feed remains disabled; Homebrew users
-update through Homebrew. CI availability is separate from feed hosting.
+The CLI formula stays managed by Homebrew: `magpie update` directs a Cellar
+installation to `brew upgrade zwenooo/magpie/magpie`. The macOS cask installs
+`magpie.app`, whose own updater can download and install fork releases.
+Casks for the update-enabled releases declare `auto_updates true`, matching
+[Homebrew's definition](https://docs.brew.sh/Cask-Cookbook): the application
+does the download and installation itself. Homebrew normally skips these
+casks during `brew upgrade`; use `brew upgrade --greedy --cask
+zwenooo/magpie/magpie-app` when intentionally updating them through Homebrew.
+The initial `.5` and earlier casks omit that declaration, so Homebrew can
+perform their first upgrade to an update-enabled version.
 
 The privacy-filter workflow builds Darwin arm64/amd64, Linux arm64/amd64,
 and Windows amd64 helper ZIPs. Its `pf-v*` prereleases are not main-app

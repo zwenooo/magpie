@@ -151,6 +151,9 @@ func TestWhatsNewQuietAfterRestartToUpdate(t *testing.T) {
 	run("0.1.604")
 
 	// "Restart to update" into 0.1.605: the restart notes it...
+	oldStopCursor := stopCursorBackend
+	stopCursorBackend = func() bool { return false }
+	t.Cleanup(func() { stopCursorBackend = oldStopCursor })
 	updates.mu.Lock()
 	oExe, oSelf, oLatest, oStaged := updates.exe, updates.self, updates.latest, updates.staged
 	updates.mu.Unlock()

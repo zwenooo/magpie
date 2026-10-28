@@ -16,11 +16,11 @@ type forkTransport func(*http.Request) (*http.Response, error)
 
 func (f forkTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-// A fork must never discover and install an official build by default.
+// An explicitly disabled feed must never discover or install a build.
 // Catch requests with a transport so a broken guard still reaches no network.
-func TestForkFeedsAreDisabledBeforeHTTP(t *testing.T) {
-	t.Setenv("MAGPIE_UPDATE_FEED", "")
-	t.Setenv("MAGPIE_NOTES_FEED", "")
+func TestForkFeedsCanBeDisabledBeforeHTTP(t *testing.T) {
+	t.Setenv("MAGPIE_UPDATE_FEED", "off")
+	t.Setenv("MAGPIE_NOTES_FEED", "off")
 	var requests atomic.Int32
 	old := client
 	client = &http.Client{Transport: forkTransport(func(r *http.Request) (*http.Response, error) {

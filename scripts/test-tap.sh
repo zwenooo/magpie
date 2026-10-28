@@ -18,6 +18,14 @@ for file in "$work/out/Formula/magpie.rb" "$work/out/Casks/magpie-app.rb"; do
   grep -Fq "https://github.com/zwenooo/magpie/releases/download/$tag/" "$file"
 done
 ! grep -Fq 'auto_updates true' "$work/out/Casks/magpie-app.rb"
+for legacy in va.0.1.1725-vb.0.0.4 va.0.1.1725-vb.0.0.5; do
+  TAP_SUMS_FILE="$work/sums" TAP_OUT_DIR="$work/legacy" bash "$root/scripts/update-tap.sh" "$legacy"
+  ! grep -Fq 'auto_updates true' "$work/legacy/Casks/magpie-app.rb"
+done
+for enabled in va.0.1.1725-vb.0.0.6 va.0.1.1725-vb.0.0.10 va.0.1.1726-vb.0.0.1; do
+  TAP_SUMS_FILE="$work/sums" TAP_OUT_DIR="$work/enabled" bash "$root/scripts/update-tap.sh" "$enabled"
+  grep -Fq 'auto_updates true' "$work/enabled/Casks/magpie-app.rb"
+done
 for spec in 'arm:5' 'intel:6'; do
   hash=$(printf '%064x' "${spec#*:}")
   grep -E "${spec%:*}:.*$hash" "$work/out/Casks/magpie-app.rb" > /dev/null

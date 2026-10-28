@@ -44,6 +44,12 @@ latest_version() {
 render() {
   parse_fork_release "$1" || die "invalid fork release tag: $1"
   local version="$release_version" tag="$release_tag"
+  local cask_updates='  auto_updates true'
+  # Only the initial published packages predate the GitHub updater. A newer
+  # upstream base starts its fork counter again, while keeping that capability.
+  case "$tag" in
+    va.0.1.1725-vb.0.0.[0-5]) cask_updates='  # This release predates in-app updates; upgrade it through Homebrew.' ;;
+  esac
   local sums
   if [ -n "${TAP_SUMS_FILE:-}" ]; then
     sums="$(cat "$TAP_SUMS_FILE")"
@@ -115,7 +121,7 @@ cask "magpie-app" do
   desc "$DESC"
   homepage "$HOMEPAGE"
 
-  # The fork has no automatic update feed; update through Homebrew.
+$cask_updates
   depends_on :macos
 
   app "magpie.app"

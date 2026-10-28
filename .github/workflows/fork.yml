@@ -32,8 +32,10 @@ jobs:
           go-version-file: go.mod
       - name: Verify fork integration
         run: go test -tags nogui ./internal/cursorbyok ./internal/agent ./internal/update -run 'TestCursorBYOK|TestPortMovesEveryAgent|TestDisconnectStaysThroughSync|TestGrokInstalled|TestFork' -count=1 -timeout 10m
+      - name: Verify application updates and Cursor restart
+        run: go test -tags nogui ./internal/gui -run 'TestForkUpdate|TestCursorBackend' -count=1 -timeout 5m
       - name: Vet
         run: go vet -tags nogui ./...
       - name: Race check
         if: runner.os != 'Windows'
-        run: go test -race -tags nogui ./internal/cursorbyok ./internal/agent -run '^TestCursorBYOK' -count=1 -timeout 5m
+        run: go test -race -tags nogui ./internal/cursorbyok ./internal/agent ./internal/update ./internal/gui -run 'TestCursorBYOK|TestCursorBackend|TestFork' -count=1 -timeout 5m

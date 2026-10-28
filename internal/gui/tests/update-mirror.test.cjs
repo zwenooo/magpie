@@ -4,7 +4,7 @@
 // `magpie update mirror`), and GitHub is one click back. A download that
 // failed through the mirror says it's the mirror's and offers GitHub, which
 // takes the mirror away and downloads again. No click moves the page,
-// nothing is a native select, no left border. English and Chinese; no
+// nothing is a native select, no left border. All five languages; no
 // backend, the API is faked.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -17,11 +17,20 @@ const assets = path.resolve(__dirname, "../assets");
 
 const words = {
   en: { row: "Download source", use: "Use a mirror…", save: "Save", github: "Use GitHub", change: "Change", bad: "full https:// address",
-    tip: "a file from the mirror that doesn't match it is not installed",
+    tip: "a file that doesn't match it is not installed",
     viaGitHub: "downloaded from GitHub", viaMirror: "through this mirror", failed: "through the mirror", official: "Download from GitHub" },
-  zh: { row: "下载源", use: "使用镜像…", save: "保存", github: "恢复官方", change: "修改", bad: "完整的 https:// 地址",
-    tip: "从镜像下载的文件如果与校验和不符，magpie 不会安装它",
-    viaGitHub: "从官方 GitHub 下载", viaMirror: "经此镜像下载", failed: "经镜像", official: "改用官方下载" },
+  zh: { row: "下载源", use: "使用镜像…", save: "保存", github: "改用 GitHub", change: "修改", bad: "完整的 https:// 地址",
+    tip: "文件如果与校验和不符，magpie 不会安装它",
+    viaGitHub: "从 GitHub 下载", viaMirror: "经此镜像下载", failed: "经镜像", official: "改从 GitHub 下载" },
+  "zh-TW": { row: "下載源", use: "使用鏡像…", save: "儲存", github: "改用 GitHub", change: "修改", bad: "完整的 https:// 位址",
+    tip: "檔案如果與檢查碼不符，magpie 不會安裝它",
+    viaGitHub: "從 GitHub 下載", viaMirror: "經此鏡像下載", failed: "經鏡像", official: "改從 GitHub 下載" },
+  ja: { row: "ダウンロード元", use: "ミラーを使う…", save: "保存", github: "GitHub に切り替える", change: "変更", bad: "完全な https:// アドレス",
+    tip: "一致しないファイルはインストールしません",
+    viaGitHub: "GitHub からダウンロード", viaMirror: "このミラー経由", failed: "ミラー", official: "GitHub からダウンロード" },
+  de: { row: "Downloadquelle", use: "Spiegel verwenden…", save: "Speichern", github: "GitHub verwenden", change: "Ändern", bad: "vollständige https://-Adresse",
+    tip: "Eine Datei, die nicht dazu passt, wird nicht installiert",
+    viaGitHub: "von GitHub geladen", viaMirror: "über diesen Spiegel", failed: "über den Spiegel", official: "Von GitHub laden" },
 };
 
 const M = "https://mirror.example/gh/";
@@ -96,7 +105,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
   test(engine + ": Download source sets a mirror, and GitHub is one click back", async (t) => {
     const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
     t.after(() => browser.close());
-    for (const lang of ["en", "zh"]) {
+    for (const lang of ["en", "zh", "zh-TW", "ja", "de"]) {
       const w = words[lang];
       await t.test(lang + ": a mirror typed in, a bad one refused, GitHub back", async () => {
         const ctl = { posts: [] };
@@ -107,6 +116,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.equal((await row.locator("code").innerText()).trim(), "GitHub");
         // the tooltip's second half reads as a sentence (AlwaySleepyZzz on Discord)
         assert.ok((await row.locator(".sub").getAttribute("title")).includes(w.tip), "the tooltip says a mismatched mirror file is not installed");
+        assert.ok(!(await row.locator(".sub").getAttribute("title")).includes("usemagpie.ai"), "fork checksum advice must not name the upstream feed");
         assert.equal(await page.locator("#about select").count(), 0, "no native select");
         const widths = await row.evaluate((e) => [e, ...e.querySelectorAll("*")].map((x) => parseFloat(getComputedStyle(x).borderLeftWidth) || 0));
         assert.ok(widths.every((x) => x === 0), "no left border");
@@ -125,6 +135,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await row.locator("input.update-mirror-input").fill(M);
         await row.locator("input.update-mirror-input").press("Enter");
         await row.locator(".sub", { hasText: w.viaMirror }).waitFor();
+        assert.ok(!(await row.locator(".sub").innerText()).includes("usemagpie.ai"), "mirror advice must use the release checksum");
         assert.equal((await row.locator("code").innerText()).trim(), M);
         assert.deepEqual(ctl.posts, [["mirror", { mirror: "http://mirror.example/" }], ["mirror", { mirror: M }]]);
 
@@ -141,7 +152,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           update: { state: "error", current: "0.1.900", latest: "0.1.901", retry: true, mirror: M, error: "through the mirror " + M + ": 502 Bad Gateway" } };
         const errors = [];
         const { page } = await open(browser, lang, ctl, errors);
-        const ver = page.locator("#about .row.pref", { has: page.locator(".sub", { hasText: w.failed }) });
+        const ver = page.locator("#about .row.pref:not(.update-mirror-row)", { has: page.locator(".sub", { hasText: w.failed }) });
         await ver.waitFor();
         assert.match(await ver.locator(".sub").innerText(), new RegExp(M.replace(/[./]/g, "\\$&")));
         const official = ver.locator("button", { hasText: w.official });

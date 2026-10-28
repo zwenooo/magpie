@@ -472,7 +472,8 @@ The trigger is `handsOver` in
 [`handover.go`](../../internal/gui/handover.go): the app (`Run` sets
 `handoverHost` and `startExe`), on darwin or linux, serving the gateway
 itself, not a dev backend (whose own handover is `gateway.Handover`,
-below) and no `MAGPIE_NO_HANDOVER` in the environment. `restartInto` in [`update.go`](../../internal/gui/update.go)
+below), no running or starting Cursor backend, and no `MAGPIE_NO_HANDOVER` in
+the environment. `restartInto` in [`update.go`](../../internal/gui/update.go)
 then calls `beginHandover` instead of the relaunch-after-exit. The steps:
 
 1. The old magpie opens an Offer ([`internal/handoff`](../../internal/handoff/handoff.go)):
@@ -565,6 +566,15 @@ Windows has no SCM_RIGHTS for a listening socket in this form, and
 `magpie web` re-executes itself in place; both restart as before, waiting
 for the gateway to be idle (#577). `make dev` keeps its own handover, a
 new backend listening beside the old one (`gateway.Handover`, `devBackend`).
+
+The fork's bundled Cursor backend also uses the ordinary restart path: its
+private runtime lock and Cursor settings ownership cannot be handed over.
+`restartInto` stops it synchronously before starting the replacement. Shutdown
+also blocks background catalog synchronization from starting another child;
+a failed replacement launch reopens the gate and restores the saved connection.
+Normal desktop shutdown and `Web.Wait` close the child as well. See
+[Cursor lifecycle](../cursor-byok.md) for the limits around a turn waiting on a
+tool; gateway idleness does not mean an entire Cursor conversation has ended.
 
 See `TestRestartHandsTheGatewayOver` (the new version a second process,
 a stream across the restart finishing whole, requests during it answered,

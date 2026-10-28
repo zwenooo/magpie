@@ -1,6 +1,6 @@
-// Package update keeps magpie current. Builds are published as GitHub
-// releases of yetone/magpie-releases; usemagpie.ai/api/latest describes the
-// newest one: its version, notes, and every file with its SHA-256.
+// Package update keeps magpie current. This fork reads its own GitHub
+// releases and SHA256SUMS; explicitly configured Magpie-format feeds are
+// also supported. Downloads, staging and installation share the same checks.
 //
 // The macOS app replaces its own bundle: the new zip is downloaded, checked
 // against its hash, unpacked, and accepted only if it is signed by the same
@@ -38,13 +38,16 @@ import (
 	"github.com/yetone/magpie/internal/source"
 )
 
-// Site is magpie's home; its /api/latest is the update feed.
-const Site = "https://usemagpie.ai"
+// Site is this fork's release page, including manual update recovery links.
+const Site = forkReleases
 
 // Feed is where the newest release is described. MAGPIE_UPDATE_FEED points
-// it elsewhere; this fork leaves it disabled unless explicitly configured.
+// it at an explicit Magpie-format feed; off disables update checks.
 func Feed() string {
 	if f := os.Getenv("MAGPIE_UPDATE_FEED"); f != "" {
+		if f == "off" {
+			return ""
+		}
 		return f
 	}
 	return forkUpdateFeed
@@ -85,6 +88,9 @@ func Latest(ctx context.Context) (*Release, error) { return LatestIn(ctx, "") }
 // Stable channel it is Stable's release (see Stable).
 func LatestIn(ctx context.Context, lang string) (*Release, error) {
 	feed := Feed()
+	if feed == forkUpdateFeed {
+		return forkLatest(ctx, lang, Stable())
+	}
 	if feed == "" {
 		return nil, errUpdatesDisabled
 	}
