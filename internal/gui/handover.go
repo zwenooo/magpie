@@ -22,9 +22,10 @@ import (
 // version rather than ending it (xuanwo on X): the new magpie is started
 // while this one runs, takes the socket the gateway listens on
 // (internal/handoff) and serves the next requests on it, while this one
-// stops accepting, finishes the requests it has, and quits. Nothing an
-// agent sends is refused or cut short on the way, so the restart waits
-// only for what can't go on in another process: the turns of Claude Code
+// stops accepting, finishes the requests it has, and quits. New connections
+// use the inherited listener, and active streams finish on the old one;
+// an idle HTTP keep-alive connection may close as that process shuts down.
+// The restart waits only for what can't go on in another process: the turns of Claude Code
 // run through the subscription bridge (restartBusy). Windows can't hand a
 // socket over this way and `magpie web` re-executes in place; both still
 // wait for the gateway to be idle (#577).

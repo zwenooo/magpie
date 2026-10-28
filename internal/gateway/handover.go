@@ -19,8 +19,8 @@ import (
 // (internal/handoff): the magpie updating gives the new version the
 // socket it listens on, the new one serves on it at once, and the old
 // stops accepting and finishes the requests it has (handedOffDrain at
-// most) before it quits. No connection is refused on the way: the socket
-// is never closed, only accepted from by the other process.
+// most) before it quits. New connections use the inherited listening socket;
+// an idle keep-alive connection to the old process may close during shutdown.
 
 // handedOffDrain is how long a magpie that handed the gateway over waits
 // for its requests in flight to finish: the longest stream an agent has
@@ -188,14 +188,19 @@ func (s *Server) drainFor() time.Duration {
 }
 
 // unreadWait is how long a handover's end waits for a connection taken to
-// send its first request: as for net/http's Shutdown, one that sent
+// dispatch its first request: as for net/http's Shutdown, one that sent
 // nothing for 5s is idle.
 var unreadWait = 5 * time.Second
 
-// unreadConns are the connections the gateway took whose first request it
-// hasn't read yet. Shutdown closes such a connection unanswered when its
-// request is read after it began, so a handover's end waits for them
-// first: the agent's request is answered here, not cut.
+// httpServer gives the serving loop and the handover tests the same
+// connection tracking and request dispatch boundary.
+func (s *Server) httpServer() *http.Server {
+	return &http.Server{Handler: s.unread.handler(s.Front()), ReadHeaderTimeout: 30 * time.Second, IdleTimeout: 5 * time.Minute, ConnState: s.unread.note, ConnContext: s.unread.context}
+}
+
+// unreadConns are the connections the gateway took whose first request has
+// not reached a handler. StateActive precedes net/http's shutdown check;
+// waiting until handler entry prevents a parsed request being discarded.
 type unreadConns struct {
 	mu    sync.Mutex
 	conns map[net.Conn]bool
@@ -203,11 +208,14 @@ type unreadConns struct {
 	stopped bool
 }
 
-// note is the server's ConnState: a connection is unread from StateNew to
-// its next state, whichever it is.
+// note keeps StateActive pending until handler entry. A failed request or
+// TLS handshake can close before a handler, and must stop holding the drain.
 func (u *unreadConns) note(c net.Conn, state http.ConnState) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	if state == http.StateActive {
+		return
+	}
 	if state != http.StateNew {
 		delete(u.conns, c)
 		return
@@ -216,6 +224,23 @@ func (u *unreadConns) note(c net.Conn, state http.ConnState) {
 		u.conns = map[net.Conn]bool{}
 	}
 	u.conns[c] = true
+}
+
+type unreadConnKey struct{}
+
+func (u *unreadConns) context(ctx context.Context, conn net.Conn) context.Context {
+	return context.WithValue(ctx, unreadConnKey{}, conn)
+}
+
+func (u *unreadConns) handler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if conn, ok := r.Context().Value(unreadConnKey{}).(net.Conn); ok {
+			u.mu.Lock()
+			delete(u.conns, conn)
+			u.mu.Unlock()
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // stop is called once the server's Serve has returned. net/http notes a
@@ -229,7 +254,7 @@ func (u *unreadConns) stop() {
 }
 
 // wait returns once the server takes no more connections and none it took
-// is unread, after unreadWait at most, or when ctx ends.
+// awaits its first handler, after unreadWait at most, or when ctx ends.
 func (u *unreadConns) wait(ctx context.Context) {
 	for deadline := time.Now().Add(unreadWait); ; time.Sleep(10 * time.Millisecond) {
 		u.mu.Lock()

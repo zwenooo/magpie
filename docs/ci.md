@@ -177,11 +177,16 @@ behavior, with repeated Linux verification.
 exposed an accepted-connection gap in `http.Server.Shutdown`. This fork now
 includes upstream fix `11c427eaa61bd5e2be3aa727cd823cf3f50a3460` (#3568):
 handoff immediately stops the old listener, then waits for Serve to return
-and accepted connections to deliver their first request (at most five seconds)
-before beginning shutdown. The upstream regression tests fail on the old
+and accepted connections to enter their first handler (at most five seconds)
+before beginning shutdown. A follow-up closes the dispatch window left by
+the upstream fix: `StateActive` fires before net/http's shutdown check, so
+the connection remains pending until the outer handler starts. A deterministic
+test pauses a fresh request at that exact point and fails on the earlier code.
+The upstream regression tests fail on the old
 implementation with an unanswered POST/EOF or a request served by the old
 gateway after handoff; all four handoff tests pass 20 race-enabled repeats
-on Linux after the fix. The release gate remains enabled.
+on Linux after the fix. The GUI restart test checks fresh connections and an
+existing active stream, without client retries. The release gate remains enabled.
 
 This does not guarantee lossless transfer for idle keep-alive connections,
 TLS connections still in the local first-byte sniff, or connections queued on

@@ -499,9 +499,11 @@ then calls `beginHandover` instead of the relaunch-after-exit. The steps:
    began was closed unanswered (#3568). A handed-off server's shutdown
    waits up to `handedOffDrain` (15 minutes) for requests in flight, not
    the 2s an ordinary quit gives them (`shortDrain`), and first lets each
-   connection it took send its first request (`unreadWait`, 5s at most),
-   since `http.Server.Shutdown` closes one whose request it reads after
-   it began. Its `OnShutdown` then skips what goes with the gateway,
+   connection it took enter its first handler (`unreadWait`, 5s at most),
+   since `StateActive` still precedes net/http's shutdown check. The GUI
+   handover test sends its repeated requests on fresh connections; an idle
+   keep-alive connection to the old process may close during shutdown.
+   Its `OnShutdown` then skips what goes with the gateway,
    which the new one now does: ending Codex's failover, porting Codex
    rollouts and installing the update.
 4. Should the Offer not open, the new version not start, not say hello in

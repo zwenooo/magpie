@@ -287,9 +287,12 @@ recorded as a prediction failure (`noPrediction`).
   one stop accepting at once (`stopAccepting`: its copy of the socket goes,
   the new one's keeps it open) and its shutdown wait up to `handedOffDrain`
   (15 minutes) for its requests in flight instead of `shortDrain` (2s).
-  Before that shutdown, each connection it took sends its first request
-  (`unreadConns`, `unreadWait` 5s at most): `http.Server.Shutdown` closes
-  one whose request it reads after it began unanswered (#3568). Requests
+  Before that shutdown, each connection it took reaches its first handler
+  (`unreadConns`, `unreadWait` 5s at most): `StateActive` occurs before
+  net/http's shutdown check, so the connection stays pending until the
+  outer handler starts, using its `ConnContext` identity. A failed request
+  or TLS handshake is cleared on connection close. Idle keep-alive connections
+  may still close during shutdown. Requests
   per minute, concurrency and sticky routing's in-memory state are each
   process's own: sticky routing is flushed to disk before the socket goes
   (`FlushSticks`), but while the old one drains, a provider's limits can be
@@ -298,6 +301,8 @@ recorded as a prediction failure (`noPrediction`).
   `TestHandedOffGatewayTakesNoNewConnection`,
   `TestHandedOffGatewayAnswersAConnectionItTook`,
   `TestHandedOffGatewayAnswersAConnectionNotedLate`,
+  `TestHandedOffGatewayWaitsForFirstHandler` in
+  [`handover_dispatch_test.go`](../../internal/gateway/handover_dispatch_test.go),
   `TestInheritedForAnotherAddressIsLetGo`, `TestToolCallOfTheMagpieBeforeGoesToIt` in
   [`handover_test.go`](../../internal/gateway/handover_test.go).
 - An agent's turn (Chat, Responses, Messages, Gemini's generateContent and

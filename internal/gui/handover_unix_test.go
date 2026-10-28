@@ -128,8 +128,9 @@ func servedByPid(addr string) int {
 // xuanwo on X: a restart to update on a Mac or Linux hands the gateway to
 // the new version, a process of its own, rather than waiting for it to be
 // idle. A reply streaming through the old one when it restarts finishes
-// whole; requests sent meanwhile are answered, by the new one once it
-// serves; and the old one quits only once its stream has ended.
+// whole; requests on fresh connections are answered, by the new one once
+// it serves; and the old one quits only once its stream has ended. Idle
+// keep-alive connections remain subject to net/http's shutdown close.
 func TestRestartHandsTheGatewayOver(t *testing.T) {
 	release := make(chan struct{})
 	up := slowUpstream(t, release)
@@ -173,6 +174,8 @@ func TestRestartHandsTheGatewayOver(t *testing.T) {
 
 	// requests all along the restart are answered
 	var asked, answered atomic.Int32
+	client := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{DisableKeepAlives: true}}
+	t.Cleanup(client.CloseIdleConnections)
 	stopAsking := make(chan struct{})
 	asking := make(chan struct{})
 	var stopOnce sync.Once
@@ -187,9 +190,9 @@ func TestRestartHandsTheGatewayOver(t *testing.T) {
 			default:
 			}
 			asked.Add(1)
-			r, err := http.Post("http://"+addr+"/v1/chat/completions", "application/json", strings.NewReader(`{"model":"plan/m1","messages":[{"role":"user","content":"hi"}]}`))
+			r, err := client.Post("http://"+addr+"/v1/chat/completions", "application/json", strings.NewReader(`{"model":"plan/m1","messages":[{"role":"user","content":"hi"}]}`))
 			if err != nil {
-				t.Errorf("a request during the restart: %v", err)
+				t.Errorf("a request on a fresh connection during the restart: %v", err)
 				return
 			}
 			b, _ := io.ReadAll(r.Body)
