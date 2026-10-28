@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -24,11 +26,11 @@ func TestDownloadRetriesAndReports(t *testing.T) {
 		body[i] = byte(i)
 	}
 	sum := sha256.Sum256(body)
-	tries := 0
+	var tries atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tries++
+		attempt := tries.Add(1)
 		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
-		if tries == 1 {
+		if attempt == 1 {
 			w.Write(body[:1000]) // then the connection goes
 			return
 		}
@@ -42,8 +44,8 @@ func TestDownloadRetriesAndReports(t *testing.T) {
 	if err := download(ctx, Asset{URL: srv.URL, SHA256: hex.EncodeToString(sum[:])}, path); err != nil {
 		t.Fatal(err)
 	}
-	if tries != 2 {
-		t.Fatalf("tries = %d, want 2", tries)
+	if got := tries.Load(); got != 2 {
+		t.Fatalf("tries = %d, want 2", got)
 	}
 	if done != int64(len(body)) || total != int64(len(body)) {
 		t.Fatalf("progress = %d/%d, want %d/%d", done, total, len(body), len(body))
@@ -71,10 +73,14 @@ func TestDownloadResumesWhereItBrokeOff(t *testing.T) {
 		body[i] = byte(i * 7)
 	}
 	sum := sha256.Sum256(body)
+	var rangesMu sync.Mutex
 	var ranges []string
 	cut := []int{100 << 10, 300 << 10} // where the first two tries break off
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rangesMu.Lock()
 		ranges = append(ranges, r.Header.Get("Range"))
+		attempt := len(ranges) - 1
+		rangesMu.Unlock()
 		from := 0
 		if rg := r.Header.Get("Range"); rg != "" {
 			from, _ = strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(rg, "bytes="), "-"))
@@ -85,8 +91,8 @@ func TestDownloadResumesWhereItBrokeOff(t *testing.T) {
 			w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 		}
 		to := len(body)
-		if n := len(ranges) - 1; n < len(cut) {
-			to = cut[n]
+		if attempt < len(cut) {
+			to = cut[attempt]
 		}
 		w.Write(body[from:to])
 		if to < len(body) {
@@ -104,8 +110,11 @@ func TestDownloadResumesWhereItBrokeOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"", "bytes=102400-", "bytes=307200-"}
-	if !slices.Equal(ranges, want) {
-		t.Fatalf("ranges asked = %q, want %q", ranges, want)
+	rangesMu.Lock()
+	gotRanges := slices.Clone(ranges)
+	rangesMu.Unlock()
+	if !slices.Equal(gotRanges, want) {
+		t.Fatalf("ranges asked = %q, want %q", gotRanges, want)
 	}
 	if b, _ := os.ReadFile(path); !bytes.Equal(b, body) {
 		t.Fatalf("file has %d bytes, not the release's", len(b))
@@ -122,10 +131,9 @@ func TestDownloadResumedFileIsStillChecked(t *testing.T) {
 	quickRetries(t)
 	body := bytes.Repeat([]byte("magpie"), 50<<10)
 	sum := sha256.Sum256(body)
-	tries := 0
+	var tries atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tries++
-		if tries == 1 {
+		if tries.Add(1) == 1 {
 			w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 			w.Write(body[:1000])
 			w.(http.Flusher).Flush()
@@ -154,9 +162,9 @@ func TestDownloadResumedFileIsStillChecked(t *testing.T) {
 // and the cause, not the signed address it was redirected to.
 func TestDownloadDroppedConnectionErrorKeepsAddressOut(t *testing.T) {
 	quickRetries(t)
-	tries := 0
+	var tries atomic.Int32
 	assets := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tries++
+		tries.Add(1)
 		conn, _, _ := w.(http.Hijacker).Hijack()
 		conn.Close() // EOF, no answer at all
 	}))
@@ -171,8 +179,8 @@ func TestDownloadDroppedConnectionErrorKeepsAddressOut(t *testing.T) {
 	if err == nil || !Network(err) {
 		t.Fatalf("err = %v, want a network error", err)
 	}
-	if tries != len(retryWaits)+1 {
-		t.Fatalf("tries = %d, want %d", tries, len(retryWaits)+1)
+	if got := tries.Load(); int(got) != len(retryWaits)+1 {
+		t.Fatalf("tries = %d, want %d", got, len(retryWaits)+1)
 	}
 	if msg := err.Error(); strings.Contains(msg, "SECRET") || strings.Contains(msg, "http") || !strings.Contains(msg, "magpie.new") || !strings.Contains(msg, "EOF") {
 		t.Fatalf("error = %q", msg)
@@ -186,14 +194,14 @@ func TestDownloadDroppedConnectionErrorKeepsAddressOut(t *testing.T) {
 // again and again.
 func TestDownloadNotFoundIsNotRetried(t *testing.T) {
 	quickRetries(t)
-	tries := 0
+	var tries atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tries++
+		tries.Add(1)
 		http.NotFound(w, r)
 	}))
 	defer srv.Close()
 	err := download(context.Background(), Asset{URL: srv.URL, SHA256: "00"}, filepath.Join(t.TempDir(), "magpie.new"))
-	if err == nil || Network(err) || tries != 1 {
-		t.Fatalf("err = %v after %d tries, want one 404", err, tries)
+	if got := tries.Load(); err == nil || Network(err) || got != 1 {
+		t.Fatalf("err = %v after %d tries, want one 404", err, got)
 	}
 }
