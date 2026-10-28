@@ -120,7 +120,7 @@ var alibabaPlanModels = []string{"auto", "qwen3.8-max", "qwen3.8-flash", "qwen3.
 	"deepseek-v4.1-flash", "deepseek-v4-pro", "deepseek-v4-pro-0813", "deepseek-v4-flash-0731", "glm-5.3", "glm-5.2"}
 
 // presets are ordered as they appear in the picker.
-var presets = []PresetDef{
+var presets = append(forkPresets(), []PresetDef{
 	{ID: "anthropic", Name: "Anthropic", Icon: "claude-color", Kind: KindVendor, Catalog: "anthropic",
 		Anthropic: "https://api.anthropic.com",
 		Website:   "https://console.anthropic.com", KeysURL: "https://console.anthropic.com/settings/keys",
@@ -611,7 +611,7 @@ var presets = []PresetDef{
 		Endpoint:       "http://192.168.1.20:3425",
 		EndpointHint:   "The address and API key the other computer's magpie shows in Settings → Network and sharing, under Share on local network. Its models and routing groups are listed here; each request goes on in the API the agent spoke.",
 		EndpointNeeded: "The other magpie's address is needed"},
-}
+}...)
 
 func bedrockChat(region string) string {
 	return "https://bedrock-runtime." + region + ".amazonaws.com/openai/v1"

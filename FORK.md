@@ -13,6 +13,8 @@ native/cursor-backend/           Vendored MIT headless backend maintained by us
 internal/agent/cursorbyok.go     Magpie Agent/catalog/key adapter
 internal/agent/agents.go         One registration in builtins
 internal/update/fork.go          Fork update policy and release identity
+internal/provider/fork_presets.go Fork-owned provider presets (CodeZ)
+internal/provider/fork_partners.go Partner-feed policy (off by default)
 docs/cursor-byok.md              Setup and synchronization contract
 build/fork/                     Fork build and upstream merge commands
 .github/workflows/fork.yml       Fork integration checks on three platforms
@@ -37,6 +39,20 @@ Translations remain in upstream's existing notice registry, with one entry
 per language. Creating a second UI loader solely for one notice would add
 more coupling than these five entries. The Go module path remains
 `github.com/yetone/magpie`, so upstream imports merge without mass rewrites.
+
+CodeZ is an ordinary `KindRelay` preset in `internal/provider/fork_presets.go`.
+The upstream preset table includes fork presets through one initializer hook,
+so the GUI, CLI and endpoint imports all use the same registration. CodeZ
+uses `https://api.codezsy.com` for API traffic and `https://codezsy.com` for
+its website and key management; models come from the user's key, not a fixed
+list maintained in this fork.
+
+Partner promotions are off by default through `fork_partners.go`. This stops
+the feed, cached promotion display, new-partner notices and partner statistics.
+Existing provider records are not edited; their cached preset metadata remains
+available as an ordinary relay without sponsorship. The explicit
+`MAGPIE_PARTNERS` override is retained for private catalogs and isolated tests.
+The upstream GUI needs no separate fork layout or deleted partner components.
 
 ## Remotes and branches
 
@@ -65,6 +81,9 @@ On each merge, pay attention to:
   the dry-run boundary in the thin adapter.
 - The five notice translations and their English template.
 - The small fork hooks in `internal/update/update.go` and `notes.go`.
+- The fork preset initializer and partner-source/count hooks; CodeZ must remain
+  a normal preset, default partner promotions must remain off, and existing
+  configured providers must retain their data.
 - The own-repository release, Docker and UI preview targets and their
   credential boundaries. The full workflow matrix and publication gates are
   documented in [CI and release builds](docs/ci.md).
@@ -111,6 +130,8 @@ files). Pin `GOPATH`, `GOMODCACHE` and `GOCACHE` before changing HOME.
 
 ```text
 go test -tags nogui ./internal/cursorbyok ./internal/agent ./internal/update -run 'TestCursorBYOK|TestPortMovesEveryAgent|TestDisconnectStaysThroughSync|TestGrokInstalled|TestFork' -count=1
+go test -tags nogui ./internal/provider ./internal/stats -run 'TestFork|TestPartners|TestPartner|TestCountPartner|TestNoticePartners|TestSendPartnerCounts' -count=1
+node --test internal/gui/tests/fork-providers.test.cjs
 go test -race -tags nogui ./internal/cursorbyok ./internal/agent -run '^TestCursorBYOK' -count=1
 go vet ./...
 GOOS=linux go vet -tags nogui ./...

@@ -229,7 +229,8 @@ func TestPartnersFetchedOnStart(t *testing.T) {
 	}
 }
 
-// MAGPIE_PARTNERS=off lists none and asks nobody, whatever was kept.
+// MAGPIE_PARTNERS=off lists none and asks nobody, whatever was kept, while
+// preserving cached preset metadata for providers already configured.
 func TestPartnersOff(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	resetPartners()
@@ -247,8 +248,11 @@ func TestPartnersOff(t *testing.T) {
 	}
 	t.Setenv("MAGPIE_PARTNERS", "off")
 	resetPartners()
-	if got := Partners(); len(got) != 0 || Preset("acme") != nil {
+	if got := Partners(); len(got) != 0 {
 		t.Fatalf("off listed %s", partnerIDs(got))
+	}
+	if preset := Preset("acme"); preset == nil || preset.Kind != KindRelay || preset.Sponsored {
+		t.Fatalf("off lost the cached provider or kept its promotion: %+v", preset)
 	}
 	if asked.Load() != 1 {
 		t.Fatalf("asked %d times", asked.Load())

@@ -190,6 +190,8 @@ func TestSendPartnerCounts(t *testing.T) {
 	}))
 	defer srv.Close()
 	t.Setenv("MAGPIE_STATS_HOST", srv.URL)
+	// This upstream behavior is retained only for an explicitly enabled feed.
+	t.Setenv("MAGPIE_PARTNERS", srv.URL)
 	day := time.Date(2026, 9, 28, 9, 0, 0, 0, time.UTC)
 	partners := func(batch []map[string]any) []string {
 		var out []string

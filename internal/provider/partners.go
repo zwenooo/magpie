@@ -15,7 +15,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"testing"
 	"time"
 
 	"github.com/yetone/magpie/internal/appdir"
@@ -30,7 +29,8 @@ import (
 // from, so adding one, its editor and its key page work as a preset's do.
 
 // PartnersURL is where the list is kept; MAGPIE_PARTNERS moves it, and
-// MAGPIE_PARTNERS=off keeps to none.
+// MAGPIE_PARTNERS=off keeps to none. This fork defaults to off; historical
+// presets still describe providers the user configured before switching it off.
 const PartnersURL = "https://usemagpie.ai/api/partners"
 
 // KindPartner is a partner's Kind: the add sheet lists them apart.
@@ -106,16 +106,7 @@ var partnerID = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,40}$`)
 func partnerCacheFile() string { return filepath.Join(appdir.Cache(), "partners.json") }
 
 func partnersSource() string {
-	src := os.Getenv("MAGPIE_PARTNERS")
-	if src == "" {
-		if testing.Testing() {
-			// a test never asks the real site; one that wants a list
-			// names its own
-			return "off"
-		}
-		src = PartnersURL
-	}
-	return src
+	return forkPartnersSource(os.Getenv("MAGPIE_PARTNERS"))
 }
 
 // Partners are the partners listed now, in the list's order: what was
@@ -489,9 +480,6 @@ func keptPartnerIcons() []string {
 // partnerPreset is the preset of a partner listed now or before, for a
 // provider added from it: one no longer listed isn't Sponsored.
 func partnerPreset(id string) *PresetDef {
-	if partnersSource() == "off" {
-		return nil
-	}
 	partnerMu.Lock()
 	defer partnerMu.Unlock()
 	loadPartners()
@@ -500,6 +488,9 @@ func partnerPreset(id string) *PresetDef {
 		return nil
 	}
 	d := p.PresetDef
+	if partnersSource() == "off" {
+		return forkUnsponsoredPartner(d)
+	}
 	d.Sponsored = false
 	for _, l := range partnerState.Partners {
 		if l.ID == id && l.Live(time.Now()) {

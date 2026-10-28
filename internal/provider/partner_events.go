@@ -56,6 +56,9 @@ func partnerCountFile() string { return filepath.Join(appdir.Cache(), "partner-c
 // on, and what magpie is used with sent with them. internal/stats reads
 // the same switches.
 func partnerCounting() bool {
+	if partnersSource() == "off" {
+		return false
+	}
 	for _, k := range []string{"DO_NOT_TRACK", "MAGPIE_NO_STATS"} {
 		if v := os.Getenv(k); v != "" && v != "0" && v != "false" {
 			return false
@@ -121,6 +124,9 @@ func CountPartner(what string, ids ...string) {
 
 // PartnerCounts are the counts of the days before today, to be sent.
 func PartnerCounts(now time.Time) []PartnerCount {
+	if partnersSource() == "off" {
+		return nil
+	}
 	partnerCountMu.Lock()
 	defer partnerCountMu.Unlock()
 	c := readPartnerCounts()
@@ -150,6 +156,9 @@ func PartnerCounts(now time.Time) []PartnerCount {
 
 // PartnerCountsSent forgets the days that were sent: those before now's.
 func PartnerCountsSent(now time.Time) {
+	if partnersSource() == "off" {
+		return
+	}
 	partnerCountMu.Lock()
 	defer partnerCountMu.Unlock()
 	c := readPartnerCounts()

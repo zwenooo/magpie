@@ -63,6 +63,23 @@ keys and accounts per request is in [Gateway routing and fallback](gateway-routi
 | Protocol detection | Works out which of Chat, Responses, Anthropic Messages and Gemini generateContent a base URL speaks when a provider is added. Each is asked at the URL as it takes it (`DetectBase`); Gemini's at the `…/v1beta` beside a typed `…/v1` or bare host, a Gemini model from the list picked for it, with the key in `x-goog-api-key` (#1346). Detection, endpoint tests and model tests share `probe`, which adds `anthropic-version` only for Anthropic Messages; OpenAI probes omit that default so a relay that refuses it can answer. A model's test that the vendor turns away with its word that the model is served on another API (`catalog.WrongEndpoint`, the gateway's words) asks the next API the provider has a URL for, as the gateway's `usable` takes it (the model's picked or listed API, else each API it isn't named-only on), with a key that sees the model there (`keySeeing`); that API's answer is the model's, and with none left, or every one saying it, the first stays. As Codex the next API is asked with Codex's headers, as the gateway sends them on Responses and Chat; as Claude Code it isn't, since the gateway sends Claude Code's on Messages alone (#3766, `TestTestModelsMovesToTheAPIServingIt`, `TestTestModelsKeepsAModelOnItsAPI`, `TestTestModelsAsAClientMovesAsTheGatewayDoes`). User-supplied headers still apply through `Sign`. The editor asks with the form as it stands, before any Save (#1545): the URL, key and models typed (`picked`, else the saved picks, else the vendor list); a key not typed again is the saved provider's, or for an unsaved copy the copied one's (`copyOf`). The probe writes nothing and adds no provider, and the route stays behind `magpie web`'s key. | [`detect.go`](../../internal/provider/detect.go), [`test.go`](../../internal/provider/test.go) |
 | A pasted curl command | A curl command from a vendor's docs pasted into a custom provider's Base URL or API key fills the editor in (@mark_li21 on X). `curlOf` reads it as a shell would (lines joined by `\`, cmd's `^` or PowerShell's backtick; `curl.exe`; quotes and escapes), and takes: the API its URL's endpoint names (`…/chat/completions` Chat, `…/messages` Anthropic Messages, `…/responses` Responses) with the base URL before it, spelled as that API wants it (`respellURL`: Anthropic at its root, `/v1` after a bare host); the key from `Authorization: Bearer`, `x-api-key` or `api-key`, unless it only stands for one (`$OPENAI_API_KEY`, `${X}`, `%X%`, `<token>`, `YOUR_API_KEY`), when the key's box is left empty and focused; and the `model` of its JSON body, added to a new provider's models (a saved one's picks are left alone, since adding to none would narrow what it serves). A preset's editor takes only the key. A note (`editorError`, kind `note`) says what was taken, a placeholder like `{WorkspaceId}` left in the URL, and a URL with no known endpoint. Text that isn't a curl command pastes as before, several keys included. Tested on the docs' own examples (`fixtures/curl`). | [`app.js`](../../internal/gui/assets/app.js) (`curlOf`, `fromCurl`), [`provider-curl-paste.test.cjs`](../../internal/gui/tests/provider-curl-paste.test.cjs) |
 
+## Fork provider catalog
+
+This fork adds CodeZ through [`fork_presets.go`](../../internal/provider/fork_presets.go)
+and one initializer in the upstream preset table. It is an ordinary API relay,
+using Chat and Responses at `https://api.codezsy.com/v1`, Messages at
+`https://api.codezsy.com`, and key management at
+`https://codezsy.com/console/token`. It requires the user's API key and fetches
+that key's model list. No sponsored badge, affiliate link or account is added.
+
+[`fork_partners.go`](../../internal/provider/fork_partners.go) defaults the
+partner source to `off`; an explicit `MAGPIE_PARTNERS` value still overrides it.
+The default stops background fetching, cached promotion listing, notices and
+partner counts. Cached metadata for already-configured partner providers is
+still resolved without fetching, as a non-sponsored relay. Provider keys,
+selected models and endpoints are unchanged. The shared GUI naturally omits
+its partner section when no partners are listed.
+
 ## Remote magpie
 
 The `remote-magpie` preset is of its own kind, `KindRemote` (`remote`), not
