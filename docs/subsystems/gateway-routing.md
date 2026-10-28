@@ -299,7 +299,10 @@ recorded as a prediction failure (`noPrediction`).
   empty, until Codex and magpie were restarted; what held it wasn't
   found). After `unroutedShow` (15s) a route of provider `magpie` shows it
   on the Routing page as routing, and gives way to the request's own route
-  once one is begun (`noteRoute`, `trace.drop`). While the request is
+  once one is begun (`noteRoute`, `trace.drop`). The watcher uses the caller
+  captured when the request arrived, including a caller forwarded by another
+  magpie; its timer never rereads headers the handler may be changing while
+  decoding the body. While the request is
   masked its phase is `redact` (`phaseRedact`, `noteRedacting` in
   [`redact_phase.go`](../../internal/gateway/redact_phase.go), around
   every `redactedHits` and `maskTextHits`), on `/v1/magpie/concurrency`
