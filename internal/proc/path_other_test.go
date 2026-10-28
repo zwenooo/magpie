@@ -307,14 +307,18 @@ func TestAskShellOwnSession(t *testing.T) {
 // fishProbeOutput is what fish 4.9.3 printed for shellProbe under a
 // config.fish that echoes a line, puts /Users/john/.fishbin first on PATH
 // and sets CODEX_HOME: PATH joined with ':' (a path variable), then each of
-// agentenv.Vars. The captured tail after CODEX_HOME was all empty values;
-// it is padded to shellVars' count (agentenv.Vars, ProxyVars, then
-// agentenv.ClaudeProviders) as it is now.
+// shellVars. Only CODEX_HOME was set in the capture. Place it by name so
+// adding or reordering variables does not change which value fish supplied.
 func fishProbeOutput() string {
 	s := "hello from config.fish\n" + shellMark +
-		"/Users/john/.fishbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin" +
-		"\x00\x00/Users/john/codex"
-	return s + strings.Repeat("\x00", len(shellVars)-2) + shellMark
+		"/Users/john/.fishbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin"
+	for _, name := range shellVars {
+		s += "\x00"
+		if name == "CODEX_HOME" {
+			s += "/Users/john/codex"
+		}
+	}
+	return s + shellMark
 }
 
 // fakeShells makes HOME a temp folder with a login shell (SHELL) whose
