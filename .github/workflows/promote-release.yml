@@ -1,0 +1,111 @@
+name: Promote verified release
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Successful build-only Release run on main'
+        required: true
+        type: string
+      version:
+        description: 'Existing va.OFFICIAL-vb.FORK tag matching that build'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  publish:
+    if: github.repository == 'zwenooo/magpie' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN: ${{ inputs.run_id }}
+      REQUESTED_TAG: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check promotion verifier
+        run: node --test build/fork/promote-checks.test.mjs
+      - name: Verify source run, every required job, artifacts and prepared version
+        id: source
+        run: node build/fork/promote-checks.mjs "$SOURCE_RUN" "$REQUESTED_TAG"
+      - name: Verify tag and official baseline
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          source build/fork/release-version.sh
+          parse_fork_release "$REQUESTED_TAG"
+          git fetch --no-tags origin "refs/tags/$REQUESTED_TAG"
+          [[ $(git rev-parse 'FETCH_HEAD^{commit}') == "$SOURCE_SHA" ]]
+          git fetch --no-tags origin refs/heads/main
+          git merge-base --is-ancestor "$SOURCE_SHA" FETCH_HEAD
+          git fetch --no-tags https://github.com/yetone/magpie.git "refs/tags/v$upstream_version"
+          git merge-base --is-ancestor 'FETCH_HEAD^{commit}' "$SOURCE_SHA"
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ steps.source.outputs.bundle_id }}
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          repository: zwenooo/magpie
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ steps.source.outputs.notes_id }}
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          repository: zwenooo/magpie
+          path: notes
+          merge-multiple: true
+      - name: Verify complete download and recheck tag
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          (cd dist && sha256sum --check SHA256SUMS)
+          bash build/fork/release-assets.sh dist
+          [[ -s notes/release-notes.md && ! -L notes/release-notes.md ]]
+          grep -Fx "# magpie fork $REQUESTED_TAG" notes/release-notes.md
+          grep -Fx "Source: [\`$SOURCE_SHA\`](https://github.com/zwenooo/magpie/commit/$SOURCE_SHA)." notes/release-notes.md
+          git fetch --no-tags origin "refs/tags/$REQUESTED_TAG"
+          [[ $(git rev-parse 'FETCH_HEAD^{commit}') == "$SOURCE_SHA" ]]
+          git fetch --no-tags origin refs/heads/main
+          git merge-base --is-ancestor "$SOURCE_SHA" FETCH_HEAD
+      - name: Publish complete release
+        env:
+          VERSION: ${{ steps.source.outputs.version }}
+        run: |
+          if gh release view "$REQUESTED_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft > "$RUNNER_TEMP/existing-release.json" 2>/dev/null; then
+            jq -e '.isDraft == true' "$RUNNER_TEMP/existing-release.json" >/dev/null || { echo 'Refusing to overwrite a published release.' >&2; exit 1; }
+            gh release edit "$REQUESTED_TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes/release-notes.md
+            gh release upload "$REQUESTED_TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$REQUESTED_TAG" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "magpie fork $REQUESTED_TAG" --notes-file notes/release-notes.md
+          fi
+          gh release view "$REQUESTED_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | LC_ALL=C sort > "$RUNNER_TEMP/published-assets.txt"
+          find dist -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort > "$RUNNER_TEMP/expected-assets.txt"
+          diff -u "$RUNNER_TEMP/expected-assets.txt" "$RUNNER_TEMP/published-assets.txt"
+          latest_tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isLatest --jq '.[] | select(.isLatest) | .tagName')
+          latest_version=${latest_tag#v}
+          source build/fork/release-version.sh
+          if parse_fork_release "$latest_tag"; then latest_version=$release_version; fi
+          make_latest=false
+          if [[ -z "$latest_tag" ]] || [[ $(printf '%s\n%s\n' "$VERSION" "$latest_version" | sort -V | tail -1) == "$VERSION" ]]; then make_latest=true; fi
+          gh release edit "$REQUESTED_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest="$make_latest"

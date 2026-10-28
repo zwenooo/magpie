@@ -12,6 +12,7 @@ unchanged for source compatibility.
 | Workflow | Trigger | Result |
 | --- | --- | --- |
 | Release | Push to `main`/`feat/**`, `v*` tag, or manual dispatch | All native packages and checks; branch pushes build only |
+| Promote verified release | Manual dispatch from `main` with a successful Release run ID and matching public tag | Publish that run's already validated artifacts without rebuilding |
 | Test | Called by Release for its resolved SHA, PR, or manual dispatch | Upstream Linux/macOS tests and races, Windows compile/native tests, Linux/Android CLI and site checks |
 | Fork integration checks | Called by Release for the same SHA, PR, or manual dispatch | Cursor BYOK and update-policy tests on Linux, macOS and Windows |
 | Docker | `main`, `v*`, relevant PR, manual dispatch | Native amd64/arm64 smoke builds; trusted runs publish this fork's GHCR image and provenance |
@@ -100,6 +101,17 @@ No tag or public Release is created by merely migrating this CI or running
 a branch build. Docker is separate: successful trusted `main` runs publish
 `ghcr.io/zwenooo/magpie:edge`; version tags produce a manifest tagged with
 the complete public tag, such as `:va.0.1.1725-vb.0.0.1`.
+
+An explicitly versioned build-only Release run on `main` can also be published
+with **Promote verified release** after it completes successfully. Create the
+matching public tag at that run's source commit, then supply its run ID and tag.
+The promotion verifies all 24 required jobs, the original prepare log's exact
+source/version, unexpired artifacts, tag/main/official ancestry, and the same
+17-file checksum gate. It downloads and uploads inside Actions, without running
+artifact binaries or rebuilding them. Draft recovery and Latest ordering match
+the normal release workflow; public releases cannot be overwritten. Promotion
+does not update Homebrew automatically; run the existing tap update separately
+after publication. Its scripts come from the trusted `main` workflow commit.
 
 ## Optional credentials and services
 
