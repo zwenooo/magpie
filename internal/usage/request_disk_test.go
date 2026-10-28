@@ -21,6 +21,9 @@ import (
 // the ledger gives.
 func TestRequestChunksFromDisk(t *testing.T) {
 	pageHome(t)
+	// The final page can start another save too. Finish every write before
+	// cleanup restores the home and removes the directory it writes into.
+	defer requestDiskSaves.Wait()
 	now := holdClock(t, time.Date(2026, 9, 30, 12, 0, 0, 0, time.Local))
 	least := requestDiskLeast
 	requestDiskLeast = 2
@@ -108,6 +111,9 @@ func TestRequestChunksFromDisk(t *testing.T) {
 	if page(); reads.Load() == 0 || reads.Load() == all {
 		t.Fatalf("a cut file: %d reads, want the cut entry's and fewer than %d", reads.Load(), all)
 	}
+	// The rebuilt cut entry may be saving; don't let it replace the bad
+	// bytes this next case is meant to read.
+	requestDiskSaves.Wait()
 	os.WriteFile(requestDiskPath(), []byte("garbage"), 0600)
 	forget()
 	if page(); reads.Load() != all {
