@@ -46,8 +46,11 @@ try {
             }
             $env:CARGO_HOME = $cargoDirectory
             $env:RUSTUP_HOME = $rustupDirectory
-            & cargo test --locked --release --manifest-path Cargo.toml -p cursor-server --lib managed --target $target --target-dir target
-            if ($LASTEXITCODE -ne 0) { throw 'Cursor backend isolation and restore tests failed' }
+            # Reuse the compiled library test binary across focused suites.
+            foreach ($filter in @('managed', 'account::tests', 'token_refresh::tests', 'model_catalog::tests', 'local_app::proxy::tests')) {
+                & cargo test --locked --release --manifest-path Cargo.toml -p cursor-server --lib $filter --target $target --target-dir target
+                if ($LASTEXITCODE -ne 0) { throw "Cursor backend tests failed: $filter" }
+            }
             & cargo test --locked --release --manifest-path Cargo.toml -p cursor-server --test managed_child --target $target --target-dir target
             if ($LASTEXITCODE -ne 0) { throw 'Cursor backend lifecycle test failed' }
         } finally {

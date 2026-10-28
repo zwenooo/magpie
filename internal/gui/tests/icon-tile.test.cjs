@@ -3,8 +3,9 @@
 // ZCode) read a size bigger than a line logo (Pi, OpenCode, Hermes) in the
 // row beside it: both filled the same box, the tile with ~96% of it inked
 // and the line logo with ~40%. A tile is now drawn at 82% of the box, the
-// size Alma's and Cindy's tiles have of their own. Every file in icons/ is
-// measured, so a new tile logo left out of app.css's list, or a line logo
+// size Alma's and Cindy's tiles have of their own. Brand files in icons/ are
+// measured (the manifest's installation icons aren't row logos), so a new
+// tile logo left out of app.css's list, or a line logo
 // put in it, fails here. In the Agents list the tile is drawn at 82% and the
 // line logo at full size, in Chromium and WebKit.
 const assert = require("node:assert/strict");
@@ -14,6 +15,7 @@ const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
 
 const assets = path.resolve(__dirname, "../assets");
+const engines = [["chromium", chromium], ["webkit", webkit]];
 
 // inked to within 7% of every edge, and most of the box inked
 const isTile = (r) => Math.min(r.w, r.h) >= 0.93 && r.ink >= 0.7;
@@ -25,10 +27,13 @@ async function tileList() {
   return new Set([...m[1].matchAll(/\[data-icon="([^"]+)"\]/g)].map((x) => x[1]));
 }
 
-test("the tile logos' rule names every logo solid to its edges, and no other", async () => {
+for (const [engine, type] of engines) test(`the tile logos' rule names every logo solid to its edges, and no other (${engine})`, async () => {
   const listed = await tileList();
-  const files = (await fs.readdir(path.join(assets, "icons"))).filter((f) => /\.(svg|png)$/.test(f));
-  const browser = await chromium.launch();
+  const manifest = JSON.parse(await fs.readFile(path.join(assets, "manifest.json"), "utf8"));
+  const installationIcons = new Set(manifest.icons.map((icon) => path.resolve(assets, icon.src)));
+  const files = (await fs.readdir(path.join(assets, "icons"))).filter((f) =>
+    /\.(svg|png)$/.test(f) && !installationIcons.has(path.join(assets, "icons", f)));
+  const browser = await type.launch();
   try {
     const page = await browser.newPage();
     await page.setContent("<html></html>");
@@ -72,6 +77,7 @@ function serve() {
     { id: "pi", name: "Pi", icon: "pi", path: "/test/pi", fields: [] },
     { id: "codex", name: "Codex", icon: "codex-color", path: "/test/codex", fields: [] },
     { id: "zcode", name: "ZCode", icon: "zcode", path: "/test/zcode", fields: [] },
+    { id: "penguin", name: "Penguin", icon: "penguin-color", path: "/test/penguin", fields: [] },
   ];
   const state = { agents, profiles: [], settings: { lang: "en", theme: "dark" } };
   return async (r) => {
@@ -95,7 +101,7 @@ function serve() {
   };
 }
 
-for (const [engine, type] of [["chromium", chromium], ["webkit", webkit]]) {
+for (const [engine, type] of engines) {
   test(`a tile logo is drawn at 82% of its box, a line logo whole (${engine})`, async () => {
     const browser = await type.launch();
     try {
@@ -108,16 +114,16 @@ for (const [engine, type] of [["chromium", chromium], ["webkit", webkit]]) {
         const b = e.getBoundingClientRect(), p = e.firstElementChild.getBoundingClientRect();
         return { box: b.width, pic: p.width, dx: p.left - b.left - (b.right - p.right), dy: p.top - b.top - (b.bottom - p.bottom) };
       }, icon);
-      await page.waitForFunction(() => ["pi", "codex-color", "zcode"].every((i) => document.querySelector(`.ic[data-icon="${i}"] > *`)));
+      await page.waitForFunction(() => ["pi", "codex-color", "zcode", "penguin-color"].every((i) => document.querySelector(`.ic[data-icon="${i}"] > *`)));
       // a row's logo opens from nothing as it comes in: measured once it holds still
       let last = "";
       for (let i = 0; i < 40; i++) {
-        const now = JSON.stringify(await Promise.all(["pi", "codex-color", "zcode"].map(size)));
+        const now = JSON.stringify(await Promise.all(["pi", "codex-color", "zcode", "penguin-color"].map(size)));
         if (now === last) break;
         last = now;
         await page.waitForTimeout(100);
       }
-      for (const icon of ["codex-color", "zcode"]) {
+      for (const icon of ["codex-color", "zcode", "penguin-color"]) {
         const s = await size(icon);
         assert.ok(s.box > 0, `${icon} has a box`);
         assert.ok(Math.abs(s.pic / s.box - 0.82) < 0.02, `${icon} is drawn at ${s.pic}/${s.box}`);

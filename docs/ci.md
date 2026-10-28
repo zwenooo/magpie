@@ -50,8 +50,9 @@ Windows and Linux GUI packages must start and serve their gateway on both
 architectures. The terminal versions are cross-compiled with cgo disabled.
 
 Six native `cursor-backend` jobs first compile the pinned Rust headless
-backend from `native/cursor-backend`. They run Rust ownership/authentication
-tests and a real child-process smoke test in disposable user profiles, then
+backend from `native/cursor-backend`. They run Rust ownership/authentication,
+local account, token refresh, model catalog and proxy-route tests, plus a real
+child-process smoke test in disposable user profiles, then
 stage the backend and provenance into the Go embed directory. Each Go target
 receives only its matching native payload, verified by SHA-256 and executable
 machine type. macOS signs that payload before embedding it and also includes
