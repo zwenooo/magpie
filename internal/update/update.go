@@ -3,8 +3,10 @@
 // also supported. Downloads, staging and installation share the same checks.
 //
 // The macOS app replaces its own bundle: the new zip is downloaded, checked
-// against its hash, unpacked, and accepted only if it is signed by the same
-// team as the app already installed. A bare binary (the terminal build,
+// against its hash, unpacked, and accepted only if its signature is intact
+// and names the same team as the app already installed. An ad-hoc signed
+// release names no team, so between two of them only the hash is checked.
+// A bare binary (the terminal build,
 // and the desktop app on Windows and Linux) replaces itself the same way,
 // minus the signature.
 package update
@@ -299,7 +301,8 @@ func Stage(ctx context.Context, rel *Release, bundle string) (string, error) {
 }
 
 // sameSigner accepts app only if its signature is intact and made by the
-// team that signed the bundle it replaces.
+// team that signed the bundle it replaces. An ad-hoc signature names no
+// team: one replaces another, but never a signed bundle or the reverse.
 func sameSigner(ctx context.Context, bundle, app string) error {
 	if b, err := proc.CommandContext(ctx, "codesign", "--verify", "--deep", "--strict", app).CombinedOutput(); err != nil {
 		return fmt.Errorf("the downloaded app's signature is broken: %s", strings.TrimSpace(string(b)))

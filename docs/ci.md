@@ -155,6 +155,16 @@ checksums fail the check. Downloaded bytes must match the selected asset's
 SHA-256 before installation. Drafts, ordinary upstream `v*` releases and
 `pf-v*` helper releases are not application updates.
 
+On macOS the unpacked `magpie.app` must also pass `codesign --verify --deep
+--strict` and name the same Team ID as the installed app. A package built
+without `MAC_CERTIFICATE_P12` is ad-hoc signed and names no team, so between
+two such packages only the SHA-256 is checked, as on Windows and Linux.
+`SHA256SUMS` comes from the same release as the binaries: it catches a
+corrupted download or an altered mirror, not a release whose files were
+replaced by someone able to write to it. Because the Team IDs differ, an
+installed ad-hoc app refuses a Developer ID signed update, and the reverse;
+the first signed release needs one manual installation.
+
 The default channel offers the highest formal fork version. The Stable
 channel preserves upstream's weekly rule: at Monday 00:00 UTC, select the
 newest release published at least 72 hours earlier; a newer release whose
