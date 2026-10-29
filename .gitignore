@@ -9,3 +9,6 @@
 /internal/update/launcher-*.com
 /internal/cursorbyok/payload/*
 !/internal/cursorbyok/payload/README.md
+
+# Local reference checkouts (e.g. refs/cursor-byok)
+/refs/
