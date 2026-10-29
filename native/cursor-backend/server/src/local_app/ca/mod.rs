@@ -39,6 +39,11 @@ impl CaManager {
         })
     }
 
+    #[cfg(test)]
+    pub(crate) fn at(dir: PathBuf) -> Self {
+        Self { dir }
+    }
+
     fn cert_path(&self) -> PathBuf {
         self.dir.join("ca.crt")
     }

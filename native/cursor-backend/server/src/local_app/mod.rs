@@ -6,7 +6,13 @@ mod process;
 mod proxy;
 mod settings;
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    net::SocketAddr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -85,6 +91,8 @@ struct Inner {
     relay_token: RwLock<Option<String>>,
     tab_mode: Arc<RwLock<TabMode>>,
     proxy: Mutex<ProxyRuntime>,
+    // Set on shutdown; enable checks it while holding `proxy`.
+    closed: AtomicBool,
 }
 
 impl CursorHarness {
@@ -98,6 +106,7 @@ impl CursorHarness {
                 relay_token: RwLock::new(None),
                 tab_mode: Arc::new(RwLock::new(TabMode::default())),
                 proxy: Mutex::new(ProxyRuntime::default()),
+                closed: AtomicBool::new(false),
             }),
         })
     }
@@ -190,6 +199,10 @@ impl CursorHarness {
     }
 
     async fn enable(&self) -> Result<()> {
+        let mut proxy = self.inner.proxy.lock().await;
+        if self.inner.closed.load(Ordering::SeqCst) {
+            return Err(Error::Config("the Cursor backend is shutting down".into()));
+        }
         if !matches!(self.inner.ca.state()?, CaState::Ready) {
             return Err(Error::Config(
                 "initialize and trust the CA before enabling Cursor".into(),
@@ -200,7 +213,6 @@ impl CursorHarness {
             .backend_addr
             .read()
             .ok_or_else(|| Error::Config("desktop management server is not ready".into()))?;
-        let mut proxy = self.inner.proxy.lock().await;
         let settings_applied = proxy
             .url()
             .as_deref()
@@ -244,14 +256,23 @@ impl CursorHarness {
         Ok(())
     }
 
+    /// Restores Cursor for good: an enable still in flight finishes first,
+    /// and any later one is refused, so nothing is written after the restore.
+    pub async fn close(&self) -> Result<()> {
+        self.inner.closed.store(true, Ordering::SeqCst);
+        self.disable().await
+    }
+
     pub async fn disable(&self) -> Result<()> {
+        // Enable writes under this lock; restoring outside it could be undone.
+        let mut proxy = self.inner.proxy.lock().await;
         let restored = settings::clear_proxy_settings();
         let account_restored = if crate::config::is_magpie_managed() {
             account::restore_managed().await
         } else {
             Ok(())
         };
-        self.inner.proxy.lock().await.stop().await;
+        proxy.stop().await;
         restored?;
         account_restored?;
         Ok(())
@@ -261,4 +282,38 @@ impl CursorHarness {
 async fn apply_cursor_configuration(proxy_url: &str) -> Result<()> {
     account::inject_if_missing().await?;
     settings::write_proxy_settings(proxy_url)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn enable_after_close_is_refused_before_any_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let harness = CursorHarness {
+            inner: Arc::new(Inner {
+                store: Store::connect("sqlite::memory:").await.unwrap(),
+                ca: CaManager::at(dir.path().join("ca")),
+                ca_initialization: Mutex::new(()),
+                backend_addr: RwLock::new(None),
+                relay_token: RwLock::new(None),
+                tab_mode: Arc::new(RwLock::new(TabMode::default())),
+                proxy: Mutex::new(ProxyRuntime::default()),
+                // What close() sets before its restore waits for `proxy`.
+                closed: AtomicBool::new(true),
+            }),
+        };
+        harness
+            .inner
+            .store
+            .set_cursor_takeover_enabled(false)
+            .await
+            .unwrap();
+        let error = harness.set_enabled(true).await.unwrap_err();
+        assert!(error.to_string().contains("shutting down"), "{error}");
+        assert!(!harness.inner.store.cursor_takeover_enabled().await.unwrap());
+        assert!(!harness.inner.proxy.lock().await.running());
+        assert!(!dir.path().join("ca").exists());
+    }
 }

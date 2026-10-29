@@ -176,13 +176,13 @@ impl App {
 
         tokio::select! {
             result = &mut server => {
-                if let Err(error) = harness.disable().await {
+                if let Err(error) = harness.close().await {
                     tracing::warn!(%error, "failed to disable Cursor harness after server stop");
                 }
                 result?
             },
             () = shutdown.cancelled() => {
-                if let Err(error) = harness.disable().await {
+                if let Err(error) = harness.close().await {
                     tracing::warn!(%error, "failed to disable Cursor harness during shutdown");
                 }
                 registry.shutdown().await;
