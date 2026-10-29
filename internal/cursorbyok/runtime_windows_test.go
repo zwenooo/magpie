@@ -3,8 +3,8 @@ package cursorbyok
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -37,14 +37,41 @@ func TestCursorRuntimePrivateWindowsInheritance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	system, err := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, path := range []string{root, secret} {
 		sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
 		if err != nil {
 			t.Fatal(err)
 		}
-		acl := sd.String()
-		if strings.Contains(acl, ";;;WD)") || strings.Contains(acl, ";;;BU)") || strings.Count(acl, "(A;") != 2 || !strings.Contains(acl, ";;;SY)") || !strings.Contains(acl, ";;;"+user.User.Sid.String()+")") {
-			t.Fatalf("%s retained broad or unexpected access: %s", filepath.Base(path), acl)
+		dacl, _, err := sd.DACL()
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Compare the ACEs' SIDs, not SDDL text: SDDL writes some accounts
+		// as an alias (the built-in Administrator is "LA"), not their SID.
+		private, hasSystem, hasUser := dacl.AceCount == 2, false, false
+		for i := range uint32(dacl.AceCount) {
+			var ace *windows.ACCESS_ALLOWED_ACE
+			if err := windows.GetAce(dacl, i, &ace); err != nil {
+				t.Fatal(err)
+			}
+			sid := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
+			switch {
+			case ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE:
+				private = false
+			case sid.Equals(system):
+				hasSystem = true
+			case sid.Equals(user.User.Sid):
+				hasUser = true
+			default:
+				private = false
+			}
+		}
+		if !private || !hasSystem || !hasUser {
+			t.Fatalf("%s retained broad or unexpected access: %s", filepath.Base(path), sd.String())
 		}
 	}
 }
