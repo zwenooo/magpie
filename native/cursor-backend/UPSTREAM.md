@@ -41,7 +41,9 @@ the archived project's public Tab service is never enabled by default.
 Backend caches, logs, keys and database live below the supplied Magpie-owned
 directory. A settings/account restoration journal preserves previous values
 and only restores fields still equal to values written by this backend.
-An unreadable or malformed journal fails closed. The original standalone
+The settings journal remembers every proxy value earlier runs wrote, because
+it is saved before Cursor's settings.json and a failed settings write leaves
+an earlier run's value there. An unreadable or malformed journal fails closed. The original standalone
 Cursor BYOK data directory is neither imported nor modified.
 
 Outbound TLS uses Rustls with native roots so Linux helpers do not require a
