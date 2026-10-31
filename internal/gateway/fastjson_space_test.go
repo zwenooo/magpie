@@ -52,14 +52,34 @@ func TestJSONSpaceBlocksKeepMixedWhitespaceAndValidation(t *testing.T) {
 	}
 }
 
+// A newline at the padding's edge ends one bulk run, and the next resumes
+// after it: everything up to the payload is still skipped, from either end.
+func TestJSONSpaceBlocksResumeAfterOtherWhitespace(t *testing.T) {
+	pad := bytes.Repeat([]byte{' '}, 4099)
+	for _, edge := range []string{"\n", " \n", "\r\n", "\t \t", "\n\n\n"} {
+		input := append(append([]byte(edge), pad...), edge...)
+		input = append(append(input, "{} {}"...), edge...)
+		input = append(append(input, pad...), edge...)
+		if got := trimJSON(input); string(got) != "{} {}" {
+			t.Fatalf("edge %q: trimmed %q", edge, got)
+		}
+		if got, want := skipJSONSpace(input, 0), 2*len(edge)+len(pad); got != want {
+			t.Fatalf("edge %q: skipped to %d, want %d", edge, got, want)
+		}
+	}
+}
+
 func BenchmarkJSONPadding64MiB(b *testing.B) {
 	pad := bytes.Repeat([]byte{' '}, 64<<20)
 	leading := append(bytes.Clone(pad), '{')
 	trailing := append([]byte{'{'}, pad...)
+	// TestRequestTailAfterOldLimit's body: padding, then a client's " \n".
+	newlineLeading := append(append([]byte("\n"), pad...), '{')
+	newlineTrailing := append(append([]byte{'{'}, pad...), " \n"...)
 	for _, tc := range []struct {
 		name string
 		body []byte
-	}{{"leading", leading}, {"trailing", trailing}} {
+	}{{"leading", leading}, {"trailing", trailing}, {"newline-leading", newlineLeading}, {"newline-trailing", newlineTrailing}} {
 		b.Run(tc.name, func(b *testing.B) {
 			b.SetBytes(int64(len(pad)))
 			b.ReportAllocs()

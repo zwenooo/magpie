@@ -469,37 +469,45 @@ func isJSONSpace(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c =
 // Fixed read-only blocks let bytes.Equal use its bulk comparison, including
 // under the race detector. Millions of instrumented uint64 reads over transport
 // padding could otherwise exhaust the pre-routing deadline on a large body.
+// Each other whitespace byte is stepped over alone and the bulk scan resumes
+// after it, so a newline at the edge of the padding (a body ending " \n")
+// doesn't leave the rest of it to the byte loop.
 const jsonSpaces64 = "                                                                "
 const jsonSpaces256 = jsonSpaces64 + jsonSpaces64 + jsonSpaces64 + jsonSpaces64
 const jsonSpaceBlock = jsonSpaces256 + jsonSpaces256 + jsonSpaces256 + jsonSpaces256
 
+const jsonSpaces8 = 0x2020202020202020 // a padded body's runs of spaces, 8 at a time
+
 func skipJSONSpace(data []byte, i int) int {
-	for i+len(jsonSpaceBlock) <= len(data) && bytes.Equal(data[i:i+len(jsonSpaceBlock)], []byte(jsonSpaceBlock)) {
-		i += len(jsonSpaceBlock)
-	}
-	const spaces = 0x2020202020202020 // a padded body's runs of spaces, 8 at a time
-	for i+8 <= len(data) && binary.LittleEndian.Uint64(data[i:]) == spaces {
-		i += 8
-	}
-	for i < len(data) && isJSONSpace(data[i]) {
+	for {
+		for i+len(jsonSpaceBlock) <= len(data) && bytes.Equal(data[i:i+len(jsonSpaceBlock)], []byte(jsonSpaceBlock)) {
+			i += len(jsonSpaceBlock)
+		}
+		for i+8 <= len(data) && binary.LittleEndian.Uint64(data[i:]) == jsonSpaces8 {
+			i += 8
+		}
+		if i == len(data) || !isJSONSpace(data[i]) {
+			return i
+		}
 		i++
 	}
-	return i
 }
 
 func trimJSON(data []byte) []byte {
 	i := skipJSONSpace(data, 0)
 	j := len(data)
-	for j-len(jsonSpaceBlock) >= i && bytes.Equal(data[j-len(jsonSpaceBlock):j], []byte(jsonSpaceBlock)) {
-		j -= len(jsonSpaceBlock)
-	}
-	for j-8 >= i && binary.LittleEndian.Uint64(data[j-8:]) == 0x2020202020202020 {
-		j -= 8
-	}
-	for j > i && isJSONSpace(data[j-1]) {
+	for {
+		for j-len(jsonSpaceBlock) >= i && bytes.Equal(data[j-len(jsonSpaceBlock):j], []byte(jsonSpaceBlock)) {
+			j -= len(jsonSpaceBlock)
+		}
+		for j-8 >= i && binary.LittleEndian.Uint64(data[j-8:]) == jsonSpaces8 {
+			j -= 8
+		}
+		if j == i || !isJSONSpace(data[j-1]) {
+			return data[i:j]
+		}
 		j--
 	}
-	return data[i:j]
 }
 
 // eachMember calls f with each member of obj, a valid JSON object, its key

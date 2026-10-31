@@ -175,8 +175,9 @@ recorded as a prediction failure (`noPrediction`).
 ## Constraints and failure behavior
 
 JSON readers skip long runs of ASCII-space transport padding with fixed 1 KiB
-comparisons, then retain the existing byte-level handling of other whitespace
-and boundary bytes (`skipJSONSpace` and `trimJSON` in `fastjson.go`). This avoids
+comparisons, step over any other whitespace byte alone, and resume the bulk
+scan after it (`skipJSONSpace` and `trimJSON` in `fastjson.go`), so a body
+ending in padding and `" \n"` is not left to the byte loop. This avoids
 repeated instrumented eight-byte scans exhausting the pre-routing deadline on
 a body padded past 64 MiB. The request-size boundary tests, JSON validation and
 pre-routing watchdog keep their existing limits and assertions.
