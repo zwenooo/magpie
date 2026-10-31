@@ -1,11 +1,11 @@
 cask "magpie-app" do
   arch arm: "arm64", intel: "amd64"
 
-  version "0.1.1725-vb.0.0.6"
-  sha256 arm:   "9266a5f0c1565df74ab7b3b0ad4917c93f63a21345d2d9d829bbfc03d0898c66",
-         intel: "df6785e178794151638a015414617668929b4f3e036de12ea961cf9c05f26385"
+  version "0.1.1725-vb.0.0.8"
+  sha256 arm:   "0695001b882264f94b30c8e94cf8fce7d9ca39a00302b4e3d86bce9cc8f3f38d",
+         intel: "2bebaa30a8c856074f29b9e0623412501a49d7bf6db55c05ab144ec119383a96"
 
-  url "https://github.com/zwenooo/magpie/releases/download/va.0.1.1725-vb.0.0.6/magpie-darwin-#{arch}.zip"
+  url "https://github.com/zwenooo/magpie/releases/download/va.0.1.1725-vb.0.0.8/magpie-darwin-#{arch}.zip"
   name "magpie"
   desc "Pick the model each AI coding agent on your machine uses"
   homepage "https://github.com/zwenooo/magpie"

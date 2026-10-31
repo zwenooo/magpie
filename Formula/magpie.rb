@@ -1,27 +1,27 @@
 class Magpie < Formula
   desc "Pick the model each AI coding agent on your machine uses"
   homepage "https://github.com/zwenooo/magpie"
-  version "0.1.1725-vb.0.0.6"
+  version "0.1.1725-vb.0.0.8"
   license "MIT"
 
   on_macos do
     on_arm do
-      url "https://github.com/zwenooo/magpie/releases/download/va.0.1.1725-vb.0.0.6/magpie-cli-darwin-arm64"
-      sha256 "4de4eabab0869ea09c0b4655410b0ccd59c03c5dff0b153d4f85260136af03f8"
+      url "https://github.com/zwenooo/magpie/releases/download/va.0.1.1725-vb.0.0.8/magpie-cli-darwin-arm64"
+      sha256 "eb84c20ee6b43010e7e42c093f3ddfb0686468698e29bb0079ca39895373d7cd"
     end
     on_intel do
-      url "https://github.com/zwenooo/magpie/releases/download/va.0.1.1725-vb.0.0.6/magpie-cli-darwin-amd64"
-      sha256 "a3d624812dcc230ba600eb63e5593887b19df9a3a50bdc03586b021a99374405"
+      url "https://github.com/zwenooo/magpie/releases/download/va.0.1.1725-vb.0.0.8/magpie-cli-darwin-amd64"
+      sha256 "95d5077bee9620ce0ed3b6b8282559bc79f6530d84ccf36ba5665f237b86838c"
     end
   end
   on_linux do
     on_arm do
-      url "https://github.com/zwenooo/magpie/releases/download/va.0.1.1725-vb.0.0.6/magpie-cli-linux-arm64"
-      sha256 "7377ad1bfd7b07db2ff3b6b67a43db22adbcd464fc917ac1568559f9dd3a0e1e"
+      url "https://github.com/zwenooo/magpie/releases/download/va.0.1.1725-vb.0.0.8/magpie-cli-linux-arm64"
+      sha256 "5d87d78db43e5025d7578d540a653efaefa52feef27e2ae3bdeeb3e97ccd8dfe"
     end
     on_intel do
-      url "https://github.com/zwenooo/magpie/releases/download/va.0.1.1725-vb.0.0.6/magpie-cli-linux-amd64"
-      sha256 "3f00c1a0ea9e8fd631f5b189952c8772b4d67b1a555afd42e0a7c79dd818b27d"
+      url "https://github.com/zwenooo/magpie/releases/download/va.0.1.1725-vb.0.0.8/magpie-cli-linux-amd64"
+      sha256 "e03580ad96592fa99731cca4d3cfb8463d40e05222b4edcc27f3e229f94aca8e"
     end
   end
 
