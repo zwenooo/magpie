@@ -134,4 +134,33 @@ rm "$fixture/assets/magpie-linux-amd64.new"
 if bash "$scripts/release-assets.sh" "$fixture/assets" > "$fixture/log" 2>&1; then
   echo 'An empty release asset was accepted.' >&2; exit 1
 fi
+
+# Latest moves only forward, by numeric version, from an upstream or fork tag.
+(
+  source "$scripts/release-version.sh"
+  check_latest() {
+    local got
+    got=$(fork_release_latest "$1" "$2")
+    [[ "$got" == "$3" ]] || { echo "Latest for $1 over '$2' was $got, want $3." >&2; exit 1; }
+  }
+  check_latest 0.1.1725-vb.0.0.8 '' true
+  check_latest 0.1.1725-vb.0.0.8 va.0.1.1725-vb.0.0.6 true
+  check_latest 0.1.1725-vb.0.0.10 va.0.1.1725-vb.0.0.9 true
+  check_latest 0.1.1725-vb.0.0.6 va.0.1.1725-vb.0.0.8 false
+  check_latest 0.1.1725-vb.0.0.8 va.0.1.1726-vb.0.0.1 false
+  check_latest 0.1.1726-vb.0.0.1 v0.1.1725 true
+)
+# A workflow step that decides with these functions loads them itself: in
+# an if, a missing function only reads as false (va.0.1.1725-vb.0.0.8 was
+# published without becoming Latest).
+for workflow in release.yml promote-release.yml; do
+  if ! awk '
+    /^      - / { sourced = 0; step = $0 }
+    /source build\/fork\/release-version\.sh/ { sourced = 1 }
+    /(parse_fork_release|fork_release_latest)[ "]/ && !sourced { print FILENAME ": " step ": " $0; bad = 1 }
+    END { exit bad }
+  ' "$scripts/../../.github/workflows/$workflow" >&2; then
+    echo "A release step uses the version functions without sourcing release-version.sh." >&2; exit 1
+  fi
+done
 printf 'Release metadata and exact asset checks passed.\n'

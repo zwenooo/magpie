@@ -16,3 +16,19 @@ parse_fork_release() {
   upstream_version=$upstream
   fork_version=$fork
 }
+
+# Prints true when a stable release of VERSION should become Latest over
+# LATEST_TAG (the current Latest's tag, empty when none): publishing an older
+# version must not demote a newer one. Run it in a command substitution, so
+# a step that didn't source this file fails instead of deciding false.
+fork_release_latest() {
+  local version=$1 latest_tag=$2 latest_version
+  [[ -n "$latest_tag" ]] || { echo true; return; }
+  latest_version=${latest_tag#v}
+  if parse_fork_release "$latest_tag"; then latest_version=$release_version; fi
+  if [[ $(printf '%s\n%s\n' "$version" "$latest_version" | sort -V | tail -1) == "$version" ]]; then
+    echo true
+  else
+    echo false
+  fi
+}

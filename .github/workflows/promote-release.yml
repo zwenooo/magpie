@@ -103,9 +103,6 @@ jobs:
           find dist -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort > "$RUNNER_TEMP/expected-assets.txt"
           diff -u "$RUNNER_TEMP/expected-assets.txt" "$RUNNER_TEMP/published-assets.txt"
           latest_tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isLatest --jq '.[] | select(.isLatest) | .tagName')
-          latest_version=${latest_tag#v}
           source build/fork/release-version.sh
-          if parse_fork_release "$latest_tag"; then latest_version=$release_version; fi
-          make_latest=false
-          if [[ -z "$latest_tag" ]] || [[ $(printf '%s\n%s\n' "$VERSION" "$latest_version" | sort -V | tail -1) == "$VERSION" ]]; then make_latest=true; fi
+          make_latest=$(fork_release_latest "$VERSION" "$latest_tag")
           gh release edit "$REQUESTED_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest="$make_latest"
