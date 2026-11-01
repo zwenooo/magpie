@@ -219,7 +219,7 @@ func cursorBYOKWrite(on, explicit bool) error {
 	}
 	var models []cursorbyok.Model
 	if on {
-		for _, model := range magpieModels(CursorBYOKID) {
+		for _, model := range sharedModels(CursorBYOKID) {
 			models = append(models, cursorbyok.Model{ID: model.ID, Name: model.Name, APIs: model.APIs, Context: model.Context, MaxTokens: maxTokens(model)})
 		}
 		if len(models) == 0 && explicit {
