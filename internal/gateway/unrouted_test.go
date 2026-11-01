@@ -378,8 +378,18 @@ func TestUnroutedRequestShownThenAnswered(t *testing.T) {
 	if r.err != nil || r.code != http.StatusGatewayTimeout || !strings.Contains(r.body, "without routing it to any provider") {
 		t.Fatalf("held request answered %d %q %v", r.code, r.body, r.err)
 	}
-	rs := routesOf(s, "probe/text")
-	if len(rs) != 1 || !rs[0].Done || rs[0].Status != http.StatusGatewayTimeout || !strings.Contains(rs[0].Error, "without routing") {
+	// the answer can reach the client a moment before giveUp ends the route
+	var rs []Route
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		rs = routesOf(s, "probe/text")
+		if len(rs) == 1 && rs[0].Done {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the held request's route never ended: %+v", rs)
+		}
+	}
+	if rs[0].Status != http.StatusGatewayTimeout || !strings.Contains(rs[0].Error, "without routing") {
 		t.Fatalf("the held request's route: %+v", rs)
 	}
 	heldSaved(t, s)
