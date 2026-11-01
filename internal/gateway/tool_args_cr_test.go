@@ -1005,7 +1005,8 @@ func TestCRTidyTwentyFourMBLine(t *testing.T) {
 			} else if string(got) != c.want {
 				t.Fatal("the line came out other than wanted")
 			}
-			if elapsed > 8*time.Second {
+			// under -race the mended line alone takes 8-10s on a CI runner
+			if !raceOn && elapsed > 8*time.Second {
 				t.Fatalf("24MB took %s", elapsed)
 			}
 		})
