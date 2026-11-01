@@ -61,7 +61,7 @@ var codexRewrites = func() []codexRewrite {
 			}
 			return wasWithModel(b, "gpt-5.5<&>")
 		}},
-		{"forVendor", func(b []byte) []byte { return forVendor(relay, b) }, func(b []byte) []byte { return wasForVendor(relay, b) }},
+		{"forVendor", func(b []byte) []byte { return forVendor(relay, b, false) }, func(b []byte) []byte { return wasForVendor(relay, b) }},
 	}
 	for _, magpie := range []bool{false, true} {
 		for _, native := range []bool{false, true} {
@@ -97,10 +97,10 @@ func TestCodexRewritesLeaveTurnUndecoded(t *testing.T) {
 	plain := codexSession(60, func(_ int, it map[string]any) { delete(it, "internal_chat_message_metadata_passthrough") })
 	plain = append(plain[:len(plain)-1], []byte(`,"note":"internal_chat_message_metadata_passthrough"}`)...)
 	relay := provider.Provider{Responses: "https://relay.example/v1"}
-	if got := forVendor(relay, plain); !bytes.Equal(got, plain) {
+	if got := forVendor(relay, plain, false); !bytes.Equal(got, plain) {
 		t.Fatal("forVendor changed a body with nothing to leave out")
 	}
-	if a := testing.AllocsPerRun(5, func() { forVendor(relay, plain) }); a > 10 {
+	if a := testing.AllocsPerRun(5, func() { forVendor(relay, plain, false) }); a > 10 {
 		t.Errorf("forVendor: %v allocations for a body it leaves as it came", a)
 	}
 }
@@ -156,6 +156,9 @@ var codexMarks = []func(it map[string]any){
 	func(it map[string]any) { it["type"] = "custom_tool_call"; it["id"] = "fc_9" },
 	func(it map[string]any) { it["type"] = "custom_tool_call"; it["id"] = "ctc" },
 	func(it map[string]any) { it["encrypted_function_args"] = "sealed" },
+	func(it map[string]any) { it["encrypted_content"] = "gAAAA-output" },
+	func(it map[string]any) { it["encrypted_content"] = nil },
+	func(it map[string]any) { it["type"] = "context_compaction"; it["encrypted_content"] = "gAAAA" },
 	func(it map[string]any) { it["internal_chat_message_metadata_passthrough"] = nil },
 }
 
@@ -171,6 +174,9 @@ var codexRawMarks = [][2]string{
 	{`"type":"function_call_output"`, `"type":"configuration_update"`},
 	{`"internal_chat_message_metadata_passthrough"`, `"internal_chat_message_metadata_passthrough"`},
 	{`"input":[`, `"input":[null,`},
+	{`"include":["reasoning.encrypted_content"]`, `"include":["reasoning.encrypted_content","output.encrypted_content"]`},
+	{`"include":["reasoning.encrypted_content"]`, `"include":["output.encrypted_content"]`},
+	{`"include":["reasoning.encrypted_content"]`, `"include":"output.encrypted_content"`},
 	{`"input":[`, `"input":[1,`},
 	{`"input":[`, `"input":["x",[],`},
 	{`"input":[`, `"input":null,"x":[`},
@@ -539,6 +545,15 @@ func wasForVendor(p provider.Provider, body []byte) []byte {
 			}
 		}
 	}
+	var include []string
+	if json.Unmarshal(q["include"], &include) == nil && slices.Contains(include, "output.encrypted_content") {
+		changed = true
+		if include = slices.DeleteFunc(include, func(v string) bool { return v == "output.encrypted_content" }); len(include) == 0 {
+			delete(q, "include")
+		} else {
+			q["include"], _ = wasMarshalPlain(include)
+		}
+	}
 	var items []json.RawMessage
 	if json.Unmarshal(q["input"], &items) == nil {
 		out := items[:0]
@@ -554,10 +569,18 @@ func wasForVendor(p provider.Provider, body []byte) []byte {
 			}
 			_, meta := it["internal_chat_message_metadata_passthrough"]
 			_, sealed := it["encrypted_function_args"]
-			if meta || sealed {
+			_, replay := it["encrypted_content"]
+			switch string(it["type"]) {
+			case `"reasoning"`, `"compaction"`, `"compaction_summary"`, `"context_compaction"`:
+				replay = false
+			}
+			if meta || sealed || replay {
 				changed = true
 				delete(it, "internal_chat_message_metadata_passthrough")
 				delete(it, "encrypted_function_args")
+				if replay {
+					delete(it, "encrypted_content")
+				}
 				raw, _ = wasMarshalPlain(it)
 			}
 			out = append(out, raw)

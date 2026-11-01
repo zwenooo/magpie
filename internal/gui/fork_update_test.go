@@ -70,19 +70,24 @@ func TestForkUpdateCheckAndDownload(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// StageBinary writes beside this disposable Go test binary, never
-			// a user's installed app. It is not followed by an install action.
-			staged := exe + ".new"
-			if _, err := os.Stat(staged); !os.IsNotExist(err) {
+			// StageBinary writes to the sandbox's cache for this disposable Go
+			// test binary, never a user's installed app. It is not followed by
+			// an install action. Nothing is left beside the program.
+			beside := exe + ".new"
+			if _, err := os.Stat(beside); !os.IsNotExist(err) {
 				t.Fatalf("unexpected pre-existing stage file: %v", err)
 			}
-			t.Cleanup(func() { os.Remove(staged) })
 			before := forkUpdateExecutableHash(t, exe)
 			u := &updater{exe: exe}
 			u.self, err = os.Stat(exe)
 			if err != nil {
 				t.Fatal(err)
 			}
+			t.Cleanup(func() {
+				if u.staged != "" {
+					os.Remove(u.staged)
+				}
+			})
 			updates = u
 			windows := &quitCount{}
 			mux := http.NewServeMux()
@@ -104,8 +109,8 @@ func TestForkUpdateCheckAndDownload(t *testing.T) {
 			if got := u.json(); got.State != "found" || downloads.Load() != 0 {
 				t.Fatalf("checking downloaded without an action: %+v, downloads=%d", got, downloads.Load())
 			}
-			if _, err := os.Stat(staged); !os.IsNotExist(err) {
-				t.Fatalf("check created a stage file: %v", err)
+			if _, err := os.Stat(beside); !os.IsNotExist(err) || u.staged != "" {
+				t.Fatalf("check created a stage file: %v, staged=%q", err, u.staged)
 			}
 			post("/api/update/install")
 			var got updateJSON
@@ -125,14 +130,14 @@ func TestForkUpdateCheckAndDownload(t *testing.T) {
 				if got.State != "error" || !got.Retry || !strings.Contains(got.Error, "does not match its checksum") || u.staged != "" {
 					t.Fatalf("corrupted fork download accepted: %+v", got)
 				}
-				if _, err := os.Stat(staged); !os.IsNotExist(err) {
+				if _, err := os.Stat(beside); !os.IsNotExist(err) {
 					t.Fatalf("corrupted stage file retained: %v", err)
 				}
 			} else {
-				if got.State != "ready" || got.Latest != latest || u.staged != staged {
+				if got.State != "ready" || got.Latest != latest || u.staged == "" {
 					t.Fatalf("verified fork download not ready: %+v", got)
 				}
-				if body, err := os.ReadFile(staged); err != nil || !bytes.Equal(body, payload) {
+				if body, err := os.ReadFile(u.staged); err != nil || !bytes.Equal(body, payload) {
 					t.Fatalf("staged file differs from verified payload: %v", err)
 				}
 			}

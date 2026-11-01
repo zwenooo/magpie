@@ -56,6 +56,25 @@ type Target struct {
 	// after the user's, but never moves the user's own lines out of it
 	// (ImportInstructions), as the agent reads who its owner is there.
 	Profile bool
+	// Unreached, for an agent in a WSL distro, is why its folder there
+	// can't be opened (agent.WSLOpen): a link the distro couldn't
+	// resolve. Nothing is written to it; each sync says so.
+	Unreached error
+}
+
+// unreached says whether t's folder can't be opened, and, once in res,
+// why.
+func (r *Result) unreached(t *Target) bool {
+	if t.Unreached == nil {
+		return false
+	}
+	for _, p := range r.Problems {
+		if p.Agent == t.Agent.ID && p.What == "wsl" {
+			return true
+		}
+	}
+	r.fail(t.Agent.ID, "wsl", t.Unreached)
+	return true
 }
 
 func home() string { h, _ := os.UserHomeDir(); return h }
@@ -87,6 +106,12 @@ func codebuddyMCP(dir string) string {
 	if base == "" {
 		base = home()
 	}
+	return codebuddyMCPIn(dir, base)
+}
+
+// codebuddyMCPIn is codebuddyMCP with base as where .codebuddy.json is
+// beside: a WSL distro's home for the CodeBuddy Code there.
+func codebuddyMCPIn(dir, base string) string {
 	all := []string{filepath.Join(dir, ".mcp.json"), filepath.Join(dir, "mcp.json"), filepath.Join(base, ".codebuddy.json")}
 	for _, p := range all {
 		if _, err := os.Stat(p); err == nil {
@@ -175,7 +200,7 @@ func targetOf(a *agent.Agent) *Target {
 		// Pi 0.99 reads MCP servers itself, from its mcp.json; before it,
 		// and while an MCP extension replaces its own (pi-mcp-adapter,
 		// pi-mcp-extension), each extension reads its own file (pimcp.go)
-		t.MCP, t.MCPVia = piMCP(h, d, piVersion(a))
+		t.MCP, t.MCPVia = piMCP(h, d, piVersion(a), piGlobalRoots())
 		t.Skills = filepath.Join(d, "skills")
 	case "dsh":
 		// DeepSeek Harness reads $DSH_HOME/AGENTS.md and $DSH_HOME/skills;
@@ -592,37 +617,127 @@ func wslTargetOf(a *agent.Agent) *Target {
 		return nil
 	}
 	t := &Target{Agent: a, Copy: true}
+	// a folder there that is a link is opened where it leads (#4502)
+	j := func(elem ...string) string { return wslOpen(t, filepath.Join(elem...)) }
 	id, _, _ := strings.Cut(a.ID, "@")
 	switch id {
 	case "claude":
-		d := filepath.Join(h, ".claude")
+		d := j(h, ".claude")
 		t.Instructions = filepath.Join(d, "CLAUDE.md")
-		t.MCP = &mcpFile{Path: filepath.Join(h, ".claude.json"), Format: fmtClaude, WSL: true, Distro: a.WSL, Home: linuxHome(h)}
+		t.MCP = &mcpFile{Path: j(h, ".claude.json"), Format: fmtClaude}
 		t.Skills = filepath.Join(d, "skills")
 		t.Settings = filepath.Join(d, "settings.json")
 	case "codex":
-		d := filepath.Join(h, ".codex")
+		d := j(h, ".codex")
 		t.Instructions = filepath.Join(d, "AGENTS.md")
 		t.Override = filepath.Join(d, "AGENTS.override.md")
-		t.MCP = &mcpFile{Path: filepath.Join(d, "config.toml"), Format: fmtCodex, WSL: true, Distro: a.WSL, Home: linuxHome(h)}
+		t.MCP = &mcpFile{Path: filepath.Join(d, "config.toml"), Format: fmtCodex}
 		t.Skills = filepath.Join(d, "skills")
 	case "pi":
-		// its MCP servers go where the Pi installed there reads them,
-		// which its version decides (piMCP), and that isn't known here
-		d := filepath.Join(h, ".pi", "agent")
+		// its MCP servers go where the Pi installed there reads them, as on
+		// this machine (piMCP): its version is what the distro's pi said
+		// at the probe, and its extensions are those its settings.json and
+		// the distro's npm folders have (leokon on Discord: only the
+		// Windows Pi was offered MCP servers)
+		d := j(h, ".pi", "agent")
 		t.Instructions = firstThere(d, "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD")
 		t.Override = filepath.Join(d, "AGENTS.override.md")
+		t.MCP, t.MCPVia = piMCP(h, d, piVersion(a), wslPiRoots(h))
 		t.Skills = filepath.Join(d, "skills")
 	case "omo":
-		d := filepath.Join(h, ".omo", "agent")
+		d := j(h, ".omo", "agent")
 		t.Instructions = firstThere(d, "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD")
 		t.Override = filepath.Join(d, "AGENTS.override.md")
-		t.MCP = &mcpFile{Path: filepath.Join(d, "mcp.json"), Format: fmtPiNative, WSL: true, Distro: a.WSL, Home: linuxHome(h)}
+		t.MCP = &mcpFile{Path: filepath.Join(d, "mcp.json"), Format: fmtPiNative}
 		t.Skills = filepath.Join(d, "skills")
+	case "gemini":
+		// as targetOf's, under the distro's home
+		d := j(h, ".gemini")
+		t.Instructions = filepath.Join(d, "GEMINI.md")
+		t.MCP = &mcpFile{Path: filepath.Join(d, "settings.json"), Format: fmtGemini}
+		t.Skills = filepath.Join(d, "skills")
+	case "agy":
+		d := j(h, ".gemini", "config")
+		t.Instructions = filepath.Join(d, "GEMINI.md")
+		t.MCP = &mcpFile{Path: filepath.Join(d, "mcp_config.json"), Format: fmtAntigravity}
+		t.Skills = filepath.Join(d, "skills")
+	case "crush":
+		// its crush.json is the distro's ~/.config/crush's (agent.crushIn),
+		// CRUSH.md and skills beside it
+		d := filepath.Dir(a.Path)
+		t.Instructions = filepath.Join(d, "CRUSH.md")
+		t.MCP = &mcpFile{Path: a.Path, Format: fmtCrush}
+		t.Skills = filepath.Join(d, "skills")
+		t.SkillsAlso = []string{"claude@" + strings.SplitN(a.ID, "@", 2)[1]}
+	case "cline":
+		// beside its providers.json; the distro's CLINE_MCP_SETTINGS_PATH
+		// isn't read
+		t.MCP = &mcpFile{Path: filepath.Join(filepath.Dir(a.Path), "cline_mcp_settings.json"), Format: fmtCline}
+		t.Skills = filepath.Join(a.Dir, "skills")
+	case "codebuddy":
+		t.MCP = &mcpFile{Path: codebuddyMCPIn(a.Dir, h), Format: fmtClaude}
+		t.Skills = filepath.Join(a.Dir, "skills")
+		t.Instructions = firstThere(a.Dir, "CODEBUDDY.md", "CODEBUDDY.mdc")
+	case "kimi":
+		// its folder is the distro's (agent.kimiDir); the new Kimi Code's
+		// AGENTS.md is in it. The skills it shares with other agents (the
+		// distro's ~/.agents/skills) aren't given here
+		t.MCP = &mcpFile{Path: filepath.Join(a.Dir, "mcp.json"), Format: fmtKimi}
+		if filepath.Base(a.Dir) == ".kimi-code" {
+			t.Instructions = filepath.Join(a.Dir, "AGENTS.md")
+		}
+	case "goose":
+		// its config.yaml is the distro's ~/.config/goose's; the skills it
+		// reads first are the distro's ~/.agents/skills, which aren't
+		// given here
+		t.Instructions = filepath.Join(filepath.Dir(a.Path), ".goosehints")
+		t.MCP = &mcpFile{Path: a.Path, Format: fmtGoose}
 	default:
 		return wslOwnFolder(a)
 	}
+	wslOpened(t)
+	if t.MCP != nil {
+		// a Windows program isn't given to it (mcpFile.side)
+		t.MCP.WSL, t.MCP.Distro, t.MCP.Home = true, a.WSL, linuxHome(h)
+	}
 	return t
+}
+
+// wslOpen is path, one of t's in a WSL distro, where magpie can open it
+// (agent.WSLOpen): below a link the distro has, where the link leads,
+// since nothing below one can be opened through \\wsl.localhost. A link
+// that couldn't be resolved leaves path as it is and t unreached.
+func wslOpen(t *Target, path string) string {
+	if path == "" {
+		return ""
+	}
+	if err := t.Agent.Unreached(); err != nil && t.Unreached == nil {
+		t.Unreached = err
+	}
+	o, err := agent.WSLOpen(t.Agent, path)
+	if err != nil {
+		if t.Unreached == nil {
+			t.Unreached = err
+		}
+		return path
+	}
+	return o
+}
+
+// wslOpened opens each of t's paths where magpie can (wslOpen): a link
+// below the agent's folder, its skills folder one, as well as the folder.
+func wslOpened(t *Target) {
+	for _, p := range []*string{&t.Instructions, &t.Override, &t.Skills, &t.Settings} {
+		*p = wslOpen(t, *p)
+	}
+	if t.MCP != nil {
+		t.MCP.Path = wslOpen(t, t.MCP.Path)
+		for _, ps := range [][]string{t.MCP.Also, t.MCP.Extra} {
+			for i := range ps {
+				ps[i] = wslOpen(t, ps[i])
+			}
+		}
+	}
 }
 
 // ownFolder are the agents that keep all the library gives them in their
@@ -650,6 +765,7 @@ func wslOwnFolder(a *agent.Agent) *Target {
 		return nil
 	}
 	t.Agent, t.Copy = a, true
+	wslOpened(t)
 	if t.MCP != nil {
 		t.MCP.WSL, t.MCP.Distro, t.MCP.Home = true, a.WSL, linuxHome(a.Home)
 	}
@@ -688,7 +804,17 @@ func Targets() []*Target { return targets(false) }
 func everyTarget() []*Target { return targets(true) }
 
 func targets(gone bool) []*Target {
+	out, _ := targetsAsleep(gone)
+	return out
+}
+
+// targetsAsleep is targets, and the agents in WSL distros that aren't
+// running now: none is a target, as its files can't be opened without
+// starting the distro, but the page lists them (asleepView). Each running
+// one's places are kept for when it is stopped (keepShape).
+func targetsAsleep(gone bool) ([]*Target, []*agent.Agent) {
 	var out []*Target
+	var asleep []*agent.Agent
 	own := map[string]bool{}
 	for _, a := range apps() {
 		own[a.ID] = true
@@ -711,6 +837,11 @@ func targets(gone bool) []*Target {
 		if !gone && a.CLIMissing() {
 			continue
 		}
+		if isAsleep(a) {
+			asleep = append(asleep, a)
+			noteUp(a.WSL, false)
+			continue
+		}
 		if t := targetOf(a); t != nil && t.open() {
 			out = append(out, t)
 		}
@@ -724,7 +855,12 @@ func targets(gone bool) []*Target {
 		}
 	}
 	readsWith(out)
-	return out
+	for _, t := range out {
+		if t.Agent.WSL != "" {
+			keepShape(t)
+		}
+	}
+	return out, asleep
 }
 
 // held are the agents not among have (Targets) — uninstalled, or gone for
@@ -742,7 +878,7 @@ func (l *Library) held(have []*Target) []*Target {
 		if a := l.Applied[id]; a != nil && (len(a.Skills) > 0 || len(a.MCP) > 0 || len(a.Hooks) > 0) {
 			return true
 		}
-		return slices.ContainsFunc(l.Skills, func(s *Skill) bool { return slices.Contains(s.Agents, id) }) ||
+		return slices.ContainsFunc(l.Skills, func(s *Skill) bool { return s.gives(id) }) ||
 			slices.ContainsFunc(l.MCP, func(s *Server) bool { return slices.Contains(s.Agents, id) }) ||
 			slices.ContainsFunc(l.Hooks, func(h *Hook) bool { return slices.Contains(h.Agents, id) })
 	}
@@ -840,7 +976,13 @@ func Takes(q, kind string) (string, error) {
 	}
 	t := targetOf(a)
 	var has bool
-	if t == nil && a.WSL != "" && (a.Home == "" || !agent.WSLRunning(a.WSL)) {
+	if t == nil && isAsleep(a) {
+		// one magpie saw it give instructions, MCP servers or skills a
+		// place to is recorded, and given them when the distro next runs
+		// (Woken)
+		if sh := shapeOf(a); sh != nil && (kind == "instructions" && sh.Instructions != "" || kind == "mcp" && sh.MCP != "" || kind == "skills" && sh.Skills != "") {
+			return a.ID, nil
+		}
 		return "", fmt.Errorf("WSL %s isn't running: start it, and %s can be given %s", a.WSL, a.Name, what)
 	}
 	if t != nil {

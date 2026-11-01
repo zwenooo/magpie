@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
+	"net/netip"
 	"regexp"
 	"slices"
 	"strings"
@@ -179,6 +180,7 @@ func shaped(kind, v string) string {
 		shapes[f] = kind
 		addKnown(f, k)
 	}
+	touch(f)
 	mu.Unlock()
 	if taken && have != k {
 		// another value's made-up key, which nothing ever is by chance
@@ -189,9 +191,15 @@ func shaped(kind, v string) string {
 
 // restoreShapes puts back each made-up key in s, counting it in put
 // where put isn't nil; called with mu held for reading. A made-up key
-// needs no escaping, nor does the value it stands for.
+// needs no escaping, nor does the value it stands for. An address's
+// stand-in is put back only where it is a whole name: public-ip-kvxqmrtz
+// is no part of public-ip-kvxqmrtzab or my-public-ip-kvxqmrtz.
 func restoreShapes(s string, put map[string]int) string {
-	for f := range shapes {
+	for f, kind := range shapes {
+		if kind == "IP" {
+			s = restoreAddr(s, f, values[f], put)
+			continue
+		}
 		if n := strings.Count(s, f); n > 0 {
 			s = strings.ReplaceAll(s, f, values[f])
 			if put != nil {
@@ -200,6 +208,48 @@ func restoreShapes(s string, put map[string]int) string {
 		}
 	}
 	return s
+}
+
+// restoreAddr is s with each whole stand-in f in it put back as the
+// address v, counted in put where put isn't nil: not where a letter, a
+// digit, '-' or '_' is against it, or a dot before it or before a letter
+// or digit after it, which make it a piece of another name
+// (public-ip-kvxqmrtz.lan); a port, a path or a full stop may follow it.
+func restoreAddr(s, f, v string, put map[string]int) string {
+	if !strings.Contains(s, f) {
+		return s
+	}
+	var b strings.Builder
+	last := 0
+	for i := 0; ; {
+		j := strings.Index(s[i:], f)
+		if j < 0 {
+			break
+		}
+		a, z := i+j, i+j+len(f)
+		i = a + 1
+		if a > 0 && (nameByte(s[a-1]) || s[a-1] == '.') || z < len(s) && nameByte(s[z]) ||
+			z+1 < len(s) && s[z] == '.' && nameByte(s[z+1]) {
+			continue
+		}
+		b.WriteString(s[last:a])
+		b.WriteString(v)
+		last, i = z, z
+		if put != nil {
+			put[f]++
+		}
+	}
+	if last == 0 {
+		return s
+	}
+	b.WriteString(s[last:])
+	return b.String()
+}
+
+// nameByte says c may be part of a host's name beside a stand-in: a
+// letter, a digit, '-' or '_'.
+func nameByte(c byte) bool {
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '-' || c == '_'
 }
 
 // shapeTail is how much of the end of s may be the start of a made-up
@@ -262,4 +312,152 @@ func outsideShapes(s string, found []span) []span {
 		}
 	}
 	return found
+}
+
+// A user name goes to the vendor as a made-up name, not a placeholder:
+// C:\Users\eerttreeeert as C:\Users\qmzvkrta, never C:\Users\{{USERNAME_…}}.
+// A path with braces in it reads as a template's or a temporary folder's,
+// and an agent on mimo-v2.6-flash took the user's home for a temporary
+// folder and set out to delete it (eerttreeeert on X, 10-28). A made-up
+// name keeps the path a home folder's, which is what it is, and still
+// tells the vendor nothing of the user. It is made from the name as a
+// made-up key is (shapeOf), so it is the same every turn and a vendor's
+// cache still matches, and it is put back wherever the vendor writes it
+// (restoreShapes), in a tool call's path too. Only USERNAME's: what the
+// user chose to mask (their words) goes as they chose.
+
+// standInLen is a made-up name's length: eight lowercase letters, which
+// read as a login name and are in no other text by chance.
+const standInLen = 8
+
+// standInOf is the made-up name the user name v goes as.
+func standInOf(v string) string {
+	h := hmac.New(sha256.New, key())
+	h.Write([]byte("user\x00" + v))
+	sum := h.Sum(nil)
+	out := make([]byte, standInLen)
+	for i := range out {
+		out[i] = 'a' + sum[i]%26
+	}
+	return string(out)
+}
+
+// A public IP address goes to the vendor as a host's name that says what
+// the address is, public-ip- and eight lowercase letters
+// (public-ip-kvxqmrtz), not {{IP_…}} and not another address. Told "my
+// server is {{IP_…}}, ssh in", models asked the user for the real address
+// or searched ~/.ssh and the environment for it (0x0_air on X, 10-28).
+// Told an address from the documentation ranges (192.0.2.0/24 and the
+// like), they ran ssh, but every model knows those ranges: asked why ssh
+// to it timed out, deepseek-v4-pro, kimi-k3, gpt-6-luna and
+// claude-sonnet-5-5 told the user they had an example address and not
+// their server's, and a 192.0.2. address read to the user as one on their
+// own network (akic404 on Discord, 10-31: 公网 IP 被脱敏成内网 IP). Told
+// public-ip-kvxqmrtz, the same five models ran ssh root@public-ip-kvxqmrtz
+// at once, which comes back as the real address in the tool call, and
+// took it for the public address it is when asked what was wrong. A name
+// with no dot in it is no one's on the internet, so a stand-in the vendor
+// tries itself reaches nobody. The same address gets the same stand-in
+// every turn while magpie runs, and two addresses never share one; it is
+// put back only as a whole name (restoreAddr).
+
+// ipStandInHead starts every address's stand-in, and ipStandInLen
+// letters follow it.
+const (
+	ipStandInHead = "public-ip-"
+	ipStandInLen  = 8
+)
+
+// ipStandIns are the stand-ins the address v may go as, in the order
+// they are tried: n of them, the i-th made by at(i), with nothing locked,
+// so it may be called with mu held. False where v is no address.
+func ipStandIns(v string) (at func(i int) string, n int, ok bool) {
+	a, err := netip.ParseAddr(v)
+	if err != nil {
+		return nil, 0, false
+	}
+	k := key()
+	return func(i int) string {
+		h := hmac.New(sha256.New, k)
+		h.Write([]byte("ip\x00" + a.Unmap().String()))
+		var c [8]byte
+		binary.BigEndian.PutUint64(c[:], uint64(i))
+		h.Write(c[:])
+		sum := h.Sum(nil)
+		out := []byte(ipStandInHead)
+		for j := 0; j < ipStandInLen; j++ {
+			out = append(out, 'a'+sum[j]%26)
+		}
+		return string(out)
+	}, 8, true
+}
+
+// ipStandIn is the stand-in the address v goes as, kept to be put back as
+// a made-up key is: the one it went as before, or the first that is no
+// other value's. False where v is no address or every one is taken.
+func ipStandIn(v string) (string, bool) {
+	at, n, ok := ipStandIns(v)
+	if !ok {
+		return "", false
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	free := ""
+	for i := 0; i < n; i++ {
+		f := at(i)
+		have, taken := values[f]
+		if taken && have == v {
+			touch(f)
+			return f, true
+		}
+		if !taken && free == "" {
+			free = f
+		}
+	}
+	if free == "" {
+		return "", false
+	}
+	makeRoom()
+	values[free] = v
+	kinds["IP"] = true
+	shapes[free] = "IP"
+	addKnown(free, v)
+	touch(free)
+	return free, true
+}
+
+// standIn is put with a user name sent as its made-up name and an IP
+// address as a public-ip- name, each kept to be put back as a made-up
+// key is; put's own where that name is another value's already.
+func standIn(put func(kind, v string) string) func(kind, v string) string {
+	return func(kind, v string) string {
+		if kind == "IP" {
+			if f, ok := ipStandIn(v); ok {
+				return f
+			}
+			return put(kind, v)
+		}
+		if kind != "USERNAME" {
+			return put(kind, v)
+		}
+		f := standInOf(v)
+		if f == v {
+			return put(kind, v)
+		}
+		mu.Lock()
+		have, taken := values[f]
+		if !taken {
+			makeRoom()
+			values[f] = v
+			kinds[kind] = true
+			shapes[f] = kind
+			addKnown(f, v)
+		}
+		touch(f)
+		mu.Unlock()
+		if taken && have != v {
+			return put(kind, v)
+		}
+		return f
+	}
 }

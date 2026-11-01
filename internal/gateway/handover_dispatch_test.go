@@ -67,7 +67,7 @@ func TestHandedOffGatewayWaitsForFirstHandler(t *testing.T) {
 	// Both observations are state checks, not an assertion that a timer
 	// happened to lose a race. The paused request must still block shutdown.
 	s.unread.mu.Lock()
-	pending := len(s.unread.conns)
+	pending := len(s.unread.conns) + len(s.unread.kept)
 	s.unread.mu.Unlock()
 	if reused.Load() || pending != 1 {
 		letGo()

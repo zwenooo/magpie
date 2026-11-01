@@ -47,9 +47,10 @@ func TestParseEnviron(t *testing.T) {
 	}
 }
 
-// TestEnvOfHelper is TestEnvOfChild's child: it waits to be ended. macOS
-// keeps a system binary's environment (sleep's) from ps, so the child is
-// this test binary, as the Codex app's codex is its own.
+// TestEnvOfHelper is TestEnvOfChild's child: it says it is running and
+// waits to be ended. macOS keeps a system binary's environment (sleep's)
+// from ps, so the child is this test binary, as the Codex app's codex is
+// its own.
 func TestEnvOfHelper(t *testing.T) {
 	if os.Getenv("MAGPIE_ENV_HELPER") != "1" {
 		return

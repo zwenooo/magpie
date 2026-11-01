@@ -725,6 +725,7 @@ var (
 	injected = []string{
 		"<system-reminder", "<environment_context>", "<user_instructions>", "<turn_aborted>",
 		"<user_shell_command>", "<subagent_notification>", "<in-app-browser-context",
+		"<external_codex_apps_open_page>",
 		"<task-notification>", "<subagent-notification>", "<plugin_reference>",
 		"Available agent types for the Agent tool:", "Available agent types and the tools they have access to:",
 		"New agent types are now available for the Agent tool:",
@@ -760,6 +761,12 @@ func userWords(text string) string {
 		}
 	}
 	return t
+}
+
+// saysAnything is whether userSaid has anything, without joining the
+// words of a long turn only to see they are there
+func saysAnything(m Message) bool {
+	return slices.ContainsFunc(m.Parts, func(p Part) bool { return p.Kind == Text && userSays(p.Text) })
 }
 
 // userSaid is what the user said in a message: the words of its texts.
@@ -1225,13 +1232,14 @@ func windowFor(id, model string) int {
 // inspectPrompt reads the request's prompt beside it, putting the estimate
 // in the trace as soon as it is read; wait returns it, for the route's
 // end to scale to what was counted. masked is the body as the vendor would
-// get it with masking on, kept a while for the card's text (PromptText).
-func (s *Server) inspectPrompt(tr *Route, from provider.Protocol, body, masked []byte) (wait func() *Prompt) {
+// get it with masking on, kept a while for the card's text (PromptText);
+// plain when it went unmasked, so is masked only when the card asks.
+func (s *Server) inspectPrompt(tr *Route, from provider.Protocol, body, masked []byte, plain bool) (wait func() *Prompt) {
 	ch := make(chan *Prompt, 1)
 	go func() {
 		p := promptOf(from, body)
 		if p != nil {
-			s.trace.keepBody(tr.ID, from, masked)
+			s.trace.keepBody(tr.ID, from, masked, plain)
 			s.trace.update(tr, func(t *Route) {
 				if t.Prompt == nil {
 					t.Prompt = p

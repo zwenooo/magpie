@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -25,7 +26,8 @@ import (
 // for — the vendor sees no more than that many — and what is waited is
 // told in the route's try (Try.Queued).
 
-// lanes are the slots of each key or account with a limit.
+// lanes are the slots of each key or account with a limit, and the count
+// of those out on one without (limit 0), which take no slot and never wait.
 type lanes struct {
 	mu sync.Mutex
 	m  map[string]*lane
@@ -67,7 +69,7 @@ var (
 // acquire waits for one of who's limit slots, in turn, with no bound on
 // the queue or the wait. It answers the release, to call once the request
 // is done with the vendor, and false with no slot taken when ctx ended
-// first. A limit of 0 takes no slot.
+// first. A limit of 0 never waits; the request is only counted.
 func (l *lanes) acquire(ctx context.Context, who string, limit int) (release func(), ok bool) {
 	release, _, err := l.take(ctx, who, limit, 0, 0)
 	return release, err == nil
@@ -84,18 +86,19 @@ func (l *lanes) take(ctx context.Context, who string, limit, queue int, wait tim
 		l.m = map[string]*lane{}
 	}
 	ln := l.m[who]
-	if limit <= 0 {
-		if ln != nil {
-			// the limit was lifted: whoever waits goes now
-			ln.limit = 0
-			ln.grant()
-		}
-		l.mu.Unlock()
-		return func() {}, 0, nil
-	}
 	if ln == nil {
 		ln = &lane{}
 		l.m[who] = ln
+	}
+	if limit <= 0 {
+		// the limit was lifted: whoever waits goes now. With none, the
+		// request is still counted while it is out, for the pill that
+		// says how many run (chentuoyan on Discord)
+		ln.limit = 0
+		ln.grant()
+		ln.busy++
+		l.mu.Unlock()
+		return l.releaser(who, ln), 0, nil
 	}
 	ln.limit = limit
 	ln.grant() // a limit raised lets more of those waiting go
@@ -160,7 +163,9 @@ func (l *lanes) free(who string, limit int) bool {
 // and room in its minute — another key or account of cands[i]'s provider,
 // or in a routing group any member — when cands[i]'s key or account is
 // full, or has sent its MaxRPM in the last minute; -1 when it isn't
-// full, gave way once already, or none has room.
+// full, gave way once already, or none has room. A reserve is never one
+// (keepAtOnce): it is held back for its provider not to be used from more
+// accounts at once than it lets be, and a full lane is not a failure.
 func (s *Server) laneMate(cands []candidate, i int, group bool, gave map[string]bool) int {
 	c := cands[i]
 	who := c.who()
@@ -169,7 +174,7 @@ func (s *Server) laneMate(cands []candidate, i int, group bool, gave map[string]
 	}
 	for j := i + 1; j < len(cands); j++ {
 		m := cands[j]
-		if m.who() == who || !group && m.p.ID != c.p.ID {
+		if m.who() == who || !group && m.p.ID != c.p.ID || m.reserve > 0 {
 			continue
 		}
 		if s.ready(m) {
@@ -177,6 +182,13 @@ func (s *Server) laneMate(cands []candidate, i int, group bool, gave map[string]
 		}
 	}
 	return -1
+}
+
+// dropReserves leaves out, of the candidates after i, the reserves of
+// provider id (keepAtOnce).
+func dropReserves(cands []candidate, i int, id string) []candidate {
+	tail := slices.DeleteFunc(slices.Clone(cands[i+1:]), func(m candidate) bool { return m.reserve > 0 && m.p.ID == id })
+	return append(slices.Clone(cands[:i+1]), tail...)
 }
 
 // ready is whether c's request would go at once: a slot free in its lane,
@@ -263,8 +275,9 @@ func (s *Server) concurrency(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"object": "concurrency", "data": lanes, "requests": b.Requests, "waiting": waiting, "tools": b.Tools, "active": s.Active()})
 }
 
-// Lanes is how each key or account with requests out or waiting under a
-// limit stands, by its who (provider, provider#key, provider@account).
+// Lanes is how each key or account with requests out or waiting stands,
+// limit or none (Limit 0), by its who (provider, provider#key,
+// provider@account).
 func (s *Server) Lanes() map[string]Lane {
 	s.lanes.mu.Lock()
 	defer s.lanes.mu.Unlock()
