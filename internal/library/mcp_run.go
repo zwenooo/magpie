@@ -64,6 +64,7 @@ func specOf(s *Server) (runSpec, bool) {
 	if s.Remote() || s.Command == "" {
 		return runSpec{}, false
 	}
+	s = here(s)
 	env, unset := expandAll(s.Env)
 	if len(unset) > 0 {
 		return runSpec{}, false

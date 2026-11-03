@@ -18,6 +18,7 @@ internal/provider/fork_presets.go Fork-owned provider presets (CodeZ)
 internal/provider/fork_partners.go Partner-feed policy (off by default)
 internal/sessions/sources.go     Custom read-only session directory registration
 internal/gui/sessions_sources.go Session directory scan/import API
+internal/library/mcp_folders.go  MCP servers' program and key folders carried by sync
 docs/cursor-byok.md              Setup and synchronization contract
 build/fork/                     Fork build and upstream merge commands
 .github/workflows/fork.yml       Fork integration checks on three platforms
@@ -56,6 +57,21 @@ Existing provider records are not edited; their cached preset metadata remains
 available as an ordinary relay without sponsorship. The explicit
 `MAGPIE_PARTNERS` override is retained for private catalogs and isolated tests.
 The upstream GUI needs no separate fork layout or deleted partner components.
+
+A command MCP server can keep its program and its keys in the library, so a
+sync carries them like a skill's folder (`internal/library/mcp_folders.go`).
+It names `{{program}}` (`library/mcp/<name>/program`), `{{private}}`
+(`library/mcp/<name>/private`) or `{{state}}` (`mcp-state/<name>`) in its
+command, arguments or environment; agents, the check and the servers magpie
+runs get this computer's paths. The program is always carried, without what
+installing or running it writes. The private folder holds configuration and
+keys: it is carried only with the library's keys, as secret env values are,
+is never copied into the backups, and is written 0700/0600. The state folder
+is never carried. The upstream hooks are small: `Bundle.Folders` and its
+calls in `carry.go`, `here` where a server is written or run (`sync.go`,
+`mcp_run.go`, `mcp_check.go`, `mcp_copy.go`, `project_mcp.go`), the folders
+following a rename or removal in `sync.go`, and `holdsSkills` keeping a
+program set aside in `backup.go`.
 
 ## Remotes and branches
 

@@ -296,8 +296,12 @@ func (l *Library) syncMCP(t *Target, b *backups, res *Result) {
 			}
 			continue
 		}
+		if t.MCP.WSL && s.keptHere() {
+			res.fail(id, "mcp:"+s.Name, errKeptInWSL)
+			continue
+		}
 		if s != hub {
-			s = through(s, base)
+			s = through(here(s), base)
 		}
 		if err := t.MCP.supports(s); err != nil {
 			res.fail(id, "mcp:"+s.Name, err)
@@ -762,6 +766,10 @@ func SaveServer(old string, s Server) (*Result, error) {
 			// magpie's sign-in goes with a renamed server, before the agents
 			// are given it under its new name
 			if old != s.Name {
+				// and so do its folders kept in the library (mcp_folders.go)
+				if err := renameFolders(old, s.Name); err != nil {
+					return err
+				}
 				if err := mcpauth.Rename(old, s.Name); err != nil {
 					return err
 				}
@@ -919,6 +927,10 @@ func removeServer(l *Library, name string) error {
 	i := slices.IndexFunc(l.MCP, func(x *Server) bool { return x.Name == name })
 	if i < 0 {
 		return fmt.Errorf("no server called %s", name)
+	}
+	// its folders kept in the library go with it, its program to the backups
+	if _, err := setAsideFolders(name, ""); err != nil {
+		return err
 	}
 	k := serverKey(l.MCP[i])
 	l.MCP = slices.Delete(l.MCP, i, i+1)

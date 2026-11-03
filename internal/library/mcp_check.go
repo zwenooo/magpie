@@ -541,6 +541,10 @@ func startServer(ctx context.Context, s *Server, distro string) (tree *proc.Tree
 	fail := func(h ServerHealth) (*proc.Tree, io.WriteCloser, io.ReadCloser, *tail, func(), *ServerHealth) {
 		return nil, nil, nil, nil, nil, &h
 	}
+	if distro != "" && s.keptHere() {
+		return fail(failed("start", errKeptInWSL.Error()))
+	}
+	s = here(s)
 	env, unset := expandAll(s.Env)
 	if len(unset) > 0 {
 		return fail(failed("novar", strings.Join(unset, ", ")))

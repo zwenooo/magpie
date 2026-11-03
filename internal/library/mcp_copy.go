@@ -58,7 +58,7 @@ func ConfigOfServers(agent string, names []string) (*ServersConfig, error) {
 			out.Skipped = append(out.Skipped, name)
 			continue
 		}
-		if err := f.put(through(s, gateway.URL()), nil); err != nil {
+		if err := f.put(through(here(s), gateway.URL()), nil); err != nil {
 			return nil, err
 		}
 		put++
