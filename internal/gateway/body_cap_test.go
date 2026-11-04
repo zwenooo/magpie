@@ -1,12 +1,16 @@
 package gateway
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/yetone/magpie/internal/provider"
 )
@@ -252,6 +256,81 @@ func TestCompactionOverByteCapEveryTime(t *testing.T) {
 	for i := 1; i < 4 && i < len(calls); i++ {
 		if len(calls[i]) >= len(calls[i-1]) {
 			t.Fatalf("ask %d (%d bytes) no smaller than the one before (%d)", i, len(calls[i]), len(calls[i-1]))
+		}
+	}
+}
+
+type compactionKeepaliveRecorder struct {
+	*recorder
+	kept chan struct{}
+	once sync.Once
+}
+
+func (r *compactionKeepaliveRecorder) Write(b []byte) (int, error) {
+	n, err := r.recorder.Write(b)
+	if bytes.Contains(b, []byte(": keepalive")) {
+		r.once.Do(func() { close(r.kept) })
+	}
+	return n, err
+}
+
+// The vendor waits for the actual keepalive, not an elapsed-time estimate:
+// a slow refusal is a typed failure under HTTP 200 and still asks smaller.
+func TestCompactionSizeRefusalAfterKeepalive(t *testing.T) {
+	fresh(t)
+	oldAfter, oldWatch := keepHeldAfter, watchEvery
+	keepHeldAfter, watchEvery = 0, time.Millisecond
+	t.Cleanup(func() { keepHeldAfter, watchEvery = oldAfter, oldWatch })
+	kept := make(chan struct{})
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		select {
+		case <-kept:
+		case <-r.Context().Done():
+			return
+		}
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		io.WriteString(w, deepseekBodyCap)
+	}))
+	t.Cleanup(up.Close)
+	if err := provider.Save(provider.Provider{ID: "fake", Name: "Fake", Key: "k", Models: []string{"m1"}, Responses: up.URL}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	rec := &recorder{header: http.Header{}, status: 200}
+	out := &compactionKeepaliveRecorder{recorder: rec, kept: kept}
+	r := httptest.NewRequest("POST", "/v1/responses", nil).WithContext(ctx)
+	New().serve(out, askCompaction(askWhole(r)), provider.Responses,
+		[]byte(`{"model":"fake/m1","stream":true,"input":[{"role":"user","content":"compact this conversation"}]}`))
+	if ctx.Err() != nil {
+		t.Fatal("vendor never received the keepalive", ctx.Err())
+	}
+	if rec.status != http.StatusOK || !bytes.HasPrefix(rec.body.Bytes(), []byte(": keepalive")) {
+		t.Fatalf("refusal did not follow a keepalive: %d %s", rec.status, rec.body.String())
+	}
+	if !summaryTooLarge(rec) {
+		t.Fatalf("kept-alive size refusal was not retried as text: %s", rec.body.String())
+	}
+}
+
+func TestCompactionStreamSizeCodes(t *testing.T) {
+	for _, c := range []struct {
+		data string
+		want bool
+	}{
+		{`{"type":"response.failed","response":{"error":{"code":"context_length_exceeded","message":"too big"}}}`, true},
+		{`{"type":"response.failed","response":{"error":{"type":"request_too_large","message":"too big"}}}`, true},
+		{`{"type":"error","error":{"code":"request_too_large","message":"too big"}}`, true},
+		{`{"type":"error","code":"context_length_exceeded","message":"too big"}`, true},
+		{`{"type":"error","error":{"code":"server_error","message":"request_too_large mentioned in unrelated failure"}}`, false},
+		{`{"type":"response.completed","response":{"error":{"code":"context_length_exceeded"}}}`, false},
+		{`{"type":"response.output_text.delta","delta":"context_length_exceeded"}`, false},
+	} {
+		rec := &recorder{status: http.StatusOK, header: http.Header{}}
+		io.WriteString(rec, ": keepalive\n\ndata: "+c.data+"\n\n")
+		if got := summaryTooLarge(rec); got != c.want {
+			t.Errorf("summaryTooLarge(%s) = %v, want %v", c.data, got, c.want)
 		}
 	}
 }

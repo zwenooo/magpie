@@ -3725,7 +3725,38 @@ var upstreamFailedWords = regexp.MustCompile(`(?i)upstream request failed`)
 // (plainCompact), and compacted without a model when that is refused
 // too.
 func summaryTooLarge(rec *recorder) bool {
-	return rec.status == http.StatusRequestEntityTooLarge || overflowed(rec.status, rec.body.Bytes())
+	if rec.status == http.StatusRequestEntityTooLarge || overflowed(rec.status, rec.body.Bytes()) {
+		return true
+	}
+	if rec.status != http.StatusOK {
+		return false
+	}
+	// A keepalive has already sent HTTP 200; the refusal's type is then
+	// carried by its error event, not by the recorder's status (#4862).
+	tooLarge := false
+	readSSE(bytes.NewReader(rec.body.Bytes()), func(_, data string) error {
+		ev := gjson.Parse(data)
+		var failure gjson.Result
+		switch ev.Get("type").Str {
+		case "response.failed":
+			failure = ev.Get("response.error")
+		case "error":
+			failure = ev.Get("error")
+			if !failure.Exists() {
+				failure = ev
+			}
+		default:
+			return nil
+		}
+		for _, field := range []string{"code", "type"} {
+			switch failure.Get(field).Str {
+			case "context_length_exceeded", "request_too_large":
+				tooLarge = true
+			}
+		}
+		return nil
+	})
+	return tooLarge
 }
 
 // itemNotFound is a 400 refusing an item of the input by its id, as Azure
