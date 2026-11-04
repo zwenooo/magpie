@@ -42,6 +42,10 @@ type ClaudeRelocationResult struct {
 // session-ID-keyed files (file-history, todos and session-env). IDs stay intact.
 // Clients must be closed: the in-process lock cannot exclude Claude itself.
 func RelocateClaudeProject(in ClaudeRelocation) (ClaudeRelocationResult, error) {
+	// gateway mode touches no agent's files here (OwnOff)
+	if ownOff() {
+		return ClaudeRelocationResult{}, ErrNotRead
+	}
 	sourceWrites.Lock()
 	defer sourceWrites.Unlock()
 	unlock, held := filelock.Lock(sourcesPath()+".lock", filelock.Wait)
