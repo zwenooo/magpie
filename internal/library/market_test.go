@@ -429,3 +429,47 @@ func TestMagpieWebSearchIsOptIn(t *testing.T) {
 		t.Fatalf("keys %q and %q", serverKey(&other), serverKey(s))
 	}
 }
+
+// Magpie Image Recognition is in Discover beside Magpie Image and Magpie
+// Web Search, added for no agent until the user picks them, with time to
+// look (matrix0487 on Discord); any binary's `mcp vision` is the same
+// server.
+func TestMagpieImageRecognitionIsOptIn(t *testing.T) {
+	sandbox(t)
+	list, err := MarketServers("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{selfServerName, searchServerName, visionServerName} {
+		if !slices.ContainsFunc(list, func(m MarketServer) bool { return m.ID == id && m.OptIn }) {
+			t.Fatalf("%s not in Discover: %+v", id, list)
+		}
+	}
+	ok(t)(InstallServer(visionServerName, nil, nil))
+	list, err = MarketServers("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(list, func(m MarketServer) bool { return m.ID == visionServerName })
+	if i < 0 || list[i].Have != visionServerName || list[i].Title != "Magpie Image Recognition" {
+		t.Fatalf("market: %+v", list)
+	}
+	l, err := load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := l.server(visionServerName)
+	if s == nil || len(s.Agents) != 0 || !filepath.IsAbs(s.Command) || strings.Join(s.Args, " ") != "mcp vision" {
+		t.Fatalf("added as %+v", s)
+	}
+	if v, ok := valueOf((&mcpFile{Format: fmtCodex}).encode(s), "tool_timeout_sec"); !ok || v != 120 {
+		t.Fatalf("Codex's entry: tool_timeout_sec = %v %v", v, ok)
+	}
+	other := Server{Name: "eyes", Transport: "stdio", Command: "/opt/other/magpie", Args: []string{"mcp", "vision"}}
+	if serverKey(&other) != serverKey(s) {
+		t.Fatalf("keys %q and %q", serverKey(&other), serverKey(s))
+	}
+	if search := (Server{Name: "web", Transport: "stdio", Command: s.Command, Args: []string{"mcp", "search"}}); serverKey(&search) == serverKey(s) {
+		t.Fatal("vision and search share a key")
+	}
+}

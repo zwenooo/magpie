@@ -503,7 +503,7 @@ func runAfterExit(pid int, command string) error {
 	cmd := proc.Command("/bin/sh", "-c", script)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
 	detach(cmd)
-	return cmd.Start()
+	return proc.StartReaped(cmd)
 }
 
 // relaunchOpen is the open command Relaunch runs for bundle. -n asks
@@ -1300,7 +1300,7 @@ func OpenBeside(bundle string, window, quiet bool) error {
 	cmd := proc.Command("/bin/sh", "-c", retried(openBeside(bundle, window, quiet), openWaits))
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
 	detach(cmd)
-	return cmd.Start()
+	return proc.StartReaped(cmd)
 }
 
 // openBeside is the open command OpenBeside runs for bundle.

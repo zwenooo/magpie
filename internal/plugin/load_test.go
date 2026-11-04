@@ -10,7 +10,9 @@ import (
 
 // A plugin reports its models' loads through input.magpie.load (axelburks
 // on Discord: an in-house vendor's busy models queue requests), when it
-// likes, from its own timer: magpie keeps each, a percent within 0 to 100,
+// likes, from its own timer: magpie keeps each, a percent from 0 up, past
+// 100 for a vendor that queues (axelburks again: 200% happens), capped at
+// LoadMost,
 // matched by id whatever its case, and a null clears one. What isn't a
 // number is dropped, and a call that isn't a provider and a map throws.
 func TestPluginReportsModelLoad(t *testing.T) {
@@ -28,7 +30,7 @@ func TestPluginReportsModelLoad(t *testing.T) {
   for (const bad of [[5, {}], ["loadco", null], ["loadco", [1]], ["", {}]]) {
     try { input.magpie.load(...bad) } catch (e) { if (e instanceof TypeError) threw++ }
   }
-  const n = input.magpie.load("loadco", { Big: 87.5, small: 0, over: 250, under: -3, word: "busy", nan: NaN, inf: Infinity, threw })
+  const n = input.magpie.load("loadco", { Big: 87.5, small: 0, over: 250, huge: 1e9, under: -3, word: "busy", nan: NaN, inf: Infinity, threw })
   input.magpie.load("loadco", { taken: n })
   setTimeout(() => input.magpie.load("loadco", { small: null, later: 12 }), 50)
   return {}
@@ -54,7 +56,7 @@ func TestPluginReportsModelLoad(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	now := time.Now()
-	for model, want := range map[string]float64{"big": 87.5, "BIG": 87.5, "over": 100, "under": 0, "threw": 4, "taken": 5, "later": 12} {
+	for model, want := range map[string]float64{"big": 87.5, "BIG": 87.5, "over": 250, "huge": LoadMost, "under": 0, "threw": 4, "taken": 6, "later": 12} {
 		if got, _, ok := ModelLoad("loadco", model, now); !ok || got != want {
 			t.Errorf("ModelLoad(%s) = %v, %v; want %v", model, got, ok, want)
 		}

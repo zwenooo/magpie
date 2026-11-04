@@ -331,9 +331,11 @@ func pluginsState(ctx context.Context, w Windows) pluginsJSON {
 		if file, only := plugin.Middleware(plugin.Target(e.Spec)); file != "" {
 			j.IsMiddleware, j.MiddlewareOnly = true, only
 		}
-		if j.IsMiddleware || j.IsGateway {
-			j.OptionsExample = plugin.OptionsExample(plugin.Target(e.Spec))
-		}
+		// every plugin's, a provider plugin's too (Devin's keepalive,
+		// plugins#592): its row offers the same options editor. Not only
+		// one whose providers are known, as those are named in the
+		// background and the button would come and go with them
+		j.OptionsExample = plugin.OptionsExample(plugin.Target(e.Spec))
 		if file, _ := plugin.Agent(plugin.Target(e.Spec)); file != "" {
 			j.IsAgent = true
 			j.InMagpieOnly = plugin.InMagpieOnly(plugin.Target(e.Spec))
@@ -464,7 +466,9 @@ func pluginAgents(ctx context.Context) []string {
 		have[plugin.Name(e.Spec)] = true
 	}
 	out := []string{}
-	for _, l := range plugin.Market(ctx) {
+	// the community's alone, as Discover's Agents: an author's own is
+	// found by a search
+	for _, l := range plugin.Community(plugin.Market(ctx)) {
 		if l.Kind == "agent" && !have[l.Package] {
 			out = append(out, l.Name)
 		}

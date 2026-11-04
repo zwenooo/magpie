@@ -62,7 +62,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await page.locator("#addProvider").click();
         const sheet = page.locator("#addSheet");
         await sheet.locator(".tile").first().waitFor();
-        const labels = await page.evaluate(() => ({ partners: t("Partners"), sponsors: t("magpie's sponsors"), relays: t("Relays"), key: t("Get a key ↗") }));
+        const labels = await page.evaluate(() => ({ partners: t("Partners"), sponsors: t("magpie's sponsors"), relays: t("Relays"), key: t("Get a key ↗"), apiKey: t("API key") }));
         const headings = await sheet.locator(".kind").allTextContents();
         assert.ok(headings.every(s => !s.includes(labels.partners) && !s.includes(labels.sponsors)), "no partner section before searching");
         assert.equal(await page.locator("#addProvider").evaluate(el => el.classList.contains("has-new")), false);
@@ -87,7 +87,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.deepEqual(await editor.locator(".eps .ep").evaluateAll(rows => rows.map(row => [row.querySelector(".pl").textContent, row.querySelector("code").textContent])), [
           ["OpenAI", codez.chat], ["Responses", codez.responses], ["Anthropic", codez.anthropic],
         ]);
-        assert.equal(await editor.locator('input[type="password"]').inputValue(), "");
+        assert.equal(await editor.getByRole("textbox", { name: labels.apiKey, exact: true }).inputValue(), "");
         const siteOpened = page.waitForResponse(r => r.url().endsWith("/api/open"));
         await site.click();
         await siteOpened;

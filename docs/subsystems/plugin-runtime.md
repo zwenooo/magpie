@@ -183,7 +183,7 @@ plugin off the gateway does no observing work.
 | `Begin` and `Watch` | As a request starts the gateway asks each observer (`observeRequest`) with `usage.Request`: its header, agent, session (the native one when the agent names it), call kind (`auxiliary` for Claude's tool-less helper calls) and `Plain` (loopback, no gateway key, not passed on from another magpie). A `Watch` it returns gets `Attempt` for each routing attempt, unbilled failures and retries too, and `End` once. With no observer, or none watching, the request carries nothing. | [`observe.go`](../../internal/gateway/observe.go) |
 | Bodies | `Bodies()` is `NoBodies`, `CapturedBodies` (the first 256 KiB, cut with `usage.BodyCut`) or `WholeBodies` (the reply spooled whole as it streams, #538). The gateway takes the most any observer wants now (`ObservedBodies`): it keeps the whole reply only when one asks for it, and puts bodies on an attempt's record only when one asks for any. | [`observe.go`](../../internal/gateway/observe.go), [`capture.go`](../../internal/gateway/capture.go) |
 | `Ledger` and `Watched` | Every row `Append` writes is passed to each observer. A row of a request some observer watched has `Watched` set (`appendUsage`), so an observer that sent the request's attempts doesn't send its row again. | [`usage.go`](../../internal/usage/usage.go), [`lan.go`](../../internal/gateway/lan.go) |
-| `internal/otlp` | The OTLP/HTTP exporter, moved whole out of `internal/usage`: `otlp.New()` is an `Exporter`, a `usage.Observer`. Its Begin leaves a local agent's own turn to the agent's transcript when session tracing reads it, and takes a W3C `traceparent` as the parent. Settings are read on each call, as before. | [`otlp/`](../../internal/otlp) |
+| `internal/otlp` | The OTLP/HTTP exporter, moved whole out of `internal/usage`: `otlp.New()` is an `Exporter`, a `usage.Observer`. Its Begin leaves a local agent's own turn to the agent's transcript when session tracing reads it, and takes a W3C `traceparent` as the parent. Settings are read on each call, as before. Both signals' resource is `service.name=magpie` with `OTEL_RESOURCE_ATTRIBUTES` merged over it and `OTEL_SERVICE_NAME` over that (`otelResourceAttributes`, #5167); an invalid variable is discarded whole and logged once, by entry position only. Nothing about the host is collected. |  [`otlp/`](../../internal/otlp) |
 | `plugins/otel` | Requires `window`, `settings` and `gateway`. Apply registers `otlp.New()` and disposes of it when turned off. `InUse` is 1 while `settings.OTelExport` says to send (settings.json or `MAGPIE_OTEL_*`), so a user who exports only through the environment keeps it on under Essentials. | [`otel.go`](../../plugins/otel/otel.go) |
 
 ## Gateway extension points (P3): router strategy
@@ -316,8 +316,19 @@ starts a Bun host.
   (macOS, Linux), and a sandboxed frame has an opaque origin, so a CSP
   source without a scheme matches only http(s) there. `ownWindow` puts the
   native scheme on the request's context and `pagePolicy` names the folder
-  under it (#2501); the web keeps a scheme-less source.
-  `TestPluginPageWindowPolicy` checks the policy, and
+  under it (#2501). iOS Safari (18.7) takes a missing scheme from that
+  opaque origin on http(s) too, and loaded none of a page's scripts from
+  `magpie web` (#4198): a browser's policy names the folder
+  under both `https://` and `http://` (`ownSources`), since a proxy that
+  ends TLS (nginx, Cloudflare) leaves magpie nothing it trusts to say
+  which. A page's service sends its own policy, where `'self'` meant its
+  whole 127.0.0.1 origin; sandboxed, WebKit refused the service page's
+  fetches under `connect-src 'self'`. `serviceSelf` names the service's
+  root under both schemes after each `'self'` in a policy header it sends
+  (and `ws://`, `wss://` in `connect-src` and `default-src`); a `<meta>`
+  policy is the plugin's to write with whole sources.
+  `TestPluginPageWindowPolicy`, `TestPluginPageWebPolicyNamesItsScheme`,
+  `TestServiceSelf` and `TestPluginPageServiceProxied` check the policies, and
   `TestPluginPageLoadsItsFilesInTheWindow` loads a page through
   `ownWindow` in a real WKWebView; Playwright, on http, can't see it.
 - **Slots.** A page names a slot with `<div class="plugin-slot"

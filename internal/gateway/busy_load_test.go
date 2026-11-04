@@ -86,6 +86,21 @@ func TestBusyModelGoesBehind(t *testing.T) {
 		t.Fatalf("over 50: %v, want %v", got, want)
 	}
 
+	// a vendor that queues reports past 100 (axelburks: 200% happens),
+	// and a threshold past 100 goes by it
+	plugin.NoteLoadsForTest("inhouse", map[string]float64{"big": 180, "mid": 120}, now)
+	busyLoadAt(t, 150)
+	want = []string{"inhouse-plugin/mid", "inhouse-plugin/old", "inhouse-plugin/none", "inhouse-plugin/big", "down-busy-test"}
+	got, busy = order()
+	if !same(got, want) || busy[3] != 180 {
+		t.Fatalf("over 150: %v %v, want %v", got, busy, want)
+	}
+	s := settings.Load()
+	s.BusyLoad = settings.BusyLoadMost
+	if err := settings.Save(s); err == nil {
+		t.Fatalf("a threshold of %d was saved", settings.BusyLoadMost)
+	}
+
 	// a lone candidate is tried whatever its load
 	if out, pl := restLast([]candidate{c("big")}, planned{order: make([]Weighed, 1)}); len(out) != 1 || pl.order[0].Busy != 0 {
 		t.Fatalf("lone: %+v", pl.order)
@@ -129,5 +144,35 @@ func TestBusyModelNotKeptAtNewTurn(t *testing.T) {
 	}
 	if readyForNew(pl.order, 1) {
 		t.Fatal("a new conversation may go to the busy one")
+	}
+}
+
+// A plugin reports a model's load by its own id. One the user lists by
+// another (Listed as) is judged busy by that load all the same (axelburks
+// on Discord: a renamed model was never busy, the others were).
+func TestBusyModelListedAsAnotherID(t *testing.T) {
+	plugin.ForgetLoads()
+	t.Cleanup(plugin.ForgetLoads)
+	s := settings.Load()
+	was := s.ModelIDs
+	s.ModelIDs = map[string]string{"inhouse-plugin/fast": "big", "inhouse-plugin/grok": "grok-4.7@256k"}
+	if err := settings.Save(s); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s := settings.Load(); s.ModelIDs = was; settings.Save(s) })
+	now := time.Now()
+	plugin.NoteLoadsForTest("inhouse", map[string]float64{"big": 92, "grok-4.7": 95}, now)
+	p := provider.PluginForTest("inhouse-plugin", "inhouse")
+	if own := p.OwnModelID("fast"); own != "big" {
+		t.Fatalf("OwnModelID(fast) = %q", own)
+	}
+	for _, model := range []string{"fast", "grok", "big"} {
+		load, busy := busyOf(candidate{p: p, model: model, rest: "inhouse-plugin/" + model}, 80, now)
+		if !busy || load < 92 {
+			t.Errorf("%s: load %v busy %v, want busy over 80", model, load, busy)
+		}
+	}
+	if load, busy := busyOf(candidate{p: p, model: "other", rest: "inhouse-plugin/other"}, 80, now); busy || load != 0 {
+		t.Errorf("other: load %v busy %v, want none", load, busy)
 	}
 }
