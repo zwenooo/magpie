@@ -138,6 +138,9 @@ func TestCodexGeneratedImagesPastOldLimit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("allocates a few GB")
 	}
+	// Race instrumentation of the 516 MB scan is not a routing stall;
+	// keep the normal deadline outside -race, as the 64 MB tests do.
+	largeBodyRoom(t)
 	codexMemory(t, 16<<30)
 	setup(t, provider.Chat, &fake{t: t})
 	var got atomic.Int64
