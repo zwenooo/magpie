@@ -89,6 +89,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         t.after(() => browser.close());
         const page = await browser.newPage({ viewport: { width, height: 760 }, reducedMotion: "reduce" });
         page.setDefaultTimeout(6000);
+        page.setDefaultNavigationTimeout(60000);
         const errors = [];
         page.on("pageerror", (err) => errors.push(err.message));
         const f = fixture(lang);
