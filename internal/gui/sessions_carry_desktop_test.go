@@ -70,7 +70,7 @@ func TestSessionSourceDesktopCarryRoutes(t *testing.T) {
 		t.Fatalf("source sessions: %+v", managed.Sessions)
 	}
 	s := managed.Sessions[0]
-	if !s.ReadOnly || s.Deletable || s.Resume != "" || len(s.Carry) != 2 {
+	if !s.ReadOnly || s.Deletable || len(s.Carry) != 2 {
 		t.Fatalf("read-only source must offer two copy conversions: %+v", s)
 	}
 	for _, target := range []string{"claude", "codex"} {

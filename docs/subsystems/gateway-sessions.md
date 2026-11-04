@@ -218,10 +218,19 @@ usual user-data folders.
 and the local source registry. Registered sources feed the existing session
 readers, so their conversations are available after a restart and newly
 written sessions are discovered without importing again. Custom sources
-are read-only: session deletion and relocation must not change their files.
-Continue in may read a Claude-format history to create a new session in an
-installed Claude Code or Codex target, as described below; it never resumes
-or edits the imported original.
+are read-only to magpie: session deletion and relocation must not change
+their files, and Continue in may read a Claude-format history to create a
+new session in an installed Claude Code or Codex target, as described below.
+Resume (`resumeOf`, `claudeHomeResume` in `sources.go`) goes on in the
+original itself: a Claude Desktop session, or an imported Claude history,
+laid out as `<config>/projects/<project>/<id>.jsonl` resumes with
+`claude --resume <id>` in its working folder, with `CLAUDE_CONFIG_DIR` naming
+`<config>` unless that is Claude Code's own folder. Claude Code then appends
+to that transcript. Nothing is offered when the working folder isn't on this
+computer (a Cowork session's folder in Desktop's VM), for a gateway or WSL
+row, or outside that layout. Verification: `TestSourceResumeInItsConfigFolder`,
+`TestSourceResumeNeedsItsFolderAndLayout`, `TestSourceResumeInClaudesOwnFolder`,
+`TestDesktopResumeOfItsOwnFolder`.
 Removing a directory unregisters it, leaving the original history intact.
 Overlapping sources must not count the same file twice. An unreadable registry
 is an error when managing sources and is never replaced with an empty one.
@@ -557,8 +566,8 @@ A session row's Continue in (`carryPick` in the Sessions plugin's
 [`internal/sessions/carry.go`](../../internal/sessions/carry.go)). Nothing is
 offered for a WSL or gateway-only session, or one with no file or folder.
 Read-only Claude Code and Claude Desktop histories can be converted into
-new target sessions; their original resume, deletion and relocation
-restrictions remain. Other read-only session formats have no carry action.
+new target sessions; the originals stay undeletable and unmovable, and
+resume as described under custom session directories. Other read-only session formats have no carry action.
 There are two kinds:
 
 - **From the file as it is.** oh-my-pi forks a Pi session: `Carry.Command`

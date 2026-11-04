@@ -100,8 +100,8 @@ func TestCarryDesktopHistory(t *testing.T) {
 				t.Fatal("source history changed")
 			}
 			if kind != "native" {
-				if !s.ReadOnly || s.Resume != "" {
-					t.Fatalf("imported original gained direct resume: %+v", s)
+				if !s.ReadOnly {
+					t.Fatalf("imported original became writable: %+v", s)
 				}
 				if _, err := Delete(s.Agent, s.ID); err == nil {
 					t.Fatal("imported original became deletable")

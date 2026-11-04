@@ -48,7 +48,7 @@ func TestSessionSourceScanImport(t *testing.T) {
 	}
 	Reset()
 	got := ListAgent("claude-desktop")
-	if len(got) != 1 || got[0].ID != sourceTestID || !got[0].ReadOnly || got[0].Deletable || got[0].Resume != "" || !got[0].Transcript {
+	if len(got) != 1 || got[0].ID != sourceTestID || !got[0].ReadOnly || got[0].Deletable || !got[0].Transcript {
 		t.Fatalf("imported sessions = %+v", got)
 	}
 	tr, err := TranscriptOf(got[0].Session)

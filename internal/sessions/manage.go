@@ -334,8 +334,8 @@ func listAgentWith(agent string, all []file, quick bool) []Managed {
 // in, as ListAgent lists it and Find finds it: how to resume it, and
 // whether its conversation can be read.
 func listed(s *Session) {
-	if s.Resume == "" && !s.ReadOnly {
-		s.Resume = resumeCommand(s.WSL, s.Agent, s.ID, s.Cwd, s.Path)
+	if s.Resume == "" {
+		s.Resume = resumeOf(*s)
 	}
 	if s.Carry == nil {
 		s.Carry = carries(*s)

@@ -450,3 +450,48 @@ func withCustomSources(lists [][]file) [][]file {
 	}
 	return append(out, unique)
 }
+
+// resumeOf is the line that resumes a session where it is. A Claude Desktop
+// session, and an imported read-only Claude history, resume in Claude Code
+// from the config folder that holds them (claudeHomeResume); any other
+// read-only session has none.
+func resumeOf(s Session) string {
+	if s.Agent == "claude-desktop" || s.ReadOnly && s.Agent == "claude" {
+		return claudeHomeResume(s)
+	}
+	if s.ReadOnly {
+		return ""
+	}
+	return resumeCommand(s.WSL, s.Agent, s.ID, s.Cwd, s.Path)
+}
+
+// claudeHomeResume resumes a Claude Code transcript kept in a config folder's
+// <config>/projects/<project>/<id>.jsonl, with CLAUDE_CONFIG_DIR naming that
+// folder unless it is Claude Code's own. Claude Code goes on in the same
+// transcript; magpie itself still never deletes or moves an imported one.
+// Nothing is offered when the folder it ran in isn't on this computer, as a
+// Cowork session's folder in Desktop's VM isn't.
+func claudeHomeResume(s Session) string {
+	if s.WSL != "" || s.Gateway || s.Path == "" || !safeID.MatchString(s.ID) || filepath.Base(s.Path) != s.ID+".jsonl" {
+		return ""
+	}
+	projects := filepath.Dir(filepath.Dir(s.Path))
+	if filepath.Base(projects) != "projects" {
+		return ""
+	}
+	if !filepath.IsAbs(s.Cwd) || sourceCold(s.Cwd) {
+		return ""
+	}
+	if info, err := os.Stat(s.Cwd); err != nil || !info.IsDir() {
+		return ""
+	}
+	config := filepath.Dir(projects)
+	run := "claude --resume " + s.ID
+	if sourceWithin(config, ClaudeDir()) && sourceWithin(ClaudeDir(), config) {
+		return resumeCommand("", "claude", s.ID, s.Cwd, "")
+	}
+	if runtime.GOOS == "windows" {
+		return "Set-Location -LiteralPath '" + strings.ReplaceAll(s.Cwd, "'", "''") + "'; $env:CLAUDE_CONFIG_DIR='" + strings.ReplaceAll(config, "'", "''") + "'; " + run
+	}
+	return "cd " + shellQuote(s.Cwd) + " && CLAUDE_CONFIG_DIR=" + shellQuote(config) + " " + run
+}

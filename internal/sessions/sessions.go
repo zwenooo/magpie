@@ -1791,9 +1791,7 @@ func assemble(fs []file, price func(string) *catalog.Price, codexTitle func(stri
 	if !ok {
 		return s, false
 	}
-	if !s.ReadOnly {
-		s.Resume = resumeCommand(s.WSL, s.Agent, s.ID, s.Cwd, s.Path)
-	}
+	s.Resume = resumeOf(s)
 	s.Carry, s.Transcript = carries(s), readable(s)
 	if s.Transcript {
 		s.Subagents = subagentsOf(s, fs)
