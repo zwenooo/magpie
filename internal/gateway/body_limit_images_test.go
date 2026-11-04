@@ -117,8 +117,8 @@ func TestCodexBodyLimitFromMemory(t *testing.T) {
 			t.Errorf("%d GiB: %d MiB, want %d MiB", c.mem>>30, got>>20, c.want>>20)
 		}
 	}
-	// memory not known is not a small machine, nor a large one
-	memGOOS, memRoot = "linux", t.TempDir()
+	// Unknown memory must not fall back to the real host's platform API.
+	memGOOS, memRoot = "unknown", t.TempDir()
 	if got := codexBodyLimit(); got != defaultBodyLimit {
 		t.Errorf("unknown: %d MiB", got>>20)
 	}
