@@ -51,7 +51,8 @@ func TestAgySessions(t *testing.T) {
 		t.Fatalf("want 3 agy sessions, got %d", n)
 	}
 	two := find(t, ss, "agy", agyTwoTurns)
-	if two.Title != "Hello from the fake." || two.Cwd != "/work/proj" {
+	cwd := filepath.FromSlash("/work/proj")
+	if two.Title != "Hello from the fake." || two.Cwd != cwd {
 		t.Fatalf("two turns: title %q cwd %q", two.Title, two.Cwd)
 	}
 	if !two.Start.Equal(at("2026-10-25T09:46:59Z")) || !two.Last.Equal(at("2026-10-25T09:48:56Z")) {
@@ -60,7 +61,7 @@ func TestAgySessions(t *testing.T) {
 	if m := model(two, "agy"); m.Tokens != (Tokens{Input: 1404, Output: 18, CacheRead: 600}) {
 		t.Fatalf("two turns' tokens: %+v", two.Models)
 	}
-	if want := agyResume("/work/proj", "agy --conversation "+agyTwoTurns); two.Resume != want {
+	if want := agyResume(cwd, "agy --conversation "+agyTwoTurns); two.Resume != want {
 		t.Fatalf("resume %q, want %q", two.Resume, want)
 	}
 	if !two.Transcript {
@@ -80,7 +81,7 @@ func TestAgySessions(t *testing.T) {
 		return "GEMINI_API_KEY=k GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:1 agy --model 'magpie/x'"
 	}
 	r := find(t, List(0), "agy", agyRead)
-	if want := agyResume("/work/proj2", "GEMINI_API_KEY=k GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:1 agy --model 'magpie/x' --conversation "+agyRead); r.Resume != want {
+	if want := agyResume(filepath.FromSlash("/work/proj2"), "GEMINI_API_KEY=k GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:1 agy --model 'magpie/x' --conversation "+agyRead); r.Resume != want {
 		t.Fatalf("wired resume %q, want %q", r.Resume, want)
 	}
 }
@@ -193,6 +194,7 @@ func TestAgyTranscript(t *testing.T) {
 func TestAgyFolder(t *testing.T) {
 	for _, c := range []struct{ uri, goos, want string }{
 		{"file:///work/proj", "darwin", "/work/proj"},
+		{"file:///work/proj", "windows", `\work\proj`},
 		{"file:///home/a/my%20proj", "linux", "/home/a/my proj"},
 		{"file:///C:/Users/a/proj", "windows", `C:\Users\a\proj`},
 		{"file:///c%3A/Users/a/proj", "windows", `C:\Users\a\proj`},
@@ -233,10 +235,11 @@ func TestAgyRowOnly(t *testing.T) {
 		t.Fatalf("want 4 agy sessions, got %d", n)
 	}
 	s := find(t, ss, "agy", id)
-	if s.Title != "Older talk" || s.Cwd != "/work/old" || !s.Last.Equal(at("2026-10-12T04:41:53.5Z")) || !s.Tokens.zero() {
+	cwd := filepath.FromSlash("/work/old")
+	if s.Title != "Older talk" || s.Cwd != cwd || !s.Last.Equal(at("2026-10-12T04:41:53.5Z")) || !s.Tokens.zero() {
 		t.Fatalf("row only: %+v", s)
 	}
-	if want := agyResume("/work/old", "agy --conversation "+id); s.Resume != want {
+	if want := agyResume(cwd, "agy --conversation "+id); s.Resume != want {
 		t.Fatalf("resume %q", s.Resume)
 	}
 	if s.Transcript {
