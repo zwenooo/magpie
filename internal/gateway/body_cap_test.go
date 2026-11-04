@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -244,10 +243,43 @@ func TestWithoutOldImagesEachProtocol(t *testing.T) {
 // compaction is asked as text and then made without a model, not sent
 // again into the compaction guard's hold.
 func TestCompactionOverByteCapEveryTime(t *testing.T) {
+	compactionOverByteCapEveryTime(t)
+	t.Run("codex", func(t *testing.T) {
+		// with Codex's own User-Agent, whose turns are told a 413 in the
+		// stream (compactsInStream): the summary ask still gets its status,
+		// or every Codex compaction refused so failed 502 (#4862)
+		compactionOverByteCapEveryTime(t, "User-Agent", codexUA)
+	})
+}
+
+// The same, with the fitting tries past keepHeldAfter, as a 40 MB upload
+// asked four times is on a slow uplink, and as each try is under -race
+// (#4862): the summary ask's recorder was sent the held stream's 200 and
+// a keepalive, the last 413 then came as the stream's error, and the
+// compaction failed 502 "so there is no summary" instead of being made
+// without a model.
+func TestCompactionOverByteCapSlowFitting(t *testing.T) {
+	k, w := keepHeldAfter, watchEvery
+	keepHeldAfter, watchEvery = time.Millisecond, time.Millisecond
+	t.Cleanup(func() { keepHeldAfter, watchEvery = k, w })
+	compactionOverByteCapEveryTime(t)
+	t.Run("codex", func(t *testing.T) { compactionOverByteCapEveryTime(t, "User-Agent", codexUA) })
+}
+
+func compactionOverByteCapEveryTime(t *testing.T, header ...string) {
+	t.Helper()
 	largeBodyRoom(t)
 	up := &capped{proto: provider.Responses, most: 0, status: 400, ctype: "application/json", body: commandCodeCap}
 	cappedOn(t, up)
-	code, body := codexPost(t, screenshotSession(true))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", CodexPath+"/responses", strings.NewReader(screenshotSession(true)))
+	req.Header.Set("Authorization", "Bearer chatgpt-token")
+	req.Header.Set("chatgpt-account-id", "acct-1")
+	for i := 0; i+1 < len(header); i += 2 {
+		req.Header.Set(header[i], header[i+1])
+	}
+	New().Handler().ServeHTTP(rec, req)
+	code, body := rec.Code, rec.Body.String()
 	if code != 200 {
 		t.Fatalf("Codex's compaction failed: %d %.400s", code, body)
 	}
@@ -265,32 +297,21 @@ func TestCompactionOverByteCapEveryTime(t *testing.T) {
 	}
 }
 
-type compactionKeepaliveRecorder struct {
-	*recorder
-	kept chan struct{}
-	once sync.Once
-}
-
-func (r *compactionKeepaliveRecorder) Write(b []byte) (int, error) {
-	n, err := r.recorder.Write(b)
-	if bytes.Contains(b, []byte(": keepalive")) {
-		r.once.Do(func() { close(r.kept) })
-	}
-	return n, err
-}
-
-// The vendor waits for the actual keepalive, not an elapsed-time estimate:
-// a slow refusal is a typed failure under HTTP 200 and still asks smaller.
-func TestCompactionSizeRefusalAfterKeepalive(t *testing.T) {
+// magpie's own summary ask is never kept alive (keptAlive.whole, #4862):
+// a vendor slow past keepHeldAfter still answers it its 413, not a 200 and
+// a keepalive with the refusal as a stream error after it.
+func TestCompactionSizeRefusalKeepsItsStatus(t *testing.T) {
 	fresh(t)
 	oldAfter, oldWatch := keepHeldAfter, watchEvery
 	keepHeldAfter, watchEvery = 0, time.Millisecond
 	t.Cleanup(func() { keepHeldAfter, watchEvery = oldAfter, oldWatch })
-	kept := make(chan struct{})
+	asked := make(chan struct{})
+	release := make(chan struct{})
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.Copy(io.Discard, r.Body)
+		close(asked)
 		select {
-		case <-kept:
+		case <-release:
 		case <-r.Context().Done():
 			return
 		}
@@ -304,18 +325,28 @@ func TestCompactionSizeRefusalAfterKeepalive(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	rec := &recorder{header: http.Header{}, status: 200}
-	out := &compactionKeepaliveRecorder{recorder: rec, kept: kept}
 	r := httptest.NewRequest("POST", "/v1/responses", nil).WithContext(ctx)
-	New().serve(out, askCompaction(askWhole(r)), provider.Responses,
-		[]byte(`{"model":"fake/m1","stream":true,"input":[{"role":"user","content":"compact this conversation"}]}`))
-	if ctx.Err() != nil {
-		t.Fatal("vendor never received the keepalive", ctx.Err())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		New().serve(rec, askCompaction(askWhole(r)), provider.Responses,
+			[]byte(`{"model":"fake/m1","stream":true,"input":[{"role":"user","content":"compact this conversation"}]}`))
+	}()
+	<-asked
+	// many watch ticks past keepHeldAfter, where a client's turn is kept alive
+	for i := 0; i < 50; i++ {
+		time.Sleep(watchEvery)
 	}
-	if rec.status != http.StatusOK || !bytes.HasPrefix(rec.body.Bytes(), []byte(": keepalive")) {
-		t.Fatalf("refusal did not follow a keepalive: %d %s", rec.status, rec.body.String())
+	close(release)
+	<-done
+	if ctx.Err() != nil {
+		t.Fatal(ctx.Err())
+	}
+	if bytes.Contains(rec.body.Bytes(), []byte(": keepalive")) {
+		t.Fatalf("the summary ask was kept alive: %d %s", rec.status, rec.body.String())
 	}
 	if !summaryTooLarge(rec) {
-		t.Fatalf("kept-alive size refusal was not retried as text: %s", rec.body.String())
+		t.Fatalf("size refusal not read as one: %d %s", rec.status, rec.body.String())
 	}
 }
 
