@@ -495,7 +495,11 @@ magpie.plugin("sessions", (ctx) => {
     tr.append(svg(TRASH, 13, 1.4), el("span", "", t("Trash")));
     if (data?.trash.length) tr.append(el("em", "", String(data.trash.length)));
     tr.onclick = () => { trashOn = !trashOn; selecting = false; picked.clear(); draw(); };
-    h.append(q, sel, tr);
+    const imp = el("button", "text sm-import-btn", t("Import"));
+    imp.type = "button";
+    imp.title = t("Import sessions");
+    imp.onclick = askImport;
+    h.append(q, sel, imp, tr);
     return h;
   }
 
@@ -1314,6 +1318,154 @@ magpie.plugin("sessions", (ctx) => {
     if (got.tr?.cut) out.push(el("p", "cx-none", t("There was more than is shown here")));
     out.push(el("p", "cx-src", t(got.tr?.source === "gateway" ? "Recorded gateway traffic only; earlier, expired or uncaptured content may be missing" : "Read from the agent's session file; magpie keeps no copy")));
     box.replaceChildren(...out);
+  }
+
+  function askImport() {
+    const ed = el("div", "editor sm-ask sm-import");
+    const h = el("div", "ehead");
+    h.append(icon("claude"), el("b", "", t("Import sessions")));
+    ed.append(h);
+    const directory = el("label", "sm-ask-field", t("Session directory"));
+    const input = el("input");
+    input.type = "text";
+    input.spellcheck = false;
+    input.autocomplete = "off";
+    directory.append(input);
+    const label = el("span", "", t("Session type"));
+    label.id = "smImportTypeLabel";
+    const pick = el("button", "sess-pick sm-import-type");
+    pick.type = "button";
+    pick.setAttribute("aria-labelledby", label.id);
+    pick.setAttribute("aria-haspopup", "menu");
+    pick.setAttribute("aria-expanded", "false");
+    const types = [{ v: "claude-desktop", name: "Claude Desktop", literalName: true }, { v: "claude", name: "Claude Code", literalName: true }];
+    let chosen = "claude-desktop", preview = null, busy = false, reads = null, sources = [];
+    const info = el("p", "lib-confirm sm-import-info");
+    info.setAttribute("aria-live", "polite");
+    const samples = el("ul", "sm-ask-list sm-import-preview");
+    samples.hidden = true;
+    const saved = el("div", "sm-import-sources");
+    saved.hidden = true;
+    const bar = el("div", "bar");
+    const cancel = el("button", "text", t("Cancel"));
+    const scan = el("button", "text primary", t("Scan"));
+    const take = el("button", "text primary", t("Import all"));
+    cancel.type = scan.type = take.type = "button";
+    const allowed = () => !!reads?.asked && (reads.found?.find((a) => a.agent === chosen)?.on ?? reads.all);
+    const controls = () => {
+      input.disabled = pick.disabled = cancel.disabled = busy;
+      scan.disabled = busy || !reads || !input.value.trim();
+      scan.textContent = t(allowed() ? "Scan" : "Allow and scan");
+      scan.classList.toggle("primary", !preview?.count);
+      take.hidden = !preview?.count;
+      take.disabled = busy;
+      for (const b of saved.querySelectorAll("button")) b.disabled = busy;
+    };
+    const reset = () => {
+      preview = null;
+      info.textContent = "";
+      samples.replaceChildren();
+      samples.hidden = true;
+      controls();
+    };
+    const pickType = (value) => {
+      chosen = value;
+      pick.replaceChildren(el("span", "", types.find((x) => x.v === chosen).name), svg(CHEV, 11, 1.6));
+      reset();
+    };
+    pick.onclick = (e) => {
+      e.stopPropagation();
+      if (pick.classList.contains("open")) return closeProtoMenu();
+      openProtoMenu(pick, types, chosen, pickType, "Session type", "sess-menu");
+    };
+    input.oninput = reset;
+    cancel.onclick = () => closeConfirmAsk();
+    const drawSources = () => {
+      saved.replaceChildren();
+      saved.hidden = !sources.length;
+      if (!sources.length) return;
+      saved.append(el("b", "sm-import-heading", t("Scan directories")));
+      for (const source of sources) {
+        const row = el("div", "sm-import-source");
+        const use = el("button", "text sm-import-source-path");
+        use.type = "button";
+        use.title = source.path;
+        use.append(el("span", "", source.path), el("small", "", types.find((x) => x.v === source.agent)?.name || source.agent));
+        use.onclick = () => { input.value = source.path; pickType(source.agent); input.focus({ preventScroll: true }); };
+        const remove = el("button", "text sm-import-remove", t("Remove directory"));
+        remove.type = "button";
+        remove.setAttribute("aria-label", t("Remove directory: {path}", { path: source.path }));
+        remove.onclick = async () => {
+          busy = true;
+          controls();
+          try {
+            const out = await api("sessions/sources/remove", source);
+            sources = out.sources || [];
+            if (confirmAsk === ed) { drawSources(); reset(); }
+            await load();
+          } catch (err) { info.textContent = t(err.message); }
+          finally { busy = false; controls(); }
+        };
+        row.append(use, remove);
+        saved.append(row);
+      }
+      controls();
+    };
+    scan.onclick = async () => {
+      const source = { path: input.value.trim(), agent: chosen };
+      reset();
+      busy = true;
+      controls();
+      scan.classList.add("busy");
+      try {
+        if (!allowed()) {
+          reads = await api("sessions/reads", { agents: { [chosen]: true } });
+          if (data) data.reads = reads;
+        }
+        const out = await api("sessions/scan", source);
+        if (confirmAsk !== ed || input.value.trim() !== source.path || chosen !== source.agent) return;
+        preview = out;
+        info.textContent = t(out.count ? "Found {n} sessions" : "No sessions found", { n: out.count });
+        samples.replaceChildren(...(out.sessions || []).map((s) => {
+          const li = el("li", "", s.title || s.id);
+          li.title = s.title || s.id;
+          return li;
+        }));
+        samples.hidden = !out.sessions?.length;
+      } catch (err) { info.textContent = t(err.message); }
+      finally { busy = false; scan.classList.remove("busy"); controls(); }
+    };
+    take.onclick = async () => {
+      if (!preview?.count) return;
+      busy = true;
+      controls();
+      take.classList.add("busy");
+      try {
+        const out = await api("sessions/import", preview.source);
+        if (confirmAsk === ed) closeConfirmAsk();
+        status(t("Imported {n} sessions", { n: out.count }), "ok");
+        trashOn = selecting = false;
+        query = "";
+        picked.clear();
+        drawnIn.clear();
+        await load(out.source.agent);
+      } catch (err) { info.textContent = t(err.message); }
+      finally { busy = false; take.classList.remove("busy"); controls(); }
+    };
+    bar.append(el("span", "grow"), cancel, scan, take);
+    ed.append(directory, label, pick, info, samples, saved, bar);
+    pickType(chosen);
+    confirmAsk = ed;
+    openModal(ed);
+    $("#modal").classList.add("lib");
+    input.focus({ preventScroll: true });
+    Promise.all([api("sessions/reads"), api("sessions/sources")]).then(([r, s]) => {
+      if (confirmAsk !== ed) return;
+      reads = r;
+      sources = s.sources || [];
+      drawSources();
+      controls();
+    }).catch((err) => { if (confirmAsk === ed) info.textContent = t(err.message); });
   }
 
   function askRelocate(from, wsl) {

@@ -13,6 +13,9 @@ import (
 	"strings"
 	"time"
 	"unicode/utf16"
+
+	"github.com/yetone/magpie/internal/filelock"
+	"github.com/yetone/magpie/internal/filememo"
 )
 
 // ClaudeRelocation moves an entire project within one Claude Code config
@@ -39,6 +42,13 @@ type ClaudeRelocationResult struct {
 // session-ID-keyed files (file-history, todos and session-env). IDs stay intact.
 // Clients must be closed: the in-process lock cannot exclude Claude itself.
 func RelocateClaudeProject(in ClaudeRelocation) (ClaudeRelocationResult, error) {
+	sourceWrites.Lock()
+	defer sourceWrites.Unlock()
+	unlock, held := filelock.Lock(sourcesPath()+".lock", filelock.Wait)
+	defer unlock()
+	if !held {
+		return ClaudeRelocationResult{}, errors.New("could not lock session sources")
+	}
 	storeMu.Lock()
 	defer storeMu.Unlock()
 	mu.Lock()
@@ -230,6 +240,9 @@ func relocateClaudeProject(root, target string, in ClaudeRelocation) (ClaudeRelo
 	}
 	projects := filepath.Join(root, "projects")
 	source, dest := filepath.Join(projects, from), filepath.Join(projects, to)
+	if err := checkRelocationSources(source, dest); err != nil {
+		return out, err
+	}
 	for _, dir := range []string{projects, source} {
 		fi, err := os.Lstat(dir)
 		if err != nil || !fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
@@ -385,6 +398,38 @@ func relocateClaudeProject(root, target string, in ClaudeRelocation) (ClaudeRelo
 	}
 	out.Backup = backup
 	return out, nil
+}
+
+// Resolve only the paths this move changes, never a registered source on a
+// disconnected disk. The destination need not exist, but its parent does.
+func checkRelocationSources(source, dest string) error {
+	filememo.Look(sourcesPath())
+	rows, err := Sources()
+	if err != nil {
+		return fmt.Errorf("cannot verify read-only session sources: %w", err)
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	if sourceCold(source) || sourceCold(dest) {
+		return errors.New("start the WSL distribution before relocating sessions")
+	}
+	from, err := sourceRealPath(source)
+	if err != nil {
+		return err
+	}
+	parent, err := sourceRealPath(filepath.Dir(dest))
+	if err != nil {
+		return err
+	}
+	for _, p := range []string{source, dest, from, filepath.Join(parent, filepath.Base(dest))} {
+		for _, row := range rows {
+			if sourceWithin(row.Path, p) || sourceWithin(p, row.Path) {
+				return errors.New("imported session directories are read-only; remove the source before relocating")
+			}
+		}
+	}
+	return nil
 }
 
 func publishClaudeRelocation(source, dest, backup string) error {

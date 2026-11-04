@@ -178,6 +178,42 @@ capabilities to a gateway row. Verification: `TestDesktopSessionTitles`,
 `TestDesktopSessionTitleInStats`, `TestDesktopTitlesReadOncePerList`,
 `TestDesktopSessionTitlesOnPages`.
 
+### Custom session directories
+
+Sessions > Import sessions accepts an absolute directory and a source type,
+Claude Desktop or Claude Code. Scan previews the recognized Claude JSONL
+sessions without adding them to the session lists. Import registers that
+directory in `session-sources.json` in Magpie's configuration directory;
+it does not copy or rewrite the source files. The directory may be a
+`projects` root or a project directory. The chosen type determines the
+session's agent, including Desktop histories stored outside Desktop's
+usual user-data folders.
+
+[`sources.go`](../../internal/sessions/sources.go) owns validation, scanning
+and the local source registry. Registered sources feed the existing session
+readers, so their conversations are available after a restart and newly
+written sessions are discovered without importing again. Custom sources
+are read-only: session deletion and relocation must not change their files.
+Removing a directory unregisters it, leaving the original history intact.
+Overlapping sources must not count the same file twice. An unreadable registry
+is an error when managing sources and is never replaced with an empty one.
+
+The existing per-agent session-read permission also applies to custom
+sources. If it is off, the import dialog offers Allow and scan, which grants
+only the selected agent before scanning; ordinary Scan and Import never
+grant permission implicitly. Settings can revoke that access afterward.
+[`sessions_sources.go`](../../internal/gui/sessions_sources.go) exposes
+`GET /api/sessions/sources`, `POST /api/sessions/scan`,
+`POST /api/sessions/import` and `POST /api/sessions/sources/remove`.
+The POST bodies are `{path, agent}`; scan and import return the normalized
+source, total count and a sample of at most 50 sessions. Import all registers
+the entire directory, including sessions outside that preview; it takes no
+individual session selection. Import validates the directory again before
+registering it. These routes use the same API access
+guards as the other session routes. Verification: `TestSessionSourceRoutes`,
+`TestSessionSourceRoutesRejectInvalidRequests` and
+`sessions-sources.test.cjs`.
+
 Routing's stage names the session an account is serving (connor_yang on
 Discord): a row answering, or that answered, the request shown adds that
 request's session title after its status, on one line cut short with the

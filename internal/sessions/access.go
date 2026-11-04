@@ -218,5 +218,10 @@ func Found() []string {
 	add("kimi", kimiSessions())
 	add("agy", filepath.Join(AgyDir(), "brain"))
 	add("gemini", geminiTmpDir())
+	for _, source := range sourcesForRead() {
+		if !slices.Contains(out, source.Agent) && !sourceCold(source.Path) {
+			add(source.Agent, source.Path)
+		}
+	}
 	return out
 }

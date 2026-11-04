@@ -16,6 +16,8 @@ internal/update/fork.go          Fork update policy and release identity
 internal/update/fork_github.go   GitHub Releases adapter and channel selection
 internal/provider/fork_presets.go Fork-owned provider presets (CodeZ)
 internal/provider/fork_partners.go Partner-feed policy (off by default)
+internal/sessions/sources.go     Custom read-only session directory registration
+internal/gui/sessions_sources.go Session directory scan/import API
 docs/cursor-byok.md              Setup and synchronization contract
 build/fork/                     Fork build and upstream merge commands
 .github/workflows/fork.yml       Fork integration checks on three platforms

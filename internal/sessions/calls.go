@@ -318,7 +318,7 @@ func callFileLists(codex []file) [][]file {
 			lists = append(lists, ccFiles("claude-desktop", h))
 		}
 	}
-	return append(lists, allowed(codex), wslFiles("claude", "codex"))
+	return withCustomSources(append(lists, allowed(codex), wslFiles("claude", "codex")))
 }
 
 // callSources are callFiles and the other agents' session files. Most are

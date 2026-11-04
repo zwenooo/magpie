@@ -83,6 +83,7 @@ func trashJSON(looks map[string]*agent.Agent) []trashedJSON {
 
 func sessionManageRoutes(mux *http.ServeMux, w Windows) {
 	sessionReadsRoutes(mux)
+	sessionSourceRoutes(mux)
 	mux.HandleFunc("POST /api/sessions/relocate-claude", func(rw http.ResponseWriter, r *http.Request) {
 		var in sessions.ClaudeRelocation
 		if err := json.NewDecoder(http.MaxBytesReader(rw, r.Body, 16384)).Decode(&in); err != nil {

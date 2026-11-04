@@ -820,6 +820,11 @@ func Dirs() []string {
 	}
 	out = append(out, HermesDirs()...)
 	out = append(out, wslDirs()...)
+	for _, source := range sourcesForRead() {
+		if !slices.Contains(out, source.Path) {
+			out = append(out, source.Path)
+		}
+	}
 	return out
 }
 

@@ -99,6 +99,7 @@ func traceLineFiles() []file {
 			claude("claude-desktop", home)
 		}
 	}
+	files = distinctOf(withCustomSources([][]file{files})...)
 	seen := map[string]bool{}
 	var ompRoots []string
 	if Reads("omp") {
