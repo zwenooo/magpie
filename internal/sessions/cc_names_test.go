@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"testing"
+	"time"
 )
 
 // TestCCListingKeepsItsNames: each Sessions poll made every Claude Code
@@ -34,6 +34,17 @@ func TestCCListingKeepsItsNames(t *testing.T) {
 	write("-Users-someone-work-a-project-p1/00000500-aaaa/subagents/agent-1.jsonl")
 	write("-Users-someone-work-a-project-p1/00000500-aaaa/subagents/workflows/run-1/agent-2.jsonl")
 	write("-Users-someone-work-a-project-p1/00000500-aaaa/subagents/workflows/run-1/note.jsonl")
+	// Both measurements must use settled directory listings: crossing
+	// readDirectory's recent-write window would measure another cache too.
+	old := time.Now().Add(-time.Minute)
+	if err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil || !d.IsDir() {
+			return err
+		}
+		return os.Chtimes(p, old, old)
+	}); err != nil {
+		t.Fatal(err)
+	}
 	ccListed.Clear()
 	t.Cleanup(func() { ccListed.Clear() })
 	fresh := func() []file {
@@ -52,18 +63,19 @@ func TestCCListingKeepsItsNames(t *testing.T) {
 	if len(first) != n+2 {
 		t.Fatalf("listed %d files, want %d", len(first), n+2)
 	}
-	runtime.GC()
-	var before, after runtime.MemStats
-	runtime.ReadMemStats(&before)
-	again := listCCFiles("claude", dir)
-	runtime.ReadMemStats(&after)
+	var again []file
+	kept := testing.AllocsPerRun(5, func() { again = listCCFiles("claude", dir) })
 	if !reflect.DeepEqual(again, first) {
 		t.Fatal("an unchanged folder listed otherwise")
 	}
-	// a path and a key a file made again are 2n more
-	if m := after.Mallocs - before.Mallocs; m > 3*n {
-		t.Fatalf("listing %d unchanged files took %d allocations", n, m)
+	uncached := testing.AllocsPerRun(5, func() { again = fresh() })
+	// Stat and directory allocations differ by OS. Reusing paths and keys
+	// saves about two allocations per file; require at least one, rather
+	// than bounding the filesystem work both listings must still do.
+	if saved := uncached - kept; saved < n {
+		t.Fatalf("listing %d unchanged files saved %.0f allocations with kept names (kept %.0f, fresh %.0f), want at least %d", n, saved, kept, uncached, n)
 	}
+	t.Logf("allocations per listing: kept %.0f, fresh %.0f", kept, uncached)
 
 	write("-p0/00000001-new.jsonl")
 	same("a file new", listCCFiles("claude", dir))
