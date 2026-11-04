@@ -126,16 +126,48 @@ func TestSessionSourceProjectAndUnrelatedFiles(t *testing.T) {
 	}
 	parent := s
 	parent.Path = filepath.Dir(s.Path)
-	if _, err := ImportSource(parent); err != nil {
+	imported, err := ImportSource(parent)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if rows, _ := Sources(); len(rows) != 1 || rows[0].Path != parent.Path {
-		t.Fatalf("overlapping roots not merged: %+v", rows)
+	if rows, err := Sources(); err != nil || len(rows) != 1 || rows[0] != imported.Source {
+		t.Fatalf("overlapping roots not merged into %+v: %+v, %v", imported.Source, rows, err)
 	}
 	other := s
 	other.Agent = "claude"
 	if _, err := ImportSource(other); err == nil {
 		t.Fatal("overlap allowed conflicting type")
+	}
+}
+
+func TestSessionSourceCanonicalAlias(t *testing.T) {
+	s, path := sourceFixture(t)
+	alias := s
+	alias.Path = filepath.Join(t.TempDir(), "linked-projects")
+	if err := os.Symlink(s.Path, alias.Path); err != nil {
+		t.Skipf("directory symlinks unavailable: %v", err)
+	}
+	preview, err := ScanSource(alias)
+	if err != nil || preview.Count != 1 {
+		t.Fatalf("alias preview: %+v, %v", preview, err)
+	}
+	for _, source := range []SessionSource{alias, s} {
+		imported, err := ImportSource(source)
+		if err != nil || imported.Source != preview.Source {
+			t.Fatalf("alias did not share canonical source: %+v, %v", imported, err)
+		}
+	}
+	if rows, err := Sources(); err != nil || len(rows) != 1 || rows[0] != preview.Source {
+		t.Fatalf("alias imported twice: %+v, %v", rows, err)
+	}
+	if err := RemoveSource(preview.Source); err != nil {
+		t.Fatal(err)
+	}
+	if rows, err := Sources(); err != nil || len(rows) != 0 {
+		t.Fatalf("canonical registration not removed: %+v, %v", rows, err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal("removing alias registration removed its transcript", err)
 	}
 }
 

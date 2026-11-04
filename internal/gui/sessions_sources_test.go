@@ -70,8 +70,16 @@ func TestSessionSourceRoutes(t *testing.T) {
 	call("POST", "/api/sessions/import", source, 200)
 	call("POST", "/api/sessions/import", source, 200)
 	json.Unmarshal(call("GET", "/api/sessions/sources", nil, 200), &sources)
-	if len(sources.Sources) != 1 || sources.Sources[0].Path != root {
+	if len(sources.Sources) != 1 || sources.Sources[0] != preview.Source {
 		t.Fatalf("import not idempotent: %+v", sources)
+	}
+	original, err := os.Stat(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registered, err := os.Stat(sources.Sources[0].Path)
+	if err != nil || !os.SameFile(original, registered) {
+		t.Fatalf("registered source is not the scanned directory: %v", err)
 	}
 	var managed struct {
 		Agent    string             `json:"agent"`
@@ -89,7 +97,10 @@ func TestSessionSourceRoutes(t *testing.T) {
 	call("POST", "/api/sessions/scan", source, 400)
 	call("POST", "/api/sessions/import", source, 400)
 	call("GET", "/api/sessions/transcript?agent=claude-desktop&id=11111111-2222-4333-8444-555555555555", nil, 400)
-	call("POST", "/api/sessions/sources/remove", source, 200)
+	call("POST", "/api/sessions/sources/remove", sources.Sources[0], 200)
+	if got := call("GET", "/api/sessions/sources", nil, 200); json.Unmarshal(got, &sources) != nil || len(sources.Sources) != 0 {
+		t.Fatalf("removed source remains registered: %s", got)
+	}
 	if got := sessions.ListAgent("claude-desktop"); len(got) != 0 {
 		t.Fatalf("removed source remains listed: %+v", got)
 	}
