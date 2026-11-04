@@ -194,6 +194,9 @@ and the local source registry. Registered sources feed the existing session
 readers, so their conversations are available after a restart and newly
 written sessions are discovered without importing again. Custom sources
 are read-only: session deletion and relocation must not change their files.
+Continue in may read a Claude-format history to create a new session in an
+installed Claude Code or Codex target, as described below; it never resumes
+or edits the imported original.
 Removing a directory unregisters it, leaving the original history intact.
 Overlapping sources must not count the same file twice. An unreadable registry
 is an error when managing sources and is never replaced with an empty one.
@@ -478,13 +481,17 @@ A session row's Continue in (`carryPick` in the Sessions plugin's
 `client.js`) lists the other agents that can go on from it, from
 `Session.Carry` (`carries` in
 [`internal/sessions/carry.go`](../../internal/sessions/carry.go)). Nothing is
-offered for a read-only or WSL session, or one with no file or folder. There
-are two kinds:
+offered for a WSL or gateway-only session, or one with no file or folder.
+Read-only Claude Code and Claude Desktop histories can be converted into
+new target sessions; their original resume, deletion and relocation
+restrictions remain. Other read-only session formats have no carry action.
+There are two kinds:
 
 - **From the file as it is.** oh-my-pi forks a Pi session: `Carry.Command`
   is `omp --fork <file>` run in the session's folder (#845).
 - **Converted** (`Carry.Convert`, no command). A Claude Code session can go
-  on in Codex, and a Codex one in Claude Code, when the other agent is
+  on in Codex, a Claude Desktop history in Claude Code or Codex, and a Codex
+  one in Claude Code, when the target agent is
   installed (`agentThere`: its binary on the PATH or its config folder,
   checked at most every 30s). Listing converts nothing. When the user picks
   it, `POST /api/sessions/carry` `{agent, id, to, open}` calls
@@ -493,6 +500,13 @@ are two kinds:
   a **new** session in the target's own store and returns `{agent, id,
   command}`, the target's resume line. The page copies it, or with `open`
   (macOS app only) opens it in the session terminal.
+
+The target must have a writable session store outside registered read-only
+sources. A target within an imported directory is refused before creating
+files. The original working directory is retained; a Desktop Cowork path
+inside a VM must be available on the host for the returned command to run.
+Desktop is a supported source, not a conversion destination. API verification:
+`TestSessionSourceDesktopCarryRoutes`; browser: `sessions-carry-desktop.test.cjs`.
 
 What a conversion carries:
 

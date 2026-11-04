@@ -1223,11 +1223,13 @@ magpie.plugin("sessions", (ctx) => {
     return b;
   }
 
-  // agentOf is an agent as the page names it: of those with sessions, else
-  // by its id
   // iconItems gives each agent in the menu just opened its icon, as its button has
   const iconItems = (opts) => document.querySelectorAll(".proto-menu .pm-item").forEach((b, i) => opts[i]?.icon && b.firstChild.after(icon(opts[i].icon)));
-  const agentOf = (id) => data?.agents.find((x) => x.agent === id) || { agent: id, name: id, icon: id };
+  // Carry destinations can have no sessions yet; use the installed catalog
+  // or the known conversion target's name before falling back to its id.
+  const agentOf = (id) => data?.agents.find((x) => x.agent === id)
+    || state?.agents?.find((x) => x.id === id)
+    || { agent: id, name: { claude: "Claude Code", codex: "Codex" }[id] || id, icon: id };
 
   // carryPick is the other agents that can carry a session on (#845):
   // from its file as it is (oh-my-pi forks a Pi session), or from a new
@@ -1272,7 +1274,7 @@ magpie.plugin("sessions", (ctx) => {
     api("sessions/carry", { agent: s.agent, id: s.id, to, open }).then((r) => {
       if (open) status(t("Made a new {agent} session from this one, opening in session terminal", { agent }), "ok");
       else copy(r.command, t("Command"), btn, t("Made a new {agent} session from this one, and copied the command that opens it", { agent }));
-    }, (err) => status(err.message, "err"));
+    }, (err) => status(t(err.message), "err"));
   }
 
   // drawTalk fills box with what was said in a session, read from the

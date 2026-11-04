@@ -4,6 +4,8 @@
 // works. {name} slots are filled by t(str, vars).
 const I18N = {
   zh: {
+    "target session directory is read only": "目标会话目录为只读",
+    "start the WSL distribution before writing sessions": "请先启动 WSL 发行版再写入会话",
     "Scan": "扫描",
     "unsupported session source type": "不支持此会话类型",
     "session source must be an absolute folder path": "请输入文件夹的绝对路径",
@@ -4594,6 +4596,8 @@ const I18N = {
     "This report is no longer kept: magpie keeps the last 5.": "这份报告已经不在了：magpie 只保留最近 5 份。",
   },
   "zh-TW": {
+    "target session directory is read only": "目標會話目錄為唯讀",
+    "start the WSL distribution before writing sessions": "請先啟動 WSL 發行版再寫入會話",
     "Scan": "掃描",
     "unsupported session source type": "不支援此會話類型",
     "session source must be an absolute folder path": "請輸入資料夾的絕對路徑",
@@ -9169,6 +9173,8 @@ const I18N = {
     "This report is no longer kept: magpie keeps the last 5.": "這份報告已經不在了：magpie 只保留最近 5 份。",
   },
   ja: {
+    "target session directory is read only": "保存先のセッションフォルダーは読み取り専用です",
+    "start the WSL distribution before writing sessions": "セッションを書き込む前に WSL ディストリビューションを起動してください",
     "Scan": "スキャン",
     "unsupported session source type": "未対応のセッション形式です",
     "session source must be an absolute folder path": "フォルダーの絶対パスを入力してください",
@@ -13746,6 +13752,8 @@ const I18N = {
     "This report is no longer kept: magpie keeps the last 5.": "このレポートはもう残っていません。magpie は最新の 5 件だけを保存します。",
   },
   de: {
+    "target session directory is read only": "Der Zielordner für Sitzungen ist schreibgeschützt",
+    "start the WSL distribution before writing sessions": "Vor dem Schreiben von Sitzungen die WSL-Distribution starten",
     "Scan": "Scannen",
     "unsupported session source type": "Dieser Sitzungstyp wird nicht unterstützt",
     "session source must be an absolute folder path": "Bitte einen absoluten Ordnerpfad eingeben",

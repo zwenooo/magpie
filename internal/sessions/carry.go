@@ -14,6 +14,7 @@ package sessions
 
 import (
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -42,7 +43,13 @@ var ompThere = func() bool {
 
 // carries are the other agents a session can be carried on in.
 func carries(s Session) []Carry {
-	if s.ReadOnly || s.WSL != "" || s.Path == "" || s.Cwd == "" {
+	if s.Gateway || s.WSL != "" || s.Path == "" || s.Cwd == "" {
+		return nil
+	}
+	if s.ReadOnly && s.Agent != "claude" && s.Agent != "claude-desktop" {
+		return nil
+	}
+	if (s.Agent == "claude-desktop" || s.ReadOnly) && filepath.Ext(s.Path) != ".jsonl" {
 		return nil
 	}
 	switch s.Agent {
@@ -52,10 +59,13 @@ func carries(s Session) []Carry {
 		}
 		return []Carry{{Agent: "omp", Command: inFolder(s.Cwd, "omp --fork "+argQuote(s.Path))}}
 	}
-	if to := convertsTo[s.Agent]; to != "" && agentThere(to) {
-		return []Carry{{Agent: to, Convert: true}}
+	var out []Carry
+	for _, to := range convertsTo[s.Agent] {
+		if agentThere(to) {
+			out = append(out, Carry{Agent: to, Convert: true})
+		}
 	}
-	return nil
+	return out
 }
 
 // inFolder is a shell line running run in the folder cwd.

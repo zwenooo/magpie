@@ -260,7 +260,7 @@ func TestCarryConvertOffered(t *testing.T) {
 		t.Fatalf("carries %+v", c)
 	}
 	for _, s := range []Session{
-		{Agent: "claude", ID: "c", Cwd: "/w", Path: "/w/c.jsonl", ReadOnly: true},
+		{Agent: "codex", ID: "c", Cwd: "/w", Path: "/w/c.jsonl", ReadOnly: true},
 		{Agent: "claude", ID: "c", Cwd: "/w", Path: "/w/c.jsonl", WSL: "Ubuntu"},
 		{Agent: "claude", ID: "c", Path: "/w/c.jsonl"},
 		{Agent: "opencode", ID: "o", Cwd: "/w", Path: "/w/o"},

@@ -40,6 +40,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/yetone/magpie/internal/codexsummary"
+	"github.com/yetone/magpie/internal/filelock"
+	"github.com/yetone/magpie/internal/filememo"
 	"github.com/yetone/magpie/internal/proc"
 )
 
@@ -76,7 +78,7 @@ type CarryResult struct {
 }
 
 // convertsTo are the agents a session of an agent can be converted for.
-var convertsTo = map[string]string{"claude": "codex", "codex": "claude"}
+var convertsTo = map[string][]string{"claude": {"codex"}, "codex": {"claude"}, "claude-desktop": {"claude", "codex"}}
 
 // agentThere says whether an agent is installed: its command, or its folder.
 // A var so tests can say. Answers are kept a little while, as the listing
@@ -84,7 +86,15 @@ var convertsTo = map[string]string{"claude": "codex", "codex": "claude"}
 var agentThere = func(agent string) bool {
 	thereMu.Lock()
 	defer thereMu.Unlock()
-	if t, ok := thereAt[agent]; ok && time.Since(t.at) < 30*time.Second {
+	home := ""
+	switch agent {
+	case "claude":
+		home = ClaudeDir()
+	case "codex":
+		home = CodexDir()
+	}
+	key := agent + "\x00" + home
+	if t, ok := thereAt[key]; ok && time.Since(t.at) < 30*time.Second {
 		return t.ok
 	}
 	ok := false
@@ -94,7 +104,7 @@ var agentThere = func(agent string) bool {
 	case "codex":
 		ok = lookOK("codex") || dirOK(CodexDir())
 	}
-	thereAt[agent] = there{ok, time.Now()}
+	thereAt[key] = there{ok, time.Now()}
 	return ok
 }
 
@@ -118,9 +128,9 @@ var (
 )
 
 type carryKey struct {
-	path, to string
-	size     int64
-	mod      time.Time
+	path, to, home string
+	size           int64
+	mod            time.Time
 }
 
 // CarryOver converts a session for the agent to (one carries offers it
@@ -142,17 +152,24 @@ func CarryOver(s Session, to string) (CarryResult, error) {
 	if err != nil {
 		return CarryResult{}, err
 	}
-	key := carryKey{s.Path, to, st.Size(), st.ModTime()}
+	home := ClaudeDir()
+	if to == "codex" {
+		home = CodexDir()
+	}
+	key := carryKey{s.Path, to, home, st.Size(), st.ModTime()}
 	carriedMu.Lock()
 	defer carriedMu.Unlock()
 	if r, ok := carried[key]; ok {
 		if _, err := os.Stat(r.Path); err == nil {
+			if err := carryTargetWrite(r.Path, func() error { return nil }); err != nil {
+				return CarryResult{}, err
+			}
 			return r, nil
 		}
 	}
 	var items []carryItem
 	switch s.Agent {
-	case "claude":
+	case "claude", "claude-desktop":
 		items, err = claudeCarryItems(s.Path)
 	case "codex":
 		items, err = codexCarryItems(s.Path)
@@ -595,6 +612,53 @@ func carryStamp(at, now time.Time) string {
 
 // writeNew writes a new file through a temp file renamed into place.
 func writeNew(path string, lines [][]byte) error {
+	return carryTargetWrite(path, func() error { return writeCarryFile(path, lines) })
+}
+
+// The output is a new session, but its target directory may itself have been
+// imported read-only. Resolve existing parents before creating any directory.
+func carryTargetWrite(path string, write func() error) error {
+	sourceWrites.Lock()
+	defer sourceWrites.Unlock()
+	unlock, held := filelock.Lock(sourcesPath()+".lock", filelock.Wait)
+	defer unlock()
+	if !held {
+		return errors.New("could not lock session sources")
+	}
+	filememo.Look(sourcesPath())
+	rows, err := Sources()
+	if err != nil {
+		return fmt.Errorf("cannot verify read-only session sources: %w", err)
+	}
+	if sourceCold(path) {
+		return errors.New("start the WSL distribution before writing sessions")
+	}
+	if len(rows) > 0 {
+		parent := filepath.Dir(path)
+		for {
+			real, err := sourceRealPath(parent)
+			if err == nil {
+				rel, err := filepath.Rel(parent, path)
+				if err != nil {
+					return err
+				}
+				for _, row := range rows {
+					if sourceWithin(row.Path, path) || sourceWithin(row.Path, filepath.Join(real, rel)) {
+						return errors.New("target session directory is read only")
+					}
+				}
+				break
+			}
+			if !errors.Is(err, os.ErrNotExist) || filepath.Dir(parent) == parent {
+				return err
+			}
+			parent = filepath.Dir(parent)
+		}
+	}
+	return write()
+}
+
+func writeCarryFile(path string, lines [][]byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
