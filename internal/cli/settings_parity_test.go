@@ -184,6 +184,7 @@ var notYet = map[string]string{
 	"POST /api/agents/stage/{id}":                A,  // api.go
 	"POST /api/cli":                              A,  // api.go
 	"POST /api/cli-behind/quiet":                 W,  // api.go
+	"POST /api/cursor-backend/approve":           A,  // api.go: bundled backend setup consent has no CLI prompt yet
 	"POST /api/gateway/held/reveal":              W,  // api.go
 	"POST /api/profile/{action}":                 A,  // api.go
 	"POST /api/proxy/check":                      S2, // api.go
@@ -349,6 +350,10 @@ var notYet = map[string]string{
 	"POST /api/sessions/recording":               U,  // sessions_manage.go
 	"POST /api/sessions/relocate-claude":         U,  // sessions_manage.go
 	"POST /api/sessions/restore":                 U,  // sessions_manage.go
+	"GET /api/sessions/sources":                  U,  // sessions_sources.go: custom source listing has no CLI command yet
+	"POST /api/sessions/scan":                    U,  // sessions_sources.go: custom directory preview has no CLI command yet
+	"POST /api/sessions/import":                  U,  // sessions_sources.go: source registration is offered in the import dialog only
+	"POST /api/sessions/sources/remove":          U,  // sessions_sources.go: source removal has no CLI command yet
 	"GET /api/sessions/markdown":                 U,  // sessions.go
 	"GET /api/sessions/one":                      U,  // sessions.go
 	"GET /api/sessions/overview":                 U,  // sessions.go
