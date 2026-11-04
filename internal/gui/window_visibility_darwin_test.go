@@ -31,6 +31,17 @@ func init() {
 	if os.Getenv("MAGPIE_TEST_WINDOW_VISIBILITY") != "1" {
 		return
 	}
+	// Use the real document.hidden overrides, not native occlusion timing.
+	pageJS, err := assets.ReadFile("assets/app.js")
+	if err != nil {
+		panic(err)
+	}
+	_, visibilityJS, found := strings.Cut(string(pageJS), "let outOfSight = false;")
+	visibilityJS, _, ended := strings.Cut(visibilityJS, "// kept:")
+	if !found || !ended {
+		panic("window visibility: production visibility script not found")
+	}
+	visibilityJS = "let outOfSight = false;" + visibilityJS
 	ready := make(chan struct{}, 1)
 	reports := make(chan url.Values, 1)
 	app := application.New(application.Options{
@@ -40,15 +51,11 @@ func init() {
 			switch r.URL.Path {
 			case "/":
 				w.Header().Set("Content-Type", "text/html")
-				fmt.Fprint(w, `<!doctype html><script type="module">import "/wails/runtime.js";</script><style>
+				fmt.Fprint(w, `<!doctype html><script src="/visibility.js"></script><style>
 #probe{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(1turn)}}
 html.magpie-out-of-sight #probe{animation-play-state:paused!important}
 </style><i id="probe"></i><script>
 const probe = document.querySelector("#probe");
-window.magpieWindowVisibility = (visible) => {
-  document.documentElement.classList.toggle("magpie-out-of-sight", !visible);
-  document.dispatchEvent(new Event("visibilitychange"));
-};
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     localStorage.setItem("hiddenProbe", JSON.stringify({
@@ -63,8 +70,13 @@ setInterval(() => {
   const probe = localStorage.getItem("hiddenProbe");
   if (probe) fetch("/report?probe=" + encodeURIComponent(probe));
 }, 100);
+</script><script type="module">
+import "/wails/runtime.js";
 fetch("/ready");
 </script>`)
+			case "/visibility.js":
+				w.Header().Set("Content-Type", "text/javascript")
+				fmt.Fprint(w, visibilityJS)
 			case "/ready":
 				select {
 				case ready <- struct{}{}:
