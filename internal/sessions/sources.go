@@ -239,6 +239,22 @@ func sourceWithin(root, path string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
+// sameSourceFolder is whether a and b are one folder, links followed: a
+// source is kept by its real path (macOS's /var is /private/var), while
+// Claude Code's own folder is named as $CLAUDE_CONFIG_DIR or the home
+// gives it. Compared as named, its own folder read as another's, and its
+// sessions were resumed with a CLAUDE_CONFIG_DIR Claude Code keeps no
+// sign-in under (its keychain item is named by the folder's path).
+func sameSourceFolder(a, b string) bool {
+	if r, err := sourceRealPath(a); err == nil {
+		a = r
+	}
+	if r, err := sourceRealPath(b); err == nil {
+		b = r
+	}
+	return sourceWithin(a, b) && sourceWithin(b, a)
+}
+
 var sourceName = regexp.MustCompile(`^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\.jsonl$`)
 
 // sourceFiles follows only Claude's projects/project/session layout. Links
@@ -487,7 +503,7 @@ func claudeHomeResume(s Session) string {
 	}
 	config := filepath.Dir(projects)
 	run := "claude --resume " + s.ID
-	if sourceWithin(config, ClaudeDir()) && sourceWithin(ClaudeDir(), config) {
+	if sameSourceFolder(config, ClaudeDir()) {
 		return resumeCommand("", "claude", s.ID, s.Cwd, "")
 	}
 	if runtime.GOOS == "windows" {
