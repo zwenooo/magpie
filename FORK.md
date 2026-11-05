@@ -53,6 +53,12 @@ uses `https://api.codezsy.com` for API traffic and `https://codezsy.com` for
 its website and key management; models come from the user's key, not a fixed
 list maintained in this fork.
 
+CodeZ serves OpenAI's models natively on its Responses API, so
+`forkResponsesFirst` (one call in `Provider.ResponsesFirst`) puts Responses
+first for a CodeZ GPT, Codex or o-series model. Agents handed a model's API
+(Cursor, Pi, droid, dsh) then ask it on `/v1/responses`, and the gateway's own
+translations go there; its other models stay on Chat and Claude on Messages.
+
 Partner promotions are off by default through `fork_partners.go`. This stops
 the feed, cached promotion display, new-partner notices and partner statistics.
 Existing provider records are not edited; their cached preset metadata remains
@@ -150,7 +156,8 @@ On each merge, pay attention to:
   the dry-run boundary in the thin adapter.
 - The five notice translations and their English template.
 - The small fork hooks in `internal/update/update.go` and `notes.go`.
-- The fork preset initializer and partner-source/count hooks; CodeZ must remain
+- The fork preset initializer, the `forkResponsesFirst` call in
+  `ResponsesFirst` and partner-source/count hooks; CodeZ must remain
   a normal preset, default partner promotions must remain off, and existing
   configured providers must retain their data.
 - The own-repository release, Docker and UI preview targets and their

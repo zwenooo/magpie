@@ -1951,6 +1951,9 @@ func (p Provider) ResponsesFirst(model string) bool {
 	if p.Responses != "" && p.IsBedrock() {
 		return bedrockGPT(model)
 	}
+	if p.Responses != "" && forkResponsesFirst(p) {
+		return openAIModel(model)
+	}
 	// Azure OpenAI's deployments are named as the user likes; one named
 	// for its model (gpt-5-codex, o4-mini) is taken for it
 	if p.Responses == "" || (p.ID != "copilot" && HostOf(p.Responses) != "api.openai.com" && HostOf(p.Responses) != "api.pipellm.ai" && !p.IsAzure()) {
