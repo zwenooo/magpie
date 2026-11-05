@@ -135,7 +135,10 @@ func syncSteps(all, gone []*Target, b *backups, res *Result) []func(*Library) {
 	}
 	// magpie's copies in a WSL distro no agent there is linked to any more
 	steps = append(steps, func(l *Library) { l.sweepWSLStores(append(slices.Clone(all), gone...), res) })
-	return append(steps, func(l *Library) { l.syncProjects(res) })
+	steps = append(steps, func(l *Library) { l.syncProjects(res) })
+	// Claude Code's other config folders get what Claude Code here was
+	// given, after all of it is (claude_dirs.go, zwenooo/magpie fork)
+	return append(steps, func(l *Library) { l.syncClaudeDirs(all, b, res) })
 }
 
 // Sync writes the library into the agents again: after an agent is

@@ -425,9 +425,12 @@ func changeInstructions(f func(l *Library) error) (*Result, error) {
 	if b == nil {
 		b = newBackups()
 	}
-	for _, t := range Targets() {
+	all := Targets()
+	for _, t := range all {
 		l.syncInstructions(t, b, res)
 	}
+	// Claude Code's other config folders too (claude_dirs.go, zwenooo/magpie fork)
+	l.syncClaudeDirs(all, b, res)
 	res.Backup = b.dir
 	if b.dir != "" {
 		pruneBackups()

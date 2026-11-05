@@ -19,6 +19,7 @@ internal/provider/fork_partners.go Partner-feed policy (off by default)
 internal/sessions/sources.go     Custom read-only session directory registration
 internal/gui/sessions_sources.go Session directory scan/import API
 internal/library/mcp_folders.go  MCP servers' program and key folders carried by sync
+internal/library/claude_dirs.go  The library given to Claude Code's other config folders
 docs/cursor-byok.md              Setup and synchronization contract
 build/fork/                     Fork build and upstream merge commands
 .github/workflows/fork.yml       Fork integration checks on three platforms
@@ -72,6 +73,26 @@ calls in `carry.go`, `here` where a server is written or run (`sync.go`,
 `mcp_run.go`, `mcp_check.go`, `mcp_copy.go`, `project_mcp.go`), the folders
 following a rename or removal in `sync.go`, and `holdsSkills` keeping a
 program set aside in `backup.go`.
+
+Claude Code run in config folders of its own (`CLAUDE_CONFIG_DIR`: an account
+switcher's, such as ReClaude's `~/.rec/claude/accounts/<id>/config`, or
+magpie's saved accounts under `claude-accounts`) gets the library too
+(`internal/library/claude_dirs.go`). The last step of every sync gives each
+such folder that Claude Code has run in (it has a `.claude.json`), and each
+one added by hand (`magpie library claude-dirs add <folder>`), what Claude
+Code here was given, as written there: the same MCP entries (under Claude
+Code's own lock on that `.claude.json`, the file kept with the sync's
+backups first), links to the same library skills, and the same
+instructions part in its `CLAUDE.md`. A same-named server there is replaced
+with the library's; an account's own skill folder by a skill's name is left
+and reported; a link to another copy is replaced. What magpie put in each
+folder is recorded in `claude-dirs.json` in magpie's folder, on this
+computer only and never carried, so what the library stops giving is taken
+out again and the user's own entries are never touched. Hooks, subagents
+and tool deny rules stay Claude Code here's. The upstream hooks are one step
+at the end of `syncSteps` (`sync.go`) and one after `changeInstructions`
+(`instructions.go`); `magpie library claude-dirs` lists the folders and what
+each holds of magpie's.
 
 ## Remotes and branches
 
