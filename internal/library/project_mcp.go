@@ -132,7 +132,7 @@ func (l *Library) syncProjectMCP(p *Project, fail func(what string, err error)) 
 				continue
 			}
 			if !slices.ContainsFunc(want[rel], func(x *Server) bool { return x.Name == s.Name }) {
-				want[rel] = append(want[rel], through(s, gateway.URL()))
+				want[rel] = append(want[rel], through(here(s), gateway.URL()))
 			}
 		}
 	}

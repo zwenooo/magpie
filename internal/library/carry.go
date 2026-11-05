@@ -33,6 +33,8 @@ type Bundle struct {
 	// carried, which knew nothing of this computer's: Put keeps them. Collect
 	// always sets it, empty too, so taking the last one out is carried.
 	Subagents *[]*Subagent `json:"subagents,omitempty"`
+	// Folders are the servers' folders kept in the library (mcp_folders.go)
+	Folders []*CarriedFolders `json:"folders,omitempty"`
 }
 
 // CarriedSkill is a skill with its folder's files.
@@ -99,12 +101,15 @@ func Collect() (*Bundle, error) {
 		c.Agents = orNone(slices.Sorted(slices.Values(s.Agents)))
 		b.MCP = append(b.MCP, &c)
 	}
+	// a server's folders go first: a program left out is no program
+	folders, used := collectFolders(l, maxCarriedAll)
+	b.Folders = folders
 	skills := sorted(l.Skills, func(s *Skill) string { return s.Name })
 	dirs := []string{}
 	for _, s := range skills {
 		dirs = append(dirs, realDir(skillDir(s.Name)))
 	}
-	for i, c := range readSkills(dirs) {
+	for i, c := range readSkillsWithin(dirs, maxCarriedAll-used) {
 		s := skills[i]
 		c.Name, c.Source, c.Agents, c.Called, c.Note = s.Name, s.Source, orNone(slices.Sorted(slices.Values(s.Agents))), s.Called, s.Note
 		b.Skills = append(b.Skills, c)
@@ -134,7 +139,10 @@ func orNone(xs []string) []string {
 // readSkills is each skill folder's files. Links in it, .git and what
 // isn't a plain file stay out. What goes is chosen smallest first across
 // every skill, so the text of them all comes before any big file.
-func readSkills(dirs []string) []*CarriedSkill {
+func readSkills(dirs []string) []*CarriedSkill { return readSkillsWithin(dirs, maxCarriedAll) }
+
+// readSkillsWithin is readSkills with budget bytes for them all.
+func readSkillsWithin(dirs []string, budget int64) []*CarriedSkill {
 	type file struct {
 		skill  int
 		rel, p string
@@ -174,7 +182,6 @@ func readSkills(dirs []string) []*CarriedSkill {
 	slices.SortFunc(files, func(a, b file) int {
 		return cmp.Or(cmp.Compare(a.size, b.size), cmp.Compare(a.skill, b.skill), strings.Compare(a.rel, b.rel))
 	})
-	budget := int64(maxCarriedAll)
 	for _, f := range files {
 		c := out[f.skill]
 		if f.size > maxCarried || f.size > budget {
@@ -246,6 +253,19 @@ func (b *Bundle) check() error {
 			}
 		}
 	}
+	for _, f := range b.Folders {
+		if f == nil {
+			return fmt.Errorf("empty server folders")
+		}
+		if err := checkName("server", f.Name); err != nil {
+			return err
+		}
+		for _, rel := range slices.Concat(slices.Collect(maps.Keys(f.Program)), slices.Collect(maps.Keys(f.Private))) {
+			if !localFile(rel) {
+				return fmt.Errorf("server %s: %q is not a file in its folder", f.Name, rel)
+			}
+		}
+	}
 	if b.Subagents != nil {
 		seen := map[string]bool{}
 		for _, s := range *b.Subagents {
@@ -288,6 +308,8 @@ func (b *Bundle) WithoutSecrets(secret func(string) bool) {
 		}
 		b.MCP[i] = &c
 	}
+	// a server's private files are its keys
+	b.Folders = withoutPrivate(b.Folders)
 }
 
 func blank(m map[string]string, secret func(string) bool) map[string]string {
@@ -327,6 +349,7 @@ func (b *Bundle) WithSecrets(have *Bundle, secret func(string) bool) *Bundle {
 		}
 		out.MCP = append(out.MCP, &c)
 	}
+	out.Folders = withPrivate(b.Folders, have.Folders)
 	return &out
 }
 
@@ -488,6 +511,10 @@ func Put(b *Bundle) (*Result, error) {
 			}
 		}
 
+		// before the servers change: which are kept to this computer decides
+		if err := putFolders(l, b); err != nil {
+			return err
+		}
 		l.putServers(b.MCP)
 		l.Icons = maps.Clone(b.Icons)
 		// the agents are written on the sync change runs: what magpie

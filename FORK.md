@@ -18,6 +18,8 @@ internal/provider/fork_presets.go Fork-owned provider presets (CodeZ)
 internal/provider/fork_partners.go Partner-feed policy (off by default)
 internal/sessions/sources.go     Custom read-only session directory registration
 internal/gui/sessions_sources.go Session directory scan/import API
+internal/library/mcp_folders.go  MCP servers' program and key folders carried by sync
+internal/library/claude_dirs.go  The library given to Claude Code's other config folders
 docs/cursor-byok.md              Setup and synchronization contract
 build/fork/                     Fork build and upstream merge commands
 .github/workflows/fork.yml       Fork integration checks on three platforms
@@ -56,6 +58,41 @@ Existing provider records are not edited; their cached preset metadata remains
 available as an ordinary relay without sponsorship. The explicit
 `MAGPIE_PARTNERS` override is retained for private catalogs and isolated tests.
 The upstream GUI needs no separate fork layout or deleted partner components.
+
+A command MCP server can keep its program and its keys in the library, so a
+sync carries them like a skill's folder (`internal/library/mcp_folders.go`).
+It names `{{program}}` (`library/mcp/<name>/program`), `{{private}}`
+(`library/mcp/<name>/private`) or `{{state}}` (`mcp-state/<name>`) in its
+command, arguments or environment; agents, the check and the servers magpie
+runs get this computer's paths. The program is always carried, without what
+installing or running it writes. The private folder holds configuration and
+keys: it is carried only with the library's keys, as secret env values are,
+is never copied into the backups, and is written 0700/0600. The state folder
+is never carried. The upstream hooks are small: `Bundle.Folders` and its
+calls in `carry.go`, `here` where a server is written or run (`sync.go`,
+`mcp_run.go`, `mcp_check.go`, `mcp_copy.go`, `project_mcp.go`), the folders
+following a rename or removal in `sync.go`, and `holdsSkills` keeping a
+program set aside in `backup.go`.
+
+Claude Code run in config folders of its own (`CLAUDE_CONFIG_DIR`: an account
+switcher's, such as ReClaude's `~/.rec/claude/accounts/<id>/config`, or
+magpie's saved accounts under `claude-accounts`) gets the library too
+(`internal/library/claude_dirs.go`). The last step of every sync gives each
+such folder that Claude Code has run in (it has a `.claude.json`), and each
+one added by hand (`magpie library claude-dirs add <folder>`), what Claude
+Code here was given, as written there: the same MCP entries (under Claude
+Code's own lock on that `.claude.json`, the file kept with the sync's
+backups first), links to the same library skills, and the same
+instructions part in its `CLAUDE.md`. A same-named server there is replaced
+with the library's; an account's own skill folder by a skill's name is left
+and reported; a link to another copy is replaced. What magpie put in each
+folder is recorded in `claude-dirs.json` in magpie's folder, on this
+computer only and never carried, so what the library stops giving is taken
+out again and the user's own entries are never touched. Hooks, subagents
+and tool deny rules stay Claude Code here's. The upstream hooks are one step
+at the end of `syncSteps` (`sync.go`) and one after `changeInstructions`
+(`instructions.go`); `magpie library claude-dirs` lists the folders and what
+each holds of magpie's.
 
 ## Remotes and branches
 
