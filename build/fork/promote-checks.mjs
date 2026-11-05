@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 export const repository = 'zwenooo/magpie';
 export const requiredJobs = [
   'prepare', 'quality / Workflow and publishing contracts',
-  ...['ubuntu-latest', 'macos-latest', 'windows-latest'].map(os => `quality / test (${os})`),
+  // the whole suite runs on Linux and Windows; macOS has its fork checks and builds
+  ...['ubuntu-latest', 'windows-latest'].map(os => `quality / test (${os})`),
   ...['linux/amd64', 'android/arm64'].map(target => `quality / cli (${target}, nogui)`),
   ...['ubuntu-latest', 'macos-latest', 'windows-latest'].map(os => `fork-checks / fork (${os})`),
   ...[

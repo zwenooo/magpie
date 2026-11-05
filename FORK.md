@@ -158,8 +158,11 @@ both arm64 and amd64, plus all seven upstream CLI targets. See the complete
 Updates and release notes come directly from the public GitHub Releases API
 for `zwenooo/magpie`; no separate feed server or GitHub token is required.
 The adapter accepts published, non-preview `va.<official>-vb.<fork>` releases
-from this repository, requires the complete 17-file release set and its
-SHA-256 manifest, and passes verified asset metadata to the existing updater.
+from this repository, requires this computer's own files (its binary, and on
+a Mac the app's zip), the notices and the SHA-256 manifest, and passes
+verified asset metadata to the existing updater. A release may leave other
+systems out: from `va.0.1.3001-vb.0.0.2` releases build only Windows x64,
+macOS Apple Silicon and Linux x64.
 It does not discover official upstream binaries or privacy-filter releases.
 The default channel offers each formal fork release. Stable keeps upstream's
 weekly selection: the newest release already three days old at Monday
@@ -177,9 +180,11 @@ Releases through `va.0.1.1725-vb.0.0.5` have the old disabled-feed policy.
 They need one manual installation of `va.0.1.1725-vb.0.0.6` or a later
 update-enabled release. After that, checks and downloads
 follow the saved settings. Homebrew CLI installs continue to use
-`brew upgrade`; the macOS cask can update from within the app. Branch builds
-produce artifacts; only a verified version tag and successful checks permit
-publication.
+`brew upgrade`; the macOS cask can update from within the app. A version tag (or a
+dispatch) builds; pushes to `main` and branches don't. A build-only dispatch
+produces artifacts; only a verified version tag and successful checks permit
+publication. The release's whole test suite runs on Linux and Windows; macOS
+keeps the fork checks and native builds.
 
 ## Verification
 

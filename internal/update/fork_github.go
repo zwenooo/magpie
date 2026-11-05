@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -46,6 +47,18 @@ var forkReleaseFiles = []string{
 	"magpie-darwin-arm64.dmg", "magpie-darwin-arm64.zip",
 	"magpie-linux-amd64", "magpie-linux-arm64",
 	"magpie-windows-amd64.exe", "magpie-windows-arm64.exe",
+}
+
+// forkOwnFiles are the files this computer updates from: its binary
+// (BinaryAsset), and on a Mac the app's zip too (AppAsset). Releases from
+// va.0.1.3001-vb.0.0.2 on build only the common systems, so a release is
+// complete for this computer when these are in it, whatever else it leaves out.
+func forkOwnFiles() []string {
+	own := []string{BinaryAsset()}
+	if runtime.GOOS == "darwin" {
+		own = append(own, AppAsset())
+	}
+	return own
 }
 
 func forkNormalizedTag(tag string) string {
@@ -193,7 +206,9 @@ func forkRelease(ctx context.Context, r forkGitHubRelease, lang string) (*Releas
 		}
 		assets[a.Name] = a
 	}
-	for _, name := range append(append([]string{}, forkReleaseFiles...), "SHA256SUMS") {
+	// a release may leave other systems out: what this computer needs is
+	// its own files, the notices and the checksums (forkOwnFiles)
+	for _, name := range append([]string{"THIRD-PARTY-NOTICES.txt", "SHA256SUMS"}, forkOwnFiles()...) {
 		if assets[name].Name == "" {
 			return nil, fmt.Errorf("release %s is incomplete: missing %s", r.Tag, name)
 		}
@@ -216,7 +231,10 @@ func forkRelease(ctx context.Context, r forkGitHubRelease, lang string) (*Releas
 	}
 	out := &Release{Version: forkNormalizedTag(r.Tag), URL: r.URL, Notes: InLang(r.Body, lang), Assets: make(map[string]Asset)}
 	for _, name := range forkReleaseFiles {
-		a := assets[name]
+		a, ok := assets[name]
+		if !ok {
+			continue // another system's, which this release leaves out
+		}
 		digest := sums[name]
 		if digest == "" || a.Digest != "" && a.Digest != "sha256:"+digest {
 			return nil, fmt.Errorf("release %s has a missing or conflicting checksum for %s", r.Tag, name)

@@ -4,10 +4,39 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// folderLink makes link a link to the folder target: a junction on
+// Windows, which needs no privilege, a symlink elsewhere.
+func folderLink(target, link string) error {
+	if runtime.GOOS == "windows" {
+		return exec.Command("cmd", "/c", "mklink", "/J", link, target).Run()
+	}
+	return os.Symlink(target, link)
+}
+
+// Claude Code's own folder named through a link, as macOS's /var is
+// /private/var: the source is kept by its real path, and it is still Claude
+// Code's own folder, resumed with no CLAUDE_CONFIG_DIR.
+func TestSourceResumeInClaudesOwnFolderThroughALink(t *testing.T) {
+	claude, _ := setup(t)
+	link := filepath.Join(t.TempDir(), "claude-link")
+	if err := folderLink(claude, link); err != nil {
+		t.Skip("no folder links here:", err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", link)
+	cwd := t.TempDir()
+	resumeSourceFixture(t, filepath.Join(link, "projects"), cwd)
+	s := listedSource(t)
+	if want := ResumeCommand("claude", resumeSourceID, cwd); s.Resume != want {
+		t.Fatalf("resume %q, want %q", s.Resume, want)
+	}
+}
 
 const resumeSourceID = "22222222-bbbb-4444-8888-999999999999"
 
