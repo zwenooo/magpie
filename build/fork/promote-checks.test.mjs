@@ -24,8 +24,8 @@ test('accepts only a completed successful own Release run', () => {
   assert.throws(() => validateRun(run, workflow, '1\nsource_sha=x'));
 });
 
-test('all 23 required jobs must pass; only publication jobs may be skipped', () => {
-  assert.equal(requiredJobs.length, 23);
+test('all 17 required jobs must pass; only publication jobs may be skipped', () => {
+  assert.equal(requiredJobs.length, 17);
   assert.equal(validateJobs(run, jobs), 1);
   validateJobs(run, [...jobs, { ...jobs[0], name: 'publish', conclusion: 'skipped' }]);
   assert.throws(() => validateJobs(run, jobs.slice(1)));

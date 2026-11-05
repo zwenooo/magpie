@@ -4,12 +4,12 @@ set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-assets=(magpie-cli-darwin-arm64 magpie-cli-darwin-amd64 magpie-cli-linux-arm64 magpie-cli-linux-amd64 magpie-darwin-arm64.zip magpie-darwin-amd64.zip)
+assets=(magpie-cli-darwin-arm64 magpie-cli-linux-amd64 magpie-darwin-arm64.zip)
 for i in "${!assets[@]}"; do printf '%064x  %s\n' "$((i + 1))" "${assets[$i]}"; done > "$work/sums"
 tag=va.0.1.1725-vb.0.0.1
 version=0.1.1725-vb.0.0.1
 TAP_SUMS_FILE="$work/sums" TAP_OUT_DIR="$work/out" bash "$root/scripts/update-tap.sh" "$tag"
-for asset in "${assets[@]:0:4}"; do
+for asset in "${assets[@]:0:2}"; do
   hash=$(awk -v name="$asset" '$2 == name {print $1}' "$work/sums")
   grep -F -A1 "/$tag/$asset\"" "$work/out/Formula/magpie.rb" | grep -Fq "$hash"
 done
@@ -26,11 +26,13 @@ for enabled in va.0.1.1725-vb.0.0.6 va.0.1.1725-vb.0.0.10 va.0.1.1726-vb.0.0.1; 
   TAP_SUMS_FILE="$work/sums" TAP_OUT_DIR="$work/enabled" bash "$root/scripts/update-tap.sh" "$enabled"
   grep -Fq 'auto_updates true' "$work/enabled/Casks/magpie-app.rb"
 done
-for spec in 'arm:5' 'intel:6'; do
-  hash=$(printf '%064x' "${spec#*:}")
-  grep -E "${spec%:*}:.*$hash" "$work/out/Casks/magpie-app.rb" > /dev/null
-done
-head -n 5 "$work/sums" > "$work/missing"
+grep -Fq "sha256 \"$(printf '%064x' 3)\"" "$work/out/Casks/magpie-app.rb"
+grep -Fq '/magpie-darwin-arm64.zip"' "$work/out/Casks/magpie-app.rb"
+grep -Fq 'depends_on arch: :arm64' "$work/out/Casks/magpie-app.rb"
+# Systems no longer built are not offered.
+! grep -Eq 'amd64|intel' "$work/out/Casks/magpie-app.rb"
+! grep -Eq 'darwin-amd64|linux-arm64' "$work/out/Formula/magpie.rb"
+head -n 2 "$work/sums" > "$work/missing"
 cat "$work/sums" "$work/sums" > "$work/duplicate"
 for bad in missing duplicate; do
   if TAP_SUMS_FILE="$work/$bad" TAP_OUT_DIR="$work/$bad-out" bash "$root/scripts/update-tap.sh" "$tag"; then

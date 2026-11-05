@@ -11,14 +11,12 @@ export const requiredJobs = [
   ...['ubuntu-latest', 'windows-latest'].map(os => `quality / test (${os})`),
   ...['linux/amd64', 'android/arm64'].map(target => `quality / cli (${target}, nogui)`),
   ...['ubuntu-latest', 'macos-latest', 'windows-latest'].map(os => `fork-checks / fork (${os})`),
+  // releases build Windows x64, macOS Apple Silicon and Linux x64
   ...[
-    'windows-latest, windows, amd64', 'windows-11-arm, windows, arm64',
-    'macos-latest, darwin, arm64', 'macos-15-intel, darwin, amd64',
-    'ubuntu-22.04, linux, amd64', 'ubuntu-22.04-arm, linux, arm64',
+    'windows-latest, windows, amd64', 'macos-latest, darwin, arm64', 'ubuntu-22.04, linux, amd64',
   ].map(target => `cursor-backend (${target})`),
-  'cli', 'mac (macos-latest, arm64)', 'mac (macos-15-intel, amd64)',
-  'linux (ubuntu-22.04, amd64)', 'linux (ubuntu-22.04-arm, arm64)',
-  'windows-check (windows-latest, amd64)', 'windows-check (windows-11-arm, arm64)', 'package',
+  'cli', 'mac (macos-latest, arm64)', 'linux (ubuntu-22.04, amd64)',
+  'windows-check (windows-latest, amd64)', 'package',
 ];
 
 export function parseTag(tag) {

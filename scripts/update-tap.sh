@@ -58,15 +58,12 @@ render() {
       die "no SHA256SUMS in $tag of $REPO"
   fi
 
-  # Every checksum is resolved before anything is written.
-  local cli_darwin_arm64 cli_darwin_amd64 cli_linux_arm64 cli_linux_amd64
-  local app_arm64 app_amd64
+  # Every checksum is resolved before anything is written. Releases build
+  # macOS Apple Silicon and Linux x64 (and Windows x64, which Homebrew lacks).
+  local cli_darwin_arm64 cli_linux_amd64 app_arm64
   cli_darwin_arm64="$(sha "$sums" magpie-cli-darwin-arm64)"
-  cli_darwin_amd64="$(sha "$sums" magpie-cli-darwin-amd64)"
-  cli_linux_arm64="$(sha "$sums" magpie-cli-linux-arm64)"
   cli_linux_amd64="$(sha "$sums" magpie-cli-linux-amd64)"
   app_arm64="$(sha "$sums" magpie-darwin-arm64.zip)"
-  app_amd64="$(sha "$sums" magpie-darwin-amd64.zip)"
 
   mkdir -p "$OUT/Formula" "$OUT/Casks"
 
@@ -78,24 +75,14 @@ class Magpie < Formula
   license "MIT"
 
   on_macos do
-    on_arm do
-      url "$REPO_URL/$tag/magpie-cli-darwin-arm64"
-      sha256 "$cli_darwin_arm64"
-    end
-    on_intel do
-      url "$REPO_URL/$tag/magpie-cli-darwin-amd64"
-      sha256 "$cli_darwin_amd64"
-    end
+    depends_on arch: :arm64
+    url "$REPO_URL/$tag/magpie-cli-darwin-arm64"
+    sha256 "$cli_darwin_arm64"
   end
   on_linux do
-    on_arm do
-      url "$REPO_URL/$tag/magpie-cli-linux-arm64"
-      sha256 "$cli_linux_arm64"
-    end
-    on_intel do
-      url "$REPO_URL/$tag/magpie-cli-linux-amd64"
-      sha256 "$cli_linux_amd64"
-    end
+    depends_on arch: :x86_64
+    url "$REPO_URL/$tag/magpie-cli-linux-amd64"
+    sha256 "$cli_linux_amd64"
   end
 
   def install
@@ -110,18 +97,16 @@ RB
 
   cat > "$OUT/Casks/magpie-app.rb" <<RB
 cask "magpie-app" do
-  arch arm: "arm64", intel: "amd64"
-
   version "$version"
-  sha256 arm:   "$app_arm64",
-         intel: "$app_amd64"
+  sha256 "$app_arm64"
 
-  url "$REPO_URL/$tag/magpie-darwin-#{arch}.zip"
+  url "$REPO_URL/$tag/magpie-darwin-arm64.zip"
   name "magpie"
   desc "$DESC"
   homepage "$HOMEPAGE"
 
 $cask_updates
+  depends_on arch: :arm64
   depends_on :macos
 
   app "magpie.app"
@@ -164,11 +149,8 @@ self_check() (
 
   sums="$(curl -fsSL "$(release_url "$tag")/SHA256SUMS")"
   assert_next "$formula" 'magpie-cli-darwin-arm64"' "$(sha "$sums" magpie-cli-darwin-arm64)"
-  assert_next "$formula" 'magpie-cli-darwin-amd64"' "$(sha "$sums" magpie-cli-darwin-amd64)"
-  assert_next "$formula" 'magpie-cli-linux-arm64"'  "$(sha "$sums" magpie-cli-linux-arm64)"
   assert_next "$formula" 'magpie-cli-linux-amd64"'  "$(sha "$sums" magpie-cli-linux-amd64)"
-  assert_same "$cask" 'arm:'   "$(sha "$sums" magpie-darwin-arm64.zip)"
-  assert_same "$cask" 'intel:' "$(sha "$sums" magpie-darwin-amd64.zip)"
+  assert_same "$cask" 'sha256' "$(sha "$sums" magpie-darwin-arm64.zip)"
 
   # An asset missing from SHA256SUMS must fail the render, in a subshell so the
   # exit only ends the probe.

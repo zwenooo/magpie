@@ -151,8 +151,9 @@ An uncommitted checkout adds `-dirty` to that version.
 Windows desktop builds do not require a separate frontend compilation.
 They use Wails' production runtime; the artifact is a standalone executable,
 not a signed installer. CI's Linux artifact is the terminal/web-server build.
-CI also builds macOS DMG/ZIP and Linux desktop packages on native runners,
-both arm64 and amd64, plus all seven upstream CLI targets. See the complete
+CI also builds the Apple Silicon macOS DMG/ZIP and the Linux x64 desktop
+package on native runners, plus the terminal builds of the same three
+systems (Windows x64, macOS Apple Silicon, Linux x64). See the complete
 [artifact and credential matrix](docs/ci.md).
 
 Updates and release notes come directly from the public GitHub Releases API

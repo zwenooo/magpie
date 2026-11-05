@@ -33,13 +33,14 @@ publication waits for it to succeed.
 | Platform | Architecture | Files |
 | --- | --- | --- |
 | macOS | Apple Silicon / arm64 | `magpie-darwin-arm64.dmg`, `magpie-darwin-arm64.zip`, `magpie-cli-darwin-arm64` |
-| macOS | Intel / amd64 | `magpie-darwin-amd64.dmg`, `magpie-darwin-amd64.zip`, `magpie-cli-darwin-amd64` |
-| Windows | amd64, arm64 | `magpie-windows-<arch>.exe`, `magpie-cli-windows-<arch>.exe` |
-| Linux | amd64, arm64 | `magpie-linux-<arch>`, `magpie-cli-linux-<arch>` |
-| Android / Termux | arm64 | `magpie-cli-android-arm64` |
+| Windows | x64 / amd64 | `magpie-windows-amd64.exe`, `magpie-cli-windows-amd64.exe` |
+| Linux | x64 / amd64 | `magpie-linux-amd64`, `magpie-cli-linux-amd64` |
 
-That is 15 binaries/archives plus `THIRD-PARTY-NOTICES.txt` and `SHA256SUMS`:
-17 release files including the bundled backend's license. `build-*` artifacts hold platform outputs; `release-bundle`
+That is 7 binaries/archives plus `THIRD-PARTY-NOTICES.txt` and `SHA256SUMS`:
+9 release files including the bundled backend's license. Releases through
+`va.0.1.3001-vb.0.0.1` also built Intel macOS, Windows and Linux arm64 and
+the Android CLI (17 files); from `va.0.1.3001-vb.0.0.2` those systems are
+no longer built and keep that release. `build-*` artifacts hold platform outputs; `release-bundle`
 contains the complete validated set and `release-notes` its bilingual notes.
 Notes are generated deterministically from Git history without a model API.
 
@@ -47,18 +48,18 @@ Mac app bundles use native `make app`, ad-hoc signing by default, and DMG/ZIP
 packaging. Linux desktop builds use native Ubuntu 22.04 runners with GTK 3
 and WebKitGTK 4.1. Windows builds use upstream's `make release-windows`,
 including embedded console launchers, icons, resources and manifests.
-Windows and Linux GUI packages must start and serve their gateway on both
-architectures. The terminal versions are cross-compiled with cgo disabled.
+Windows and Linux GUI packages must start and serve their gateway. The
+terminal versions are cross-compiled with cgo disabled.
 
-Six native `cursor-backend` jobs first compile the pinned Rust headless
+Three native `cursor-backend` jobs first compile the pinned Rust headless
 backend from `native/cursor-backend`. They run Rust ownership/authentication,
 local account, token refresh, model catalog and proxy-route tests, plus a real
 child-process smoke test in disposable user profiles, then
 stage the backend and provenance into the Go embed directory. Each Go target
 receives only its matching native payload, verified by SHA-256 and executable
 machine type. macOS signs that payload before embedding it and also includes
-the signed executable in the app bundle for notarization. Android CLI omits
-the desktop backend. No independent Cursor BYOK installation is required.
+the signed executable in the app bundle for notarization. No independent
+Cursor BYOK installation is required.
 
 Windows/Linux desktop files are standalone executables, not MSI/DEB/RPM
 installers. Mac ZIP files contain `magpie.app`; DMG files also offer an
@@ -106,7 +107,7 @@ dispatch on `main` publishes `ghcr.io/zwenooo/magpie:edge`.
 An explicitly versioned build-only Release run on `main` (a dispatch) can also be published
 with **Promote verified release** after it completes successfully. Create the
 matching public tag at that run's source commit, then supply its run ID and tag.
-The promotion verifies all 23 required jobs, the original prepare log's exact
+The promotion verifies all 17 required jobs, the original prepare log's exact
 source/version, unexpired artifacts, tag/main/official ancestry, and the same
 checksum gate. It downloads and uploads inside Actions, without running
 artifact binaries or rebuilding them. Draft recovery and Latest ordering match
@@ -154,7 +155,8 @@ Before offering a download, the adapter requires this computer's own files
 `SHA256SUMS`; another system's file may be left out of a release, and one
 that is there must have its checksum. It validates asset URLs and sizes, and
 reads the checksums from GitHub. Releases through `va.0.1.3001-vb.0.0.1` still
-carry all 16 files, since installs before it required every one. Missing, duplicate or conflicting
+carry all 16 files, since installs before it required every one; later ones
+carry Windows x64, macOS Apple Silicon and Linux x64 only. Missing, duplicate or conflicting
 checksums fail the check. Downloaded bytes must match the selected asset's
 SHA-256 before installation. Drafts, ordinary upstream `v*` releases and
 `pf-v*` helper releases are not application updates.
@@ -207,7 +209,8 @@ go test -tags nogui ./internal/update -run '^TestFork' -count=1
 
 After a successful stable application Release, `scripts/update-tap.sh`
 generates `Formula/magpie.rb` and `Casks/magpie-app.rb` from that release's
-six required hashes and commits them to our `main`. Missing or duplicate
+three required hashes (the Apple Silicon and Linux x64 terminal builds and the
+Apple Silicon app; each requires its architecture) and commits them to our `main`. Missing or duplicate
 checksums fail before writing files. Prereleases and older versions cannot
 advance/downgrade the stable tap. No formula pointing to a nonexistent fork
 release is checked in before the first release. Once generated, use:
