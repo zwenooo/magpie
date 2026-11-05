@@ -110,27 +110,26 @@ fi
 
 mkdir "$fixture/assets"
 printf 'MIT license notice\n' > "$fixture/assets/THIRD-PARTY-NOTICES.txt"
-for os in darwin linux windows; do
-  for arch in amd64 arm64; do
-    ext=
-    [[ "$os" != windows ]] || ext=.exe
-    printf 'cli\n' > "$fixture/assets/magpie-cli-$os-$arch$ext"
-  done
+for cli in magpie-cli-darwin-arm64 magpie-cli-linux-amd64 magpie-cli-windows-amd64.exe; do
+  printf 'cli\n' > "$fixture/assets/$cli"
 done
-printf 'android\n' > "$fixture/assets/magpie-cli-android-arm64"
-for arch in amd64 arm64; do
-  printf 'app\n' > "$fixture/assets/magpie-windows-$arch.exe"
-  printf 'app\n' > "$fixture/assets/magpie-linux-$arch"
-  for ext in dmg zip; do printf 'app\n' > "$fixture/assets/magpie-darwin-$arch.$ext"; done
+for app in magpie-windows-amd64.exe magpie-linux-amd64 magpie-darwin-arm64.dmg magpie-darwin-arm64.zip; do
+  printf 'app\n' > "$fixture/assets/$app"
 done
 bash "$scripts/release-assets.sh" "$fixture/assets" > "$fixture/log"
-[[ $(wc -l < "$fixture/assets/SHA256SUMS") == 16 ]]
+[[ $(wc -l < "$fixture/assets/SHA256SUMS") == 8 ]]
+# A system no longer built is not a release asset.
+printf 'cli\n' > "$fixture/assets/magpie-cli-linux-arm64"
+if bash "$scripts/release-assets.sh" "$fixture/assets" > "$fixture/log" 2>&1; then
+  echo 'A dropped system was accepted as a release asset.' >&2; exit 1
+fi
+rm "$fixture/assets/magpie-cli-linux-arm64"
 printf 'unexpected\n' > "$fixture/assets/magpie-linux-amd64.new"
 if bash "$scripts/release-assets.sh" "$fixture/assets" > "$fixture/log" 2>&1; then
   echo 'An unexpected release asset was accepted.' >&2; exit 1
 fi
 rm "$fixture/assets/magpie-linux-amd64.new"
-: > "$fixture/assets/magpie-cli-android-arm64"
+: > "$fixture/assets/magpie-cli-linux-amd64"
 if bash "$scripts/release-assets.sh" "$fixture/assets" > "$fixture/log" 2>&1; then
   echo 'An empty release asset was accepted.' >&2; exit 1
 fi

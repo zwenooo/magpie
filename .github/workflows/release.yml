@@ -87,6 +87,8 @@ jobs:
 
   # Compile the vendored headless Cursor protocol bridge on its native target.
   # It is embedded in Magpie, never fetched from an upstream release at runtime.
+  # Releases build Windows x64, macOS Apple Silicon and Linux x64 only (from
+  # va.0.1.3001-vb.0.0.2); the other systems stay on va.0.1.3001-vb.0.0.1.
   cursor-backend:
     needs: prepare
     timeout-minutes: 45
@@ -97,21 +99,12 @@ jobs:
           - os: macos-latest
             target_os: darwin
             arch: arm64
-          - os: macos-15-intel
-            target_os: darwin
-            arch: amd64
           - os: windows-latest
             target_os: windows
             arch: amd64
-          - os: windows-11-arm
-            target_os: windows
-            arch: arm64
           - os: ubuntu-22.04
             target_os: linux
             arch: amd64
-          - os: ubuntu-22.04-arm
-            target_os: linux
-            arch: arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -158,8 +151,6 @@ jobs:
         include:
           - os: macos-latest
             arch: arm64
-          - os: macos-15-intel
-            arch: amd64
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -391,8 +382,6 @@ jobs:
         include:
           - os: windows-latest
             arch: amd64
-          - os: windows-11-arm
-            arch: arm64
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -428,8 +417,8 @@ jobs:
             Get-Content "$log.out", "$log.err" -ErrorAction SilentlyContinue
           }
 
-  # The Linux app links GTK 3 and WebKitGTK 4.1, so each arch builds on its
-  # own runner. Ubuntu 22.04 keeps the glibc requirement low.
+  # The Linux app links GTK 3 and WebKitGTK 4.1, so it builds on a native
+  # runner. Ubuntu 22.04 keeps the glibc requirement low.
   linux:
     needs: [prepare, cursor-backend]
     timeout-minutes: 45
@@ -441,8 +430,6 @@ jobs:
         include:
           - os: ubuntu-22.04
             arch: amd64
-          - os: ubuntu-22.04-arm
-            arch: arm64
     runs-on: ${{ matrix.os }}
 
     steps:

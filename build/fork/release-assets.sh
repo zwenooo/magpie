@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
-# Upstream's 15 binaries/archives, bundled-code license and SHA256SUMS.
+# The 7 binaries/archives of Windows x64, macOS Apple Silicon and Linux x64,
+# the bundled-code license and SHA256SUMS.
 set -euo pipefail
 cd "${1:?usage: release-assets.sh DIST}"
 expected=(
   THIRD-PARTY-NOTICES.txt
-  magpie-cli-android-arm64
-  magpie-cli-darwin-amd64 magpie-cli-darwin-arm64
-  magpie-cli-linux-amd64 magpie-cli-linux-arm64
-  magpie-cli-windows-amd64.exe magpie-cli-windows-arm64.exe
-  magpie-darwin-amd64.dmg magpie-darwin-amd64.zip
+  magpie-cli-darwin-arm64
+  magpie-cli-linux-amd64
+  magpie-cli-windows-amd64.exe
   magpie-darwin-arm64.dmg magpie-darwin-arm64.zip
-  magpie-linux-amd64 magpie-linux-arm64
-  magpie-windows-amd64.exe magpie-windows-arm64.exe
+  magpie-linux-amd64
+  magpie-windows-amd64.exe
 )
 for asset in "${expected[@]}"; do
   [[ -s "$asset" && ! -L "$asset" ]] || { echo "Missing or empty release asset: $asset" >&2; exit 1; }
