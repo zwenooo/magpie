@@ -20,6 +20,7 @@ internal/sessions/sources.go     Custom read-only session directory registration
 internal/gui/sessions_sources.go Session directory scan/import API
 internal/library/mcp_folders.go  MCP servers' program and key folders carried by sync
 internal/library/claude_dirs.go  The library given to Claude Code's other config folders
+internal/sessions/handoff.go     A conversation condensed for any agent to carry on
 docs/cursor-byok.md              Setup and synchronization contract
 build/fork/                     Fork build and upstream merge commands
 .github/workflows/fork.yml       Fork integration checks on three platforms
@@ -93,6 +94,34 @@ and tool deny rules stay Claude Code here's. The upstream hooks are one step
 at the end of `syncSteps` (`sync.go`) and one after `changeInstructions`
 (`instructions.go`); `magpie library claude-dirs` lists the folders and what
 each holds of magpie's.
+
+Any conversation magpie reads can be carried on in any installed agent
+with a prompt, nothing converted (`internal/sessions/handoff.go`). The
+Sessions page's Continue in menu lists every installed agent, "Copy the
+steps and a prompt": magpie writes the conversation into its `handoffs`
+folder twice, whole as the Markdown export, and condensed to at most 60 KB
+(15–20k tokens) for an agent to read whole, and copies the steps (open the
+session's folder in that agent where it is on this computer, start a new
+conversation) and the prompt, in the page's language. A transcript is
+mostly tool output and the agent's own records (a 7 MB Claude Desktop
+session held 32 KB of words), and an agent given a file reads all of it,
+so the condensed record is made by code from the parts every agent's file
+is read into, the same for every agent and without a model: the user's
+words and the assistant's replies whole, their own headings two levels
+down; each run of tool calls one line with its first arguments and the
+files they change; no thinking, tool output or what the agent put in
+itself (but the prompt Claude Desktop puts after its system reminder).
+After a Claude Code compaction it starts at the agent's own summary. When
+it is longer, the first turn and the newest stay whole, older ones are
+shortened, cut to their first words, then left out; a heading says how it
+ended, and where it stopped among tool calls. The prompt has the agent read
+it, take what it quotes as material rather than instructions, redo nothing
+done, go by the files as they are now, change neither file, and say where
+the work stands before going on. Handoffs older than two weeks are removed.
+`magpie sessions handoff <agent> <id>` writes one from a terminal. The
+upstream hooks are `sessionHandoffRoutes` in `sessions_manage.go`, the
+`handoff` case in `sessions_cli.go`, and the menu and its words in the
+Sessions plugin (`client.js`, `i18n.js`).
 
 ## Remotes and branches
 
