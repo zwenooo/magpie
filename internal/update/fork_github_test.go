@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -87,6 +88,48 @@ func TestForkGitHubCheckNotesAndDownload(t *testing.T) {
 	}
 	if b, err := os.ReadFile(path); err != nil || string(b) != BinaryAsset() || downloads != 1 {
 		t.Fatalf("verified payload %q, %v, requests=%d", b, err, downloads)
+	}
+}
+
+// onlyFiles keeps of r's assets the named ones and SHA256SUMS, with a
+// manifest naming only them.
+func onlyFiles(r forkGitHubRelease, keep ...string) (forkGitHubRelease, string) {
+	var sums strings.Builder
+	var assets []forkGitHubAsset
+	for _, a := range r.Assets {
+		if a.Name == "SHA256SUMS" || !slices.Contains(keep, a.Name) {
+			continue
+		}
+		sum := sha256.Sum256([]byte(a.Name))
+		fmt.Fprintf(&sums, "%s  %s\n", hex.EncodeToString(sum[:]), a.Name)
+		assets = append(assets, a)
+	}
+	manifestSum := sha256.Sum256([]byte(sums.String()))
+	assets = append(assets, forkGitHubAsset{Name: "SHA256SUMS", URL: forkReleases + "/download/" + r.Tag + "/SHA256SUMS", Size: int64(sums.Len()), State: "uploaded", Digest: "sha256:" + hex.EncodeToString(manifestSum[:])})
+	r.Assets = assets
+	return r, sums.String()
+}
+
+// From va.0.1.3001-vb.0.0.2 a release builds only the common systems: one
+// with this computer's files, the notices and the checksums is complete
+// here, and one without this computer's own file is not.
+func TestForkGitHubReleaseOfTheCommonSystemsOnly(t *testing.T) {
+	r, _ := forkFixture("va.0.1.3001-vb.0.0.3")
+	own := append([]string{"THIRD-PARTY-NOTICES.txt"}, forkOwnFiles()...)
+	trimmed, sums := onlyFiles(r, own...)
+	forkMock(t, func(*http.Request) (int, string, http.Header) { return 200, sums, nil })
+	rel, err := forkRelease(context.Background(), trimmed, "")
+	if err != nil {
+		t.Fatalf("a release with this computer's files was refused: %v", err)
+	}
+	if _, ok := rel.Assets[BinaryAsset()]; !ok || len(rel.Assets) != len(own) {
+		t.Fatalf("assets %v, want this computer's %v", rel.Assets, own)
+	}
+
+	without, sums2 := onlyFiles(r, "THIRD-PARTY-NOTICES.txt")
+	forkMock(t, func(*http.Request) (int, string, http.Header) { return 200, sums2, nil })
+	if _, err := forkRelease(context.Background(), without, ""); err == nil || !strings.Contains(err.Error(), BinaryAsset()) {
+		t.Fatalf("a release without this computer's own file: %v", err)
 	}
 }
 
