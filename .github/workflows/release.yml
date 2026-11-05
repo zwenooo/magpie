@@ -8,9 +8,10 @@ name: Release
 # either the App Store Connect API key or Apple ID secrets used upstream.
 # Build-only runs always use ad-hoc signing and receive no signing credentials.
 
+# Only a version tag, or a dispatch, builds: a push to main or a branch no
+# longer runs the whole matrix again (the tag's run is the one that counts).
 on:
   push:
-    branches: [main, 'feat/**']
     tags: ['v*']
   workflow_dispatch:
     inputs:
@@ -65,11 +66,14 @@ jobs:
           INPUT_PUBLISH: ${{ inputs.publish }}
         run: bash build/fork/release-metadata.sh
 
+  # The whole suite on Linux and Windows; macOS keeps its fork checks and
+  # native builds, not the 50-minute suite (its GUI tests flake there).
   quality:
     needs: prepare
     uses: ./.github/workflows/test.yml
     with:
       ref: ${{ needs.prepare.outputs.sha }}
+      oses: '["ubuntu-latest","windows-latest"]'
     permissions:
       contents: read
 

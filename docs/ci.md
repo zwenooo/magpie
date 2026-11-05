@@ -11,11 +11,11 @@ unchanged for source compatibility.
 
 | Workflow | Trigger | Result |
 | --- | --- | --- |
-| Release | Push to `main`/`feat/**`, `v*` tag, or manual dispatch | All native packages and checks; branch pushes build only |
+| Release | `v*` tag, or manual dispatch | All native packages and checks; a dispatch without `publish` builds only. Pushes to `main` and branches don't run it (the tag's run is the one that counts) |
 | Promote verified release | Manual dispatch from `main` with a successful Release run ID and matching public tag | Publish that run's already validated artifacts without rebuilding |
-| Test | Called by Release for its resolved SHA, PR, or manual dispatch | Upstream Linux/macOS tests and races, Windows compile/native tests, Linux/Android CLI and site checks |
+| Test | Called by Release for its resolved SHA, PR, or manual dispatch | Upstream Linux/macOS tests and races, Windows compile/native tests, Linux/Android CLI and site checks. Release asks for Linux and Windows only (`oses`): macOS keeps the fork checks and native builds, not the 50-minute suite, whose GUI tests flake on its runners |
 | Fork integration checks | Called by Release for the same SHA, PR, or manual dispatch | Cursor BYOK and update-policy tests on Linux, macOS and Windows |
-| Docker | `main`, `v*`, relevant PR, manual dispatch | Native amd64/arm64 smoke builds; trusted runs publish this fork's GHCR image and provenance |
+| Docker | `v*`, relevant PR, manual dispatch | Native amd64/arm64 smoke builds; trusted runs publish this fork's GHCR image and provenance |
 | privacy-filter | Relevant source changes, `pf-v*`, manual dispatch | Five native helper targets; `pf-v*` publishes a separate prerelease |
 | UI preview | Opt-in PR/manual dispatch | Screenshots/video for trusted same-repository PRs, with separate read-only recording and publishing jobs |
 
@@ -67,16 +67,17 @@ Gatekeeper may require explicit local approval.
 
 ## Build versus publish
 
-Pushing a branch runs a build-only release workflow with version
-`fork-<commit>`. Download artifacts from Actions. A manual dispatch defaults
-to build-only too; `ref` can select a commit already containing this CI.
+A manual dispatch builds only, with version `fork-<commit>` (download the
+artifacts from Actions); `ref` can select a commit already containing this CI.
+Pushing a branch or `main` doesn't run the workflow: it ran the whole matrix
+again for every push, beside the tag's own run.
 
 To publish a version, create a `va.<official>-vb.<fork>` tag on this fork's `main`
 and push it, or select an existing matching tag in manual dispatch with
 `publish` enabled. All build/check jobs use one resolved SHA. Publication
 checks the remote tag again, requires it to identify that SHA and remain
 on `main`, verifies every file/hash, uploads a draft, then makes it public
-only after the complete 17-file set is present. The `vb` suffix identifies
+only after the complete file set is present. The `vb` suffix identifies
 the fork revision, so these are stable fork releases, not GitHub prereleases.
 A published release cannot be
 silently overwritten by a rerun; an interrupted draft can be completed.
@@ -98,16 +99,16 @@ upstream code that has not been merged. `+build`/extra prerelease suffixes
 are rejected. An older publication does not replace a newer Latest release.
 
 No tag or public Release is created by merely migrating this CI or running
-a branch build. Docker is separate: successful trusted `main` runs publish
-`ghcr.io/zwenooo/magpie:edge`; version tags produce a manifest tagged with
-the complete public tag, such as `:va.0.1.1725-vb.0.0.1`.
+a build-only dispatch. Docker is separate: version tags produce a manifest
+tagged with the complete public tag, such as `:va.0.1.1725-vb.0.0.1`; a
+dispatch on `main` publishes `ghcr.io/zwenooo/magpie:edge`.
 
-An explicitly versioned build-only Release run on `main` can also be published
+An explicitly versioned build-only Release run on `main` (a dispatch) can also be published
 with **Promote verified release** after it completes successfully. Create the
 matching public tag at that run's source commit, then supply its run ID and tag.
-The promotion verifies all 24 required jobs, the original prepare log's exact
+The promotion verifies all 23 required jobs, the original prepare log's exact
 source/version, unexpired artifacts, tag/main/official ancestry, and the same
-17-file checksum gate. It downloads and uploads inside Actions, without running
+checksum gate. It downloads and uploads inside Actions, without running
 artifact binaries or rebuilding them. Draft recovery and Latest ordering match
 the normal release workflow; public releases cannot be overwritten. Promotion
 does not update Homebrew automatically; run the existing tap update separately
@@ -148,9 +149,12 @@ SHA-256 verification, staging and installation code.
 
 Only published, non-preview releases with a valid
 `va.<official>-vb.<fork>` tag and this repository's release page qualify.
-Before offering a download, the adapter requires the complete 17-file set,
-including `THIRD-PARTY-NOTICES.txt` and `SHA256SUMS`, validates asset URLs and
-sizes, and reads the checksums from GitHub. Missing, duplicate or conflicting
+Before offering a download, the adapter requires this computer's own files
+(its binary, and on a Mac the app's zip), `THIRD-PARTY-NOTICES.txt` and
+`SHA256SUMS`; another system's file may be left out of a release, and one
+that is there must have its checksum. It validates asset URLs and sizes, and
+reads the checksums from GitHub. Releases through `va.0.1.3001-vb.0.0.1` still
+carry all 16 files, since installs before it required every one. Missing, duplicate or conflicting
 checksums fail the check. Downloaded bytes must match the selected asset's
 SHA-256 before installation. Drafts, ordinary upstream `v*` releases and
 `pf-v*` helper releases are not application updates.

@@ -1,8 +1,8 @@
 name: Docker
 
 on:
+  # a version tag (or a dispatch) builds the images; a push to main doesn't
   push:
-    branches: [main]
     tags: ['v*']
   pull_request:
     paths: [Dockerfile, .dockerignore, .github/workflows/docker.yml]
