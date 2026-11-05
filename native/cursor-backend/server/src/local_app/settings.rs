@@ -6,6 +6,11 @@ use serde_json::Value;
 use crate::{Error, Result};
 
 pub(super) const NO_PROXY_KEY: &str = "http.noProxy";
+/// Cursor's HTTP/1.0 compatibility mode (this on, beside disableHttp2) asks
+/// for its agent's replies with RunPoll, which this backend doesn't answer:
+/// the requests reached it and nothing came back. While the backend owns
+/// Cursor's settings this one is left out, so the replies come on RunSSE.
+pub(super) const SSE_OFF_KEY: &str = "cursor.general.disableHttp1SSE";
 pub(super) const KEYS: [&str; 5] = [
     "http.proxy",
     "http.proxyKerberosServicePrincipal",
@@ -66,6 +71,7 @@ pub fn write_proxy_settings(proxy_url: &str) -> Result<()> {
         return write(&settings);
     }
     settings.remove(NO_PROXY_KEY);
+    settings.remove(SSE_OFF_KEY);
     settings.insert(KEYS[0].into(), Value::String(proxy_url.into()));
     settings.insert(KEYS[1].into(), Value::String(proxy_url.into()));
     settings.insert(KEYS[2].into(), Value::String("on".into()));
@@ -110,7 +116,10 @@ pub fn settings_match(proxy_url: &str) -> Result<bool> {
             && settings.get(KEYS[1]) == Some(&Value::String(proxy_url.into()))
             && settings.get(KEYS[2]) == Some(&Value::String("on".into()))
             && settings.get(KEYS[3]) == Some(&Value::Bool(true))
-            && settings.get(KEYS[4]) == Some(&Value::Bool(true)),
+            && settings.get(KEYS[4]) == Some(&Value::Bool(true))
+            && settings
+                .get(SSE_OFF_KEY)
+                .is_none_or(|value| value == &Value::Bool(false)),
     )
 }
 

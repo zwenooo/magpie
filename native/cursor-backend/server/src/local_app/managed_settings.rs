@@ -54,6 +54,7 @@ pub(super) fn apply(
         (super::settings::KEYS[3].into(), Some(Value::Bool(true))),
         (super::settings::KEYS[4].into(), Some(Value::Bool(true))),
         (super::settings::NO_PROXY_KEY.into(), None),
+        (super::settings::SSE_OFF_KEY.into(), None),
     ]);
     let before = written
         .keys()
@@ -199,6 +200,44 @@ mod tests {
             settings.get("http.proxy"),
             Some(&Value::String("http://company-proxy:80".into()))
         );
+    }
+
+    #[test]
+    fn http1_sse_stays_on_while_owned() {
+        // Cursor's HTTP/1.0 mode polls for replies (RunPoll), which the
+        // backend doesn't answer; the user's choice comes back on disconnect,
+        // also from a journal saved before the backend owned it
+        let key = super::super::settings::SSE_OFF_KEY;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let original = BTreeMap::from([
+            (key.into(), Value::Bool(true)),
+            ("editor.fontSize".into(), serde_json::json!(16)),
+        ]);
+        let mut settings = original.clone();
+        apply(&path, &mut settings, "http://127.0.0.1:12345").unwrap();
+        assert_eq!(settings.get(key), None);
+        assert_eq!(
+            settings.get("http.proxy"),
+            Some(&Value::String("http://127.0.0.1:12345".into()))
+        );
+        restore(&path, &mut settings).unwrap();
+        assert_eq!(settings, original);
+
+        fs::write(
+            &path,
+            br#"{"before":{"http.proxy":null},"written":{"http.proxy":"http://127.0.0.1:12345"}}"#,
+        )
+        .unwrap();
+        let mut settings = original.clone();
+        settings.insert(
+            "http.proxy".into(),
+            Value::String("http://127.0.0.1:12345".into()),
+        );
+        apply(&path, &mut settings, "http://127.0.0.1:54321").unwrap();
+        assert_eq!(settings.get(key), None);
+        restore(&path, &mut settings).unwrap();
+        assert_eq!(settings, original);
     }
 
     #[test]
