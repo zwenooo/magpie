@@ -13,6 +13,15 @@ func forkPresets() []PresetDef {
 	}}
 }
 
+// CodeZ serves OpenAI's models natively on its Responses API and turns a
+// Chat request for one into a Responses one; its other models stay on Chat
+// and its Claude models on Messages. ResponsesFirst follows it, so agents
+// handed the model's API (Cursor, Pi, droid, dsh) and the gateway's own
+// translations ask a GPT model on Responses, as Codex does.
+func forkResponsesFirst(p Provider) bool {
+	return p.Preset == "codez"
+}
+
 // The first CodeZ preview shipped a generic placeholder. Replace that default
 // while keeping uploaded or explicitly selected icons on existing providers.
 func forkUsesPresetIcon(p Provider) bool {

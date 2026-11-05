@@ -33,6 +33,29 @@ func TestForkCodeZPresetAndImport(t *testing.T) {
 	if Preset("openai").Chat != "https://api.openai.com/v1" || Preset("openrouter").Kind != KindRelay {
 		t.Fatal("upstream presets changed")
 	}
+	// CodeZ asks OpenAI's models on Responses, its others where they were
+	for model, want := range map[string]Protocol{
+		"gpt-6-astra": Responses, "gpt-5.6-sol": Responses, "o4-mini": Responses, "codex-mini": Responses,
+		"claude-opus-4-5": Anthropic, "deepseek-v4": Chat, "codex-auto-review": Responses,
+	} {
+		if got := p.Native(model); got != want {
+			t.Errorf("CodeZ %s is asked on %q, want %q", model, got, want)
+		}
+	}
+	if got := p.Native("gpt-6-astra"); got != Responses || !p.ResponsesFirst("gpt-6-astra") {
+		t.Errorf("CodeZ GPT: native %q", got)
+	}
+	// without a Responses URL, or at a relay that isn't CodeZ, Chat stays first
+	chatOnly := p
+	chatOnly.Responses = ""
+	if chatOnly.ResponsesFirst("gpt-6-astra") || chatOnly.Native("gpt-6-astra") != Chat {
+		t.Error("CodeZ without a Responses URL must stay on Chat")
+	}
+	other := p
+	other.Preset, other.ID = "", "my-relay"
+	if other.ResponsesFirst("gpt-6-astra") || other.Native("gpt-6-astra") != Chat {
+		t.Error("another relay's GPT must stay on Chat")
+	}
 	for _, icon := range []string{"generic", "", "file:custom-logo.png", "openai"} {
 		existing := p
 		existing.Icon = icon
