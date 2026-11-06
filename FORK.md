@@ -11,6 +11,7 @@ upstream's installation links and releases do not include it.
 internal/cursorbyok/             Bundled Cursor process, private API and ownership
 native/cursor-backend/           Vendored MIT headless backend maintained by us
 internal/agent/cursorbyok.go     Magpie Agent/catalog/key adapter
+internal/agent/cursorbyok_follow.go  The backend's models follow the catalog other processes change
 internal/agent/agents.go         One registration in builtins
 internal/update/fork.go          Fork update policy and release identity
 internal/update/fork_github.go   GitHub Releases adapter and channel selection
@@ -162,6 +163,8 @@ On each merge, pay attention to:
   `ResponsesFirst` and partner-source/count hooks; CodeZ must remain
   a normal preset, default partner promotions must remain off, and existing
   configured providers must retain their data.
+- The `agent.KeepCursorBackendCurrent` start in `internal/gui/backend.go`'s
+  `startBackend`, beside `KeepCodexDaemonCurrent`.
 - The GTK/WebKitGTK steps in `release.yml` and `test.yml` use
   `.github/actions/fork-apt`; a changed package list goes into its sets, and
   a changed runner into `fork-apt-cache.yml`'s matrix.
