@@ -234,21 +234,36 @@ const EFFORTS: [(&str, &str); 5] = [
 ];
 const DEFAULT_CONTEXT: &str = "200k";
 
-fn context_options(context_window_tokens: Option<u64>) -> Vec<(String, String)> {
-    let mut contexts = CONTEXTS
+/// A model's context choices and the one Cursor starts on. Cursor sends the
+/// chosen one with every run and it decides when the conversation is
+/// compacted, ahead of the saved window. A model with a saved window starts
+/// on it and offers nothing larger (a 1M model started on 200K and compacted
+/// there); one without offers the standard choices from 200K.
+fn context_options(context_window_tokens: Option<u64>) -> (Vec<(String, String)>, String) {
+    let standard = CONTEXTS
         .into_iter()
-        .map(|(value, display_name)| (value.to_owned(), display_name.to_owned()))
+        .map(|(value, display_name)| (value.to_owned(), display_name.to_owned()));
+    let Some(window) = context_window_tokens else {
+        return (standard.collect(), DEFAULT_CONTEXT.to_owned());
+    };
+    let mut contexts = standard
+        .filter(|(value, _)| parse_token_count(value).is_some_and(|tokens| tokens <= window))
         .collect::<Vec<_>>();
-    if let Some(tokens) = context_window_tokens {
-        let value = tokens.to_string();
-        let duplicate = contexts
-            .iter()
-            .any(|(existing, _)| parse_token_count(existing) == Some(tokens));
-        if !duplicate {
-            contexts.push((value, format!("{} (Custom)", format_token_count(tokens))));
+    let default = match contexts
+        .iter()
+        .find(|(value, _)| parse_token_count(value) == Some(window))
+    {
+        Some((value, _)) => value.clone(),
+        None => {
+            let value = window.to_string();
+            contexts.push((
+                value.clone(),
+                format!("{} (Custom)", format_token_count(window)),
+            ));
+            value
         }
-    }
-    contexts
+    };
+    (contexts, default)
 }
 
 pub async fn available_models(
@@ -471,13 +486,14 @@ fn unary_payload(body: &Bytes) -> Result<(bool, &[u8])> {
 }
 
 fn available_model(model: &ModelConfig) -> AvailableModel {
-    let contexts = context_options(model.context_window_tokens);
+    let (contexts, default_context) = context_options(model.context_window_tokens);
     let tooltip = model_tooltip(model);
     let variants = model_variants(
         &model.model_hash,
         &model.display_name,
         &tooltip,
         &contexts,
+        &default_context,
         true,
     );
     let legacy_slugs = variants
@@ -604,6 +620,7 @@ fn model_variants(
     display_name: &str,
     tooltip: &TooltipData,
     contexts: &[(String, String)],
+    default_context: &str,
     thinking: bool,
 ) -> Vec<ModelVariant> {
     // 非思考模型没有 Effort 轴,变体网格只剩 Context × Fast。
@@ -626,8 +643,8 @@ fn model_variants(
                     name,
                     display_name,
                     tooltip,
-                    context,
-                    context_name,
+                    (context, context_name),
+                    context == default_context,
                     *effort,
                     fast,
                 ));
@@ -641,13 +658,13 @@ fn model_variant(
     name: &str,
     display_name: &str,
     tooltip: &TooltipData,
-    context: &str,
-    context_name: &str,
+    (context, context_name): (&str, &str),
+    default_context: bool,
     effort: Option<(&str, &str)>,
     fast: bool,
 ) -> ModelVariant {
     let mut suffix = Vec::with_capacity(3);
-    if context != DEFAULT_CONTEXT {
+    if !default_context {
         suffix.push(context_name);
     }
     if let Some((_, effort_name)) = effort {
@@ -664,8 +681,7 @@ fn model_variant(
             "{display_name} <span style=\"color: var(--cursor-text-tertiary);\">{suffix}</span>"
         )
     };
-    let is_default =
-        context == DEFAULT_CONTEXT && !fast && effort.is_none_or(|(effort, _)| effort == "high");
+    let is_default = default_context && !fast && effort.is_none_or(|(effort, _)| effort == "high");
     let mut parameter_values = vec![ModelParameterValue {
         id: "context".into(),
         value: context.into(),
@@ -715,8 +731,15 @@ fn available_plugin_model(model: &PluginModelDescriptor) -> AvailableModel {
         markdown_content: model.description.clone(),
     };
     // Effort 与上下文档位由宿主统一提供,与内置模型一致;插件不再声明这两项。
-    let contexts = context_options(None);
-    let variants = model_variants(&model.id, &model.display_name, &tooltip, &contexts, true);
+    let (contexts, default_context) = context_options(None);
+    let variants = model_variants(
+        &model.id,
+        &model.display_name,
+        &tooltip,
+        &contexts,
+        &default_context,
+        true,
+    );
     let legacy_slugs = variants
         .iter()
         .filter_map(|variant| variant.legacy_slug.clone())
@@ -1057,6 +1080,93 @@ mod tests {
             created_at_ms: 0,
             updated_at_ms: 0,
         }
+    }
+
+    fn context_of(variant: &ModelVariant) -> &str {
+        &variant
+            .parameter_values
+            .iter()
+            .find(|parameter| parameter.id == "context")
+            .expect("context parameter")
+            .value
+    }
+
+    fn default_context(catalog: &AvailableModel) -> &ModelVariant {
+        let defaults = catalog
+            .variants
+            .iter()
+            .filter(|variant| variant.is_default_non_max_config == Some(true))
+            .collect::<Vec<_>>();
+        assert_eq!(defaults.len(), 1, "one default variant");
+        assert_eq!(defaults[0].is_default_max_config, Some(true));
+        defaults[0]
+    }
+
+    fn context_choices(catalog: &AvailableModel) -> Vec<&str> {
+        let context = catalog
+            .parameter_definitions
+            .iter()
+            .find(|parameter| parameter.id == "context")
+            .and_then(|parameter| parameter.parameter_type.as_ref())
+            .and_then(|kind| kind.enum_parameter.as_ref())
+            .expect("context choices");
+        context
+            .values
+            .iter()
+            .map(|value| value.value.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn cursor_starts_on_the_saved_context_window() {
+        // A 1M model started on 200K, which Cursor showed and sent with
+        // every run, so the conversation was compacted at 200K.
+        let mut config = model();
+        config.context_window_tokens = Some(1_000_000);
+        let catalog = available_model(&config);
+        let default = default_context(&catalog);
+        assert_eq!(context_of(default), "1m");
+        assert_eq!(parse_token_count(context_of(default)), Some(1_000_000));
+        assert!(
+            !default.display_name.contains("1M"),
+            "{}",
+            default.display_name
+        );
+        assert_eq!(
+            context_choices(&catalog),
+            ["200k", "356k", "500k", "800k", "1m"]
+        );
+        let smaller = catalog
+            .variants
+            .iter()
+            .find(|variant| context_of(variant) == "200k")
+            .expect("a 200K choice");
+        assert!(
+            smaller.display_name.contains("200K"),
+            "{}",
+            smaller.display_name
+        );
+
+        // Nothing larger than the window; a window between the standard
+        // choices is its own.
+        config.context_window_tokens = Some(400_000);
+        let catalog = available_model(&config);
+        assert_eq!(context_choices(&catalog), ["200k", "356k", "400000"]);
+        assert_eq!(context_of(default_context(&catalog)), "400000");
+
+        config.context_window_tokens = Some(128_000);
+        let catalog = available_model(&config);
+        assert_eq!(context_choices(&catalog), ["128000"]);
+        assert_eq!(context_of(default_context(&catalog)), "128000");
+
+        // Without a saved window: the standard choices, starting on 200K.
+        config.context_window_tokens = None;
+        let catalog = available_model(&config);
+        assert_eq!(
+            context_choices(&catalog),
+            ["200k", "356k", "500k", "800k", "1m"]
+        );
+        assert_eq!(context_of(default_context(&catalog)), "200k");
     }
 
     #[test]
