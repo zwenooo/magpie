@@ -1,0 +1,89 @@
+name: Fork apt packages
+description: >-
+  Install a named set of Ubuntu packages from the archives the Fork apt cache
+  workflow saved on main, so a slow Ubuntu mirror doesn't time a build out.
+inputs:
+  set:
+    description: The package set, release-linux or test-linux
+    required: true
+  warm:
+    description: "'true' only downloads the set and saves its archives (the Fork apt cache workflow on main)"
+    required: false
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Resolve the set's archives
+      id: plan
+      shell: bash
+      env:
+        SET: ${{ inputs.set }}
+      run: |
+        set -euo pipefail
+        case "$SET" in
+          # Release's Linux job builds the desktop package and launches it.
+          release-linux) options=--no-install-recommends; packages='libgtk-3-dev libwebkit2gtk-4.1-dev xvfb dbus-x11' ;;
+          # Test vets and tests the GUI with the gtk3 tag.
+          test-linux) options=; packages='libgtk-3-dev libwebkit2gtk-4.1-dev' ;;
+          *) echo "unknown package set: $SET" >&2; exit 1 ;;
+        esac
+        # The indexes still come from the mirror (30 MB in 3 s while the
+        # archives took over 15 minutes, va.0.1.3001-vb.0.0.4).
+        sudo apt-get update
+        mkdir -p "$RUNNER_TEMP/fork-apt/$SET"
+        # The archives apt would fetch on this image with today's indexes; the
+        # key names exactly those files, so an update to one makes a new key.
+        # shellcheck disable=SC2086
+        sudo apt-get install --print-uris -qq $options $packages | awk '{ print $2, $4 }' | sort > "$RUNNER_TEMP/fork-apt/$SET.files"
+        . /etc/os-release
+        prefix="fork-apt-$SET-$ID-$VERSION_ID-$(dpkg --print-architecture)"
+        {
+          echo "options=$options"
+          echo "packages=$packages"
+          echo "dir=$RUNNER_TEMP/fork-apt/$SET"
+          echo "prefix=$prefix"
+          echo "key=$prefix-$(sha256sum < "$RUNNER_TEMP/fork-apt/$SET.files" | cut -c1-16)"
+        } >> "$GITHUB_OUTPUT"
+
+    # A tag's own caches stay with that tag; every run can restore main's.
+    - name: Restore the archives saved on main
+      id: restore
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.plan.outputs.dir }}
+        key: ${{ steps.plan.outputs.key }}
+        restore-keys: ${{ steps.plan.outputs.prefix }}-
+
+    - name: Install
+      shell: bash
+      env:
+        SET: ${{ inputs.set }}
+        WARM: ${{ inputs.warm }}
+        OPTIONS: ${{ steps.plan.outputs.options }}
+        PACKAGES: ${{ steps.plan.outputs.packages }}
+        DIR: ${{ steps.plan.outputs.dir }}
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+        # apt checks each archive against the signed indexes before using it
+        # and downloads whatever the cache lacks or no longer matches.
+        saved=("$DIR"/*.deb)
+        echo "${#saved[@]} archives restored"
+        if [ "${#saved[@]}" -gt 0 ]; then sudo cp "${saved[@]}" /var/cache/apt/archives/; fi
+        if [ "$WARM" != true ]; then
+          # shellcheck disable=SC2086
+          sudo apt-get install -y $OPTIONS $PACKAGES
+          exit 0
+        fi
+        # shellcheck disable=SC2086
+        sudo apt-get install -y --download-only $OPTIONS $PACKAGES
+        # Save exactly today's archives, not older ones restored by prefix.
+        rm -f "$DIR"/*.deb
+        while read -r file _; do cp "/var/cache/apt/archives/$file" "$DIR/"; done < "$RUNNER_TEMP/fork-apt/$SET.files"
+
+    - name: Save the archives
+      if: inputs.warm == 'true' && steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ steps.plan.outputs.dir }}
+        key: ${{ steps.plan.outputs.key }}

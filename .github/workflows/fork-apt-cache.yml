@@ -1,0 +1,48 @@
+name: Fork apt cache
+
+# Release's and Test's Linux jobs install GTK and WebKitGTK from archives
+# cached here (.github/actions/fork-apt). A tag's run can restore only its
+# own caches and main's, so they are saved on main: twice a week, keeping
+# them fresh and within GitHub's 7 days for unused caches, and when this
+# changes. A run is two short Linux jobs.
+on:
+  schedule:
+    - cron: '23 2 * * 1,4'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/actions/fork-apt/**
+      - .github/workflows/fork-apt-cache.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-apt-cache
+  cancel-in-progress: false
+
+jobs:
+  warm:
+    if: github.repository == 'zwenooo/magpie'
+    name: warm (${{ matrix.set }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # The runners of the jobs that install each set.
+        include:
+          - set: release-linux
+            os: ubuntu-22.04
+          - set: test-linux
+            os: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
+          persist-credentials: false
+      - uses: ./.github/actions/fork-apt
+        with:
+          set: ${{ matrix.set }}
+          warm: 'true'

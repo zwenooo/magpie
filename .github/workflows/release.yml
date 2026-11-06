@@ -444,11 +444,13 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # From the archives Fork apt cache keeps on main: this step's 15
+      # minutes ran out downloading 52 MB from a slow mirror (vb.0.0.4).
       - name: Install GTK and WebKitGTK
         timeout-minutes: 15
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev xvfb dbus-x11
+        uses: ./.github/actions/fork-apt
+        with:
+          set: release-linux
 
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
