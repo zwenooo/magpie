@@ -73,7 +73,7 @@ func TestServerFoldersGivenAsThisComputersPaths(t *testing.T) {
 		t.Fatalf("magpie would run %+v", spec)
 	}
 	// an agent in WSL can't run a Windows program: not given, said why
-	_, _, _, _, _, bad := startServer(context.Background(), l.server("ops"), "Ubuntu")
+	_, _, _, _, _, bad := startServer(context.Background(), l.server("ops"), "Ubuntu", "")
 	if bad == nil || !strings.Contains(bad.Detail, "WSL") {
 		t.Fatalf("a check in WSL: %+v", bad)
 	}
