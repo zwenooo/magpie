@@ -22,6 +22,12 @@ maintained in this fork under `native/cursor-backend`.
    uses the current user's certificate store; macOS uses the login keychain and
    may request OS approval. Linux currently displays the administrator command
    needed to trust this certificate; run it and connect again.
+
+While connected, Cursor's proxy points at the backend, HTTP/2 is off and so is
+Cursor's HTTP/1.0 compatibility mode (`cursor.general.disableHttp1SSE`): in it
+Cursor asks for the agent's replies with `RunPoll`, which the backend doesn't
+answer, so a conversation never got a reply. Disconnecting restores the values
+these settings had, unless they were changed since.
 4. Open Cursor, start a new conversation, and choose a Magpie model.
    Magpie does not forcibly terminate Cursor or discard open work.
 
