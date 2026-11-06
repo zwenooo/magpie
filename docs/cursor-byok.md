@@ -45,6 +45,11 @@ explicitly; **Auto** uses Cursor's official selection. The local model catalog
 waits at most two seconds for the official catalog before returning local
 models, so an unresponsive official endpoint cannot hide configured models.
 
+A Magpie model's **Context** choice starts at the context window set for it in
+Magpie and offers nothing larger. Cursor sends the choice with every run, and
+the backend compacts the conversation by it. A model without a window offers
+200K to 1M, starting at 200K.
+
 Magpie owns the backend's lifetime. A normal Magpie exit closes its child and
 attempts to restore the Cursor settings still owned by it. A locked or unreadable
 profile leaves the ownership journal for recovery on a later connection. After a crash, reconnect or a
