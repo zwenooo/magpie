@@ -324,6 +324,7 @@ func (l *Library) syncMCP(t *Target, b *backups, res *Result) {
 				s, res.run[s.Name] = via, spec
 			}
 		}
+		s = t.MCP.withCmdVars(s)
 		s = wroteStartup(s, a.Startup[s.Name])
 		old := entries[s.Name]
 		if err := t.MCP.foreign(old); err != nil {
@@ -573,9 +574,10 @@ func readView(problems []Problem, glance bool) (*View, error) {
 			return nil, err
 		}
 	}
-	// a plugin's tools, a server of their own (plugin_tools.go): saved,
-	// and given to the agents by a sync of their own
-	if l.adoptPlugins() {
+	// a plugin's tools, a server of their own (plugin_tools.go), and a
+	// Remote magpie's router (bridge_mcp.go): saved, and given to the
+	// agents by a sync of their own
+	if plugins, bridges := l.adoptPlugins(), l.adoptBridges(); plugins || bridges {
 		if err := l.save(); err != nil {
 			return nil, err
 		}
@@ -785,6 +787,9 @@ func SaveServer(old string, s Server) (*Result, error) {
 			if p := l.MCP[i].Plugin; p != "" && s.Plugin == "" {
 				s.Plugin, s.Local = p, true
 			}
+			// a Remote magpie's router stays its own while it is at the
+			// provider's address and key (bridge_mcp.go)
+			keptBridge(l.MCP[i], &s)
 			l.MCP = slices.Delete(l.MCP, i, i+1)
 			if old != s.Name {
 				l.renameProjectServers(old, s.Name)
@@ -936,6 +941,10 @@ func removeServer(l *Library, name string) error {
 		return err
 	}
 	k := serverKey(l.MCP[i])
+	if b := l.MCP[i].Bridge; b != "" {
+		// a Remote magpie's router taken out: its editor's switch is off
+		l.BridgesOn = slices.DeleteFunc(l.BridgesOn, func(id string) bool { return id == b })
+	}
 	l.MCP = slices.Delete(l.MCP, i, i+1)
 	for _, p := range l.Projects {
 		delete(p.Servers, name)

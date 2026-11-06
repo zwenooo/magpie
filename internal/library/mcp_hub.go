@@ -223,6 +223,10 @@ func hubAbouts(ss []*Server) []gateway.HubServer {
 
 func (theHub) Tools(ctx context.Context, agentID string) []gateway.HubTool {
 	ss := hubServers(agentID)
+	if gateway.FromRouter(ctx) {
+		// another magpie's router: not given a Remote magpie's back
+		ss = slices.DeleteFunc(ss, func(s *Server) bool { return s.Bridge != "" })
+	}
 	lists := make([][]gateway.HubTool, len(ss))
 	var wg sync.WaitGroup
 	for i, s := range ss {
@@ -270,6 +274,9 @@ func (theHub) Call(ctx context.Context, agentID, server, tool string, args json.
 		return nil, fmt.Errorf("it isn't switched on for %s in magpie's Library", agentID)
 	}
 	s := ss[i]
+	if s.Bridge != "" && gateway.FromRouter(ctx) {
+		return nil, errors.New("it is another magpie's router, which isn't run for a magpie's router")
+	}
 	if slices.Contains(s.DisabledTools, tool) {
 		return nil, errors.New("the tool is turned off in magpie's Library")
 	}
@@ -851,7 +858,7 @@ func (c *streamConn) close() {
 // dialStdio starts the command s runs, as the check starts it.
 func dialStdio(s *Server, changed func()) (*streamConn, error) {
 	// the hub's server lives until the hub ends it, not with a request
-	tree, stdin, stdout, errs, stop, bad := startServer(context.Background(), s, "")
+	tree, stdin, stdout, errs, stop, bad := startServer(context.Background(), s, "", "")
 	if bad != nil {
 		return nil, healthErr(*bad)
 	}

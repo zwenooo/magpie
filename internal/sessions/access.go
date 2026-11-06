@@ -243,6 +243,7 @@ func Found() []string {
 	add("minimax-code", minimaxSessions())
 	add("kimi", kimiSessions())
 	add("agy", filepath.Join(AgyDir(), "brain"))
+	add("antigravity", antigravityConversations())
 	add("gemini", geminiTmpDir())
 	for _, source := range sourcesForRead() {
 		if !slices.Contains(out, source.Agent) && !sourceCold(source.Path) {

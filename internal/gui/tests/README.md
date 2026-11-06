@@ -1,5 +1,13 @@
 # Dropdown browser regression
 
+`agent-details-ready.test.cjs` holds the first settings read and the lazy
+Long conversations module on the main window's Agents → Details path. It
+checks a complete first and warm opening without a final height jump in all
+five languages, wide and narrow, Chromium and WebKit. It also covers Claude
+Code and Grok Build, failed-read retry, a superseding agent click, navigation
+away and reduced motion. `MAGPIE_ASSETS` selects older assets for the failing
+regression comparison; `ARTIFACT_DIR` retains Chinese desktop screenshots.
+
 `modal-backdrop.test.cjs` checks the modal's computed backdrop filter using
 the real stylesheet and platform marker: Windows desktop windows and panels
 keep the dimming veil without filtering, while browser pages, macOS and Linux
@@ -1250,6 +1258,15 @@ the error that ended it, and says in its details that the file records no
 status; its models are the one asked for, the one sent as asked and the one that answered, its effort is there, and its time is about (≈) what the file's stamps tell. A click opens and closes a row without moving the page, Enter and Space
 do the same, text selected in the details is not a click, and the rows stay open
 when the list is asked for again; in English and Chinese.
+
+`usage-ledger-bytes.test.cjs` checks that Requests says what a request sent
+up and got back (faithleysath): a row's details name "Sent upstream",
+"Received" and what DeepSeek's image files saved (#5407), a row from before
+they were kept shows none of them, and a saving below 0 shows none. Under
+the Requests card the period reads "↑ up · ↓ down" with the saving beside
+it, and nothing for a period with no bytes. At 1180 and 420 wide nothing
+scrolls sideways; Chromium and WebKit, every language. The old page.js
+shows it failing.
 
 `ledger-cache-tokens.test.cjs` (#1839) opens a request's details and finds its
 tokens there at every width: in, out, cache read and cache creation, 0 said as

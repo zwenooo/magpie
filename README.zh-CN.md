@@ -49,7 +49,7 @@
 curl -fsSL https://usemagpie.ai/install.sh | sh
 ```
 
-<sub>Mac 版已签名并公证，每个版本都会自动更新。Linux 上脚本装桌面版，桌面上没装 WebKitGTK 4.1 时会先用系统的包管理器装上（sudo 会要密码）；没有桌面或没有终端可问时装终端版，并告诉你该装哪个包。用 `--gui` 或 `--tui` 可以自己选。网络受限时可用 `--proxy` 或 `--mirror`。也可以 `go install github.com/yetone/magpie@latest`，或者用 [Docker 镜像](https://usemagpie.ai/docs/zh/docker)。 用 `curl -fsSL https://usemagpie.ai/install.sh | sh -s -- --uninstall` 卸载脚本装上的东西；`~/.config/magpie` 里的设置会保留，加 `--purge` 才会断开 Agent 并一起删除。</sub>
+<sub>Mac 版已签名并公证，每个版本都会自动更新。Linux 上脚本装桌面版，桌面上没装 WebKitGTK 4.1 时会先用系统的包管理器装上（sudo 会要密码）；没有桌面或没有终端可问时装终端版，并告诉你该装哪个包。用 `--gui` 或 `--tui` 可以自己选。网络受限时可用 `--proxy` 或 `--mirror`。也可以 `go install github.com/yetone/magpie@latest`，或者用 [Docker 镜像](https://usemagpie.ai/docs/zh/docker)。 用 `curl -fsSL https://usemagpie.ai/install.sh | sh -s -- --uninstall` 卸载：先把 Agent 恢复成原来的配置，再拿掉脚本装上的东西（magpie 已被删掉时会临时下载一个来恢复）；`~/.config/magpie` 里的设置会保留，加 `--purge` 才一起删除。</sub>
 
 **2 · 添加 provider**。打开 magpie，进入 **Providers → 添加 provider**。选一个预设、粘贴 key，或者登录一个订阅。
 
@@ -147,7 +147,7 @@ Agent 会把读到的东西放进提示词：一个 `.env`、一份配置、一�
 
 选一个预设，粘贴 key。模型列表直接来自厂商，名称和推理档位从 [models.dev](https://models.dev) 补全，今天早上刚发布的模型，下次刷新就出现在你的选择器里。
 
-> **预设包括** Anthropic · OpenAI · Google Gemini · Amazon Bedrock（runtime 与 Mantle）· DeepSeek · Kimi · 智谱 GLM · MiniMax · 阶跃星辰 · LongCat · 通义千问 · 百度千帆 · 腾讯云 · 华为云 MaaS · 火山方舟 · Mistral · Groq · Nous Portal · xAI · OpenRouter · Together · Fireworks · 硅基流动 · NVIDIA NIM · 魔搭 · Ollama · LM Studio …… 以及任何兼容 OpenAI 或 Anthropic 的地址。
+> **预设包括** Anthropic · OpenAI · Google Gemini · Amazon Bedrock（runtime 与 Mantle）· DeepSeek · Kimi · 智谱 GLM · MiniMax · 阶跃星辰 · LongCat · 通义千问 · 百度千帆 · 腾讯云 · 华为云 MaaS · 火山方舟 · Mistral · Voyage AI · Groq · Nous Portal · xAI · OpenRouter · Together · Fireworks · 硅基流动 · NVIDIA NIM · 魔搭 · Ollama · LM Studio …… 以及任何兼容 OpenAI 或 Anthropic 的地址。
 
 **导入**能读取你在 CC Switch、Claude Code、Codex 和 Alma 里配置的 provider。[**「添加到 magpie」链接**](https://usemagpie.ai/docs/zh/import)让 provider 网站一键把配置交给 magpie。每个 key 和每个账号都可以走自己的代理。
 
