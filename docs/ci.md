@@ -18,6 +18,7 @@ unchanged for source compatibility.
 | Docker | `v*`, relevant PR, manual dispatch | Native amd64/arm64 smoke builds; trusted runs publish this fork's GHCR image and provenance |
 | privacy-filter | Relevant source changes, `pf-v*`, manual dispatch | Five native helper targets; `pf-v*` publishes a separate prerelease |
 | UI preview | Opt-in PR/manual dispatch | Screenshots/video for trusted same-repository PRs, with separate read-only recording and publishing jobs |
+| Fork apt cache | Mondays and Thursdays, changes to it on `main`, manual dispatch | Saves on `main` the Ubuntu archives (GTK, WebKitGTK) that Release's and Test's Linux jobs install, two short Linux jobs |
 
 The Test workflow retains the upstream Windows-specific checks for update
 installation, session moves, usage caches, MCP health, plugin stderr, dsh
@@ -46,7 +47,12 @@ Notes are generated deterministically from Git history without a model API.
 
 Mac app bundles use native `make app`, ad-hoc signing by default, and DMG/ZIP
 packaging. Linux desktop builds use native Ubuntu 22.04 runners with GTK 3
-and WebKitGTK 4.1. Windows builds use upstream's `make release-windows`,
+and WebKitGTK 4.1. Both they and Test's Linux job install those
+packages through `.github/actions/fork-apt`: apt still reads its indexes from
+the mirror, and takes the archives from the Fork apt cache saved on `main`
+(a tag's run can restore only main's caches and its own), downloading only
+the ones updated since. The first `va.0.1.3001-vb.0.0.4` run spent the
+step's 15 minutes downloading 52 MB from a slow mirror. Windows builds use upstream's `make release-windows`,
 including embedded console launchers, icons, resources and manifests.
 Windows and Linux GUI packages must start and serve their gateway. The
 terminal versions are cross-compiled with cgo disabled.

@@ -25,6 +25,8 @@ docs/cursor-byok.md              Setup and synchronization contract
 build/fork/                     Fork build and upstream merge commands
 .github/workflows/fork.yml       Fork integration checks on three platforms
 .github/workflows/release.yml    Full native packaging and gated own releases
+.github/workflows/fork-apt-cache.yml  Ubuntu archives for Linux builds, saved on main
+.github/actions/fork-apt/         Their install, shared by Release and Test
 ```
 
 `internal/cursorbyok` accepts plain `Model` and `Gateway` values plus explicit
@@ -160,6 +162,9 @@ On each merge, pay attention to:
   `ResponsesFirst` and partner-source/count hooks; CodeZ must remain
   a normal preset, default partner promotions must remain off, and existing
   configured providers must retain their data.
+- The GTK/WebKitGTK steps in `release.yml` and `test.yml` use
+  `.github/actions/fork-apt`; a changed package list goes into its sets, and
+  a changed runner into `fork-apt-cache.yml`'s matrix.
 - The own-repository release, Docker and UI preview targets and their
   credential boundaries. The full workflow matrix and publication gates are
   documented in [CI and release builds](docs/ci.md).
