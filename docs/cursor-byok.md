@@ -50,6 +50,11 @@ Magpie and offers nothing larger. Cursor sends the choice with every run, and
 the backend compacts the conversation by it. A model without a window offers
 200K to 1M, starting at 200K.
 
+Only the magpie running the backend can write Cursor's models; other agents'
+model lists are files any magpie writes. That magpie follows the catalog, so a
+provider, routing group or setting changed from the CLI or by another magpie
+reaches Cursor's picker a moment later, as it reaches the other agents.
+
 Magpie owns the backend's lifetime. A normal Magpie exit closes its child and
 attempts to restore the Cursor settings still owned by it. A locked or unreadable
 profile leaves the ownership journal for recovery on a later connection. After a crash, reconnect or a

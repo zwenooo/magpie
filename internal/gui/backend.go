@@ -60,6 +60,9 @@ func startBackend() (gw *gateway.Server) {
 	// Codex's background app-server, restarted when it has the list from
 	// before a change and no codex session is on it (luci)
 	go agent.KeepCodexDaemonCurrent(backendCtx)
+	// the Cursor backend this process runs, on what another magpie (the
+	// CLI) changed in the catalog: only this process can write its models
+	go agent.KeepCursorBackendCurrent(backendCtx)
 	// the compactions magpie made in Codex's threads written as Codex's
 	// own, so a thread goes on when Codex talks to OpenAI itself
 	go agent.KeepCodexRolloutsPortable(backendCtx)

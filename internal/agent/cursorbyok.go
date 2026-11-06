@@ -219,9 +219,7 @@ func cursorBYOKWrite(on, explicit bool) error {
 	}
 	var models []cursorbyok.Model
 	if on {
-		for _, model := range sharedModels(CursorBYOKID) {
-			models = append(models, cursorbyok.Model{ID: model.ID, Name: model.Name, APIs: model.APIs, Context: model.Context, MaxTokens: maxTokens(model)})
-		}
+		models = cursorBYOKModels()
 		if len(models) == 0 && explicit {
 			return (&Agent{ID: CursorBYOKID, Name: "Cursor"}).noModelLeft()
 		}
@@ -233,6 +231,7 @@ func cursorBYOKWrite(on, explicit bool) error {
 	}
 	manager.Control = &endpoint
 	if !on {
+		cursorBYOKGave("")
 		if _, err = manager.Enable(false); err != nil {
 			return err
 		}
@@ -241,9 +240,11 @@ func cursorBYOKWrite(on, explicit bool) error {
 		}
 		return backend.Stop()
 	}
-	if err = manager.Write(cursorBYOKGateway(), models, true, explicit); err != nil {
+	gw := cursorBYOKGateway()
+	if err = manager.Write(gw, models, true, explicit); err != nil {
 		return err
 	}
+	cursorBYOKGave(cursorBYOKSum(models, gw))
 	status, err := manager.Harness()
 	if err != nil {
 		return err
