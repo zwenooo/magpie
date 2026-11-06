@@ -121,6 +121,17 @@ glance is never saved in the index (`savable`) nor taken by a refresh as a
 parse (`parsed`). See
 [`internal/sessions/manage_quick.go`](../../internal/sessions/manage_quick.go),
 `TestManageAnswersBeforeFirstReads` and `sessions-pending-fill.test.cjs`.
+A Claude Code session's folder is its first line's `cwd`, unless
+Claude Code's `/cd` moved it: the file goes to the new folder's project
+directory with a `{"type":"relocated","relocatedCwd":…}` line, while the
+lines before it keep the old `cwd`, and the last such line names the folder
+(`ccRelocated`; a glance reads it in the file's last 64 KB too). A parse
+saved by a magpie that didn't read those lines (`state.CdRead` unset) whose
+folder isn't the one the file is in is read again (`ccStale`). Magpie's own
+project move rewrites `relocatedCwd` and judges the session by its last
+move. See `TestClaudeCdListedUnderNewFolder` and the fixtures in
+`internal/sessions/testdata/claude-cd` (Claude Code 2.1.316's own lines,
+usrname1833 on Discord).
 Gateway projections have no path,
 resume command or terminal action: the agent's own files of them are not on
 this computer. Their rows carry `gateway: true`; the Sessions page groups them
@@ -455,7 +466,9 @@ affinity see the request as the client sent it. The existing protocol
 readers handle Chat, Anthropic, Responses and Gemini; streaming replies use the
 existing decoders, with completed Responses items retaining custom tool calls.
 Only content actually sent through the gateway is available. Images are shown
-as placeholders; hidden reasoning, client-only operations and unsupported wire
+as placeholders, their base64 taken out before the 8 MiB input cap
+(`leanImages`), so a turn of pictures keeps its text (matrix0487 on Discord;
+`TestFileIDConversationStillShows`); hidden reasoning, client-only operations and unsupported wire
 items cannot be reconstructed. This is not a raw request archive or remote
 session synchronization, and existing S3 archives are not imported.
 
@@ -658,8 +671,11 @@ from every call in the period, so without the cut they would name other keys.
 A held key is refused (`refuseHeld`, 403 `provider.KeyHeldCode`) the
 quotas, their history, kept cards and refresh, and `/v1/magpie/concurrency`
 (#1981); `/v1/magpie/route` tells it only routes whose `callerKey` is its
-own. `Route.callerKey` is set by `trace.beginFor` from the request's
-caller, so a route begun without it is told to no held key.
+own. `Route.CallerKey` (and `CallerKeyName`, the key's name then; never
+its secret) is set by `trace.beginFor` from the request's caller, so a
+route begun without it is told to no held key. Both go out in the GUI's
+trace and the routing history, and the Routing list's By key groups by
+them (`TestTraceNamesCallerKey`, `routing-by-key.test.cjs`).
 `TestHeldKeyToldNoAccounts` covers every one of these from loopback and
 the LAN, for a key held each of the three ways and one held to nothing.
 A held key whose owner set `access.Key.Quotas` (#2216) is told the four

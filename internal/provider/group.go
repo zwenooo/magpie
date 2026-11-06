@@ -223,6 +223,12 @@ type Group struct {
 	// Rules with an intent need one; a small, fast model without reasoning
 	// does.
 	Classifier string `json:"classifier,omitempty"`
+	// IntentSure is how confident a decision model (Jev, from TypeSafe's
+	// decision API) must be of an intent of this group's for it to count:
+	// from 0, its likeliest intent taken however unsure it is ("none of
+	// these" never counting), to 1, certain. nil asks 0.4, as groups have
+	// always asked (#5101).
+	IntentSure *float64 `json:"intentSure,omitempty"`
 	// Effort "auto" has the classifier — Jev, from TypeSafe's decision API,
 	// or any model, asked in words — judge how hard each turn is to think
 	// about as it begins, and the turn asks its model for that much
@@ -435,6 +441,10 @@ func cloneGroups(gs []Group) []Group {
 		g.Off, g.Levels, g.Fast = slices.Clone(g.Off), slices.Clone(g.Levels), slices.Clone(g.Fast)
 		g.Accounts, g.Seen = slices.Clone(g.Accounts), slices.Clone(g.Seen)
 		g.Weights = maps.Clone(g.Weights)
+		if g.IntentSure != nil {
+			v := *g.IntentSure
+			g.IntentSure = &v
+		}
 		if g.Rules != nil {
 			rs := make([]Rule, len(g.Rules))
 			for j, r := range g.Rules {
@@ -1034,6 +1044,15 @@ func GroupFinder() func(id string) (Group, []Member, bool) {
 // beside them (jzw690 on X), so a group of image models draws on its
 // members without any of them being a model agents are offered.
 func FindDrawingGroup(id string, draws func(p Provider, model string) bool) (Group, []Member, bool) {
+	return FindGroupAlso(id, draws)
+}
+
+// FindGroupAlso is FindGroup with a member also says is the group's kept
+// where its provider's picks leave it out: picks are of chat models, so a
+// group of models made for another API (images, embeddings, speech,
+// video) keeps those of a provider with picks only so (FindDrawingGroup,
+// the gateway's media groups).
+func FindGroupAlso(id string, also func(p Provider, model string) bool) (Group, []Member, bool) {
 	gid, ok := GroupIDOf(id)
 	if !ok {
 		return Group{}, nil, false
@@ -1041,7 +1060,7 @@ func FindDrawingGroup(id string, draws func(p Provider, model string) bool) (Gro
 	entries := providerEntries()
 	all := groupsIn(entries)
 	if g, ok := groupOf(all, gid); ok && !g.Disabled {
-		return g, membersFound(entries, entriesBy(entries), all, g, disabledNow(), draws), true
+		return g, membersFound(entries, entriesBy(entries), all, g, disabledNow(), also), true
 	}
 	return Group{}, nil, false
 }
@@ -1136,7 +1155,7 @@ func unpicked(find entryOf, p Provider, m string) bool {
 // Resolve, which still takes it.
 func ResolveRoute(id string) (Provider, string, bool) {
 	entries := providerEntries()
-	p, m, ok := resolveIn(entries, strings.TrimSuffix(strings.TrimSpace(id), "[1m]"))
+	p, m, ok := resolveIn(entries, ThroughSelf(strings.TrimSuffix(strings.TrimSpace(id), "[1m]")))
 	// one pass for the one model, not a map of every entry (entriesBy):
 	// a request asks it for each fallback it may go to
 	find := func(pid, model string) int {
@@ -1617,6 +1636,9 @@ func SaveGroup(g Group) error {
 		if _, _, ok := Resolve(g.Classifier); !ok {
 			return fmt.Errorf("magpie knows no model %q to classify with", g.Classifier)
 		}
+	}
+	if g.IntentSure != nil && !(*g.IntentSure >= 0 && *g.IntentSure <= 1) { // NaN too
+		return fmt.Errorf("a group's intent sure is from 0 to 1, not %g", *g.IntentSure)
 	}
 	g.Auto, g.Hidden = false, false
 	g.Members = own // what the patterns match is found again as it is read

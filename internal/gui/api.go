@@ -244,6 +244,9 @@ type agentJSON struct {
 	// was its provider, which shows no account or usage till it restarts
 	// (provider.CodexAppBack), for the row's Restart
 	AppBack bool `json:"appBack,omitempty"`
+	// AppSnag: the Codex app showed its error page after magpie restarted
+	// its app-server and magpie couldn't reopen it (provider.CodexAppSnagged)
+	AppSnag bool `json:"appSnag,omitempty"`
 	// Failover: not connected, yet its requests go through magpie for
 	// account failover alone (agent.Agent.FailingOver, #1385)
 	Failover bool `json:"failover,omitempty"`
@@ -252,9 +255,10 @@ type agentJSON struct {
 	// another agent offers it again where magpie knows how
 	CLIMissing bool               `json:"cliMissing,omitempty"`
 	Native     *agent.NativeState `json:"native,omitempty"`
-	// Terminal: a Mac's row menu offers Open in terminal, a command
-	// starting it being here (agentCommand)
-	Terminal bool `json:"terminal,omitempty"`
+	// Command: the line that starts it (agentCommand), which its row menu
+	// copies; Terminal: and opens in a terminal, this system having one
+	Command  string `json:"command,omitempty"`
+	Terminal bool   `json:"terminal,omitempty"`
 }
 
 // clientJSON is an agent, or another client the gateway knows, as a
@@ -2779,6 +2783,9 @@ func state() stateJSON {
 			aj.Source = a.Source()
 			aj.Failover = a.FailingOver != nil && a.FailingOver()
 		}
+		if a.ID == "codex" && a.WSL == "" {
+			aj.AppSnag = provider.CodexAppSnagged()
+		}
 		aj.AppRestart = a.AppBehind()
 		if a.Import != nil {
 			aj.Import = a.Import()
@@ -2796,7 +2803,8 @@ func state() stateJSON {
 		}
 		aj.CLIMissing = a.CLIMissing()
 		// as agentCommand makes it, Launch asked once
-		aj.Terminal = runtime.GOOS == "darwin" && a.WSL == "" && (aj.Launch != "" || a.BinPath() != "")
+		aj.Command = agentLine(a, aj.Launch, runtime.GOOS)
+		aj.Terminal = terminalHere() && aj.Command != ""
 		if a.Native != nil {
 			native := a.Native.Read()
 			aj.Native = &native

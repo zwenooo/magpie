@@ -149,7 +149,7 @@ line; agents connected to magpie lose it when it quits.
 | OpenPencil   | `openpencil/settings.json` in the config folder: `~/Library/Application Support` (macOS), `$XDG_CONFIG_HOME` or `~/.config` (Linux), `%APPDATA%` (Windows) | provider (a `magpie` entry in its `builtin_agents`, magpie's models in its chat's model picker; the user's entries and settings kept; refused while OpenPencil runs, as it writes the file back when it quits) |
 | OpenBot      | `OpenBot/openbot-custom-providers-v1.json` in the app data folder: `~/Library/Application Support` (macOS), `%APPDATA%` (Windows), `$XDG_CONFIG_HOME` or `~/.config` (Linux) | provider (a keyless `magpie` endpoint, magpie's models in its model picker; the user's endpoints kept; OpenBot reads it at start, so restart it) |
 | NewMax       | `newmax.db` (SQLite, the row `app` of its `settings` table) in `$NEWMAX_USER_DATA_DIR`, else `~/.newmax` (every OS) | provider (a `magpie-gateway` entry in its `providers` and `providerOrder`, magpie's models in its model picker; the rest of the row kept byte for byte; refused while NewMax runs, as it writes its settings back whenever one changes) |
-| LiveAgent    | `config.json` (JSONC, K-brain's) in `$LIVEAGENT_HOME`, else `$K_BRAIN_HOME`, else the folder `~/.liveagent/data-dir.json` points to, else `~/.liveagent` (every OS) | provider (a `magpie` entry in its `providers`, Anthropic Messages at the gateway's root, magpie's models in its model picker; a default still K-brain's own demo model becomes magpie's first; refused while LiveAgent or its `k-brain` backend runs, as it writes its settings back whenever one changes) |
+| LiveAgent    | `config.json` (JSONC, K-brain's) in `$LIVEAGENT_HOME`, else `$K_BRAIN_HOME`, else the folder `~/.liveagent/data-dir.json` points to, else `~/.liveagent` (every OS) | provider (`magpie`, `magpie-responses` and `magpie-anthropic` entries in its `providers`, each model on the one of the API it is served on natively: Chat Completions and Responses at the gateway's `/v1` as OpenAI providers whose request format the user can switch in LiveAgent and magpie keeps, Anthropic Messages at its root; magpie's models in its model picker; a default still K-brain's own demo model becomes magpie's first; refused while LiveAgent or its `k-brain` backend runs, as it writes its settings back whenever one changes) |
 | T3 Code      | `~/.t3/userdata/settings.json` (`$T3CODE_HOME/userdata`) | provider (a `magpie` provider instance on Claude Code, magpie's models as its custom models; a `magpie-codex` instance on Codex, whose `launchArgs` are Codex's own `-c` overrides to magpie and a `magpie-codex-models.json` catalog beside the settings. The harness is picked in T3's model picker) |
 | OpenHanako   | `~/.hanako/provider-catalog.json` + `agents/<id>/config.yaml` (`$HANA_HOME`; its local API while it runs) | model (the primary agent's; magpie's models as a provider) |
 | AtomCode     | `~/.atomcode/config.toml` (`$ATOMCODE_HOME`) | model, effort (a `magpie` provider account, one model table per catalog model as its own sign-in writes) |
@@ -551,8 +551,10 @@ shared magpie's cards named with it (`Codex · office`, id `office/codex`), as
 that magpie last read them — only the computer holding the sign-ins asks the
 vendors, and it answers from what it has kept (`GET /v1/magpie/quotas/cards`).
 A card's refresh here has it read that card once more
-(`POST /v1/magpie/quotas/refresh`, at most once in 30 seconds a card); until it
-has read anything, the remote's one card says so. Their history is shown with
+(`POST /v1/magpie/quotas/refresh`, at most once in 30 seconds a card); the
+remote's own card has it read every card, each saved Claude account's
+`/usage` too, as its Usage page's Refresh does, and is waited for up to 25
+seconds (#5443). Until it has read anything, the remote's one card says so. Their history is shown with
 its own. A check-in is pressed on that computer, not here. A Codex card's
 reset can be used from here (#3850): **Use one…** asks first, as for this
 computer's accounts, and that magpie spends it on its account
@@ -946,6 +948,48 @@ default, `us-east-1`, `eu-central-1`, `ap-northeast-1`, `cn-hongkong` and
 `sk-sp-` keys), with the plan's documented text models. Both serve Chat
 Completions at `/compatible-mode/v1` and Anthropic Messages at
 `/apps/anthropic`.
+
+### Embeddings and rerank
+
+The gateway serves two retrieval APIs beside chat, at `/v1/embeddings` and
+`/v1/rerank` (also without `/v1`). Both take the gateway's key, as chat does,
+and the model is named as `/v1/models` names one, `provider/model` or the
+bare id.
+
+- `/v1/embeddings` takes OpenAI's body: `model`, `input` (a string or a
+  list), and whatever else the vendor takes (`dimensions`,
+  `encoding_format`; Voyage's `input_type`, `output_dimension`,
+  `output_dtype`, `truncation`).
+- `/v1/rerank` takes the body Cohere, Jina and Voyage share: `model`,
+  `query`, `documents` (a list of strings), and `top_n` (Cohere, Jina) or
+  `top_k` (Voyage), `return_documents`. The answer is the vendor's, its
+  results in `results` (Cohere, Jina) or `data` (Voyage), each an `index`
+  into `documents` with its `relevance_score`.
+
+The body goes to the provider's `<base>/embeddings` or `<base>/rerank` as
+sent, with only `model` changed to the vendor's name for it, and the answer
+comes back as the vendor gave it, a refusal with its status and words. The
+tokens counted are its `usage.total_tokens`. A model is asked only on its own
+API's route: an embedding model named on `/v1/rerank`, or a reranker on
+`/v1/embeddings`, is a 404, and neither is in the models agents are offered.
+A model several providers serve under one id is a routing group of its kind
+made per request (see Routing groups).
+
+Voyage AI (`voyage`, heatonz on Discord) is a preset of only these: an
+API key from dashboard.voyageai.com, at `https://api.voyageai.com/v1`. It has
+no list of models to fetch, so the preset names them: the embedding models
+`voyage-4-large`, `voyage-4`, `voyage-4-lite`, `voyage-code-4`,
+`voyage-finance-2`, `voyage-law-2`, `voyage-3-large`, `voyage-3.5`,
+`voyage-3.5-lite`, `voyage-code-3` and `voyage-code-2`, and the rerankers
+`rerank-3`, `rerank-3-lite`, `rerank-2.5` and `rerank-2.5-lite`. Its Test asks
+`voyage-4-large` for one embedding. Its contextualized
+(`/v1/contextualizedembeddings`) and multimodal (`/v1/multimodalembeddings`)
+embeddings have no route here.
+
+```sh
+curl localhost:3425/v1/rerank -H "Authorization: Bearer $MAGPIE_KEY" \
+  -d '{"model":"voyage/rerank-3","query":"what eats seeds","documents":["a magpie","a stone"],"top_k":1}'
+```
 
 ### Google Vertex AI
 
@@ -1402,7 +1446,13 @@ A call to a model no price is known for is counted at the price of the model
 the reply said answered, at the same provider, when that one has a price: a
 relay that sells `kimi-k3` as `moonshot-kimi-k3` answers as `kimi-k3`, so its
 calls are counted at `relay-a/kimi-k3`'s price. A model with a price of its
-own, `0` included, keeps it whatever its reply says.
+own, `0` included, keeps it when the reply's name is that model however
+spelled, the vendor's own alias, or a relay's rename. A call the vendor
+genuinely answered with another model — the `swapped` mark `magpie usage
+--csv` and the Requests page show — is counted at the model that answered,
+which is the one the vendor billed for; a price you set for the model you
+asked for, `0` included, still says what that model costs you, and when the
+model that answered has no price the asked-for one's is kept.
 
 `magpie model price provider/model` says where a price came from, and for a
 model with none, the two commands that give it one.
@@ -1656,6 +1706,34 @@ as broken. An image model is the exception that follows the rule above: it is
 tested by the name magpie knows it by, on the images API and on the chat it
 falls back to, because that is how a drawing is asked for.
 
+### The API a model is asked on
+
+A relay whose one key serves some models on chat completions and others on
+Responses, Anthropic's messages or Gemini's generateContent can be told which
+API each model is asked on. It is the provider editor's **API this model is
+asked on**, under Names, prices & levels, and `magpie model api` sets the same
+setting from the terminal, so a script can set many models:
+
+```sh
+magpie model api relay/gpt-5.5                                  # what it is asked on, and what the provider has
+magpie model api relay/gpt-5.5 responses                        # chat, responses, anthropic, gemini or auto
+magpie model api relay/claude-opus-5-5 relay/claude-sonnet-5 anthropic   # several at once
+magpie model api relay/gpt-5.5 --reset                          # auto again: the vendor's list and every URL
+magpie model apis                                               # the models you set an API for
+magpie model apis relay                                         # each of relay's models and its API
+```
+
+It is saved as the editor's Save saves it (`provider.SetModelPrefs`, into
+`modelAPIs` in settings.json), so a running gateway asks the model on that
+API from its next request, and the model lists magpie writes into the agents
+are brought up to date. The provider needs a URL for the API (More endpoints
+in its editor) and at least two of the four for there to be a choice; Vertex
+AI's model ids say their own. An API that isn't one, an API the provider has
+no URL for, a model the provider doesn't list, or a flag in place of a model
+is refused, and when several models are named all are checked first, so a
+refused command writes nothing. A setting kept for a model the vendor no
+longer lists can still be taken off with `--reset`.
+
 ### Routing groups
 
 A routing group is several models, from one provider or many, that an agent
@@ -1711,6 +1789,10 @@ models a group names, and those its patterns match, out of `magpie models`,
 `/v1/models` and every agent's list, so a client offers the group alone.
 A signed-in subscription's models leave the lists too. Codex alone keeps its
 ChatGPT sign-in's own models, which its app reaches on that sign-in.
+The group stands in for them only where it is given: a gateway key that
+may use none of the groups listing a model alone (a Remote magpie's key
+held to `codex/*`) is listed that model, when it may use it, and the
+Gateway page's key picker offers each one.
 They are still served: the group routes over them, and a request naming one
 as `provider/model` is answered. A group in it keeps its own setting, and a
 group switched off keeps nothing out. `listed=yes` lists them again. To keep
@@ -1735,7 +1817,10 @@ curl -s localhost:3425/v1/systemone -H 'Authorization: Bearer magpie' \
 
 The Routing page's Requests list defaults to the time-ordered By request view.
 Choose By session to group calls by the agent's session ID; the page remembers
-your choice across reloads.
+your choice across reloads. Once there is a gateway key, By key groups them by
+the key each came with (its name now, its agents beside it); a call with no key,
+from this computer or kept from before routes named their key, is under No
+gateway key.
 Codex title helpers with an explicit parent or fork source join their originating
 chat, retaining their title badge and contributing to its cost. Titles without
 ancestry and ordinary forked chats stay separate.
@@ -1855,9 +1940,12 @@ each of these groups ordered by the share used.
   renew in the same hours (WorkBuddy's free accounts all at the month's
   end) go by when their credits left run out after that: the one whose
   credits are lost first goes first, and one with none that run out
-  after those whose do. A Claude account
+  after those whose do. A Claude or ChatGPT account
   magpie knows nothing of yet goes first once, to learn what it has left
-  from the answer; any other unknown account goes after those known,
+  from the answer (a ChatGPT account, while another is known: one whose
+  usage can't be read is asked so again an hour after its last answer,
+  until its answers tell its week); any other unknown account goes after
+  those known,
   and is still tried when they fail, ahead of any at 90% or more.
   An account with a month beside its week (Factory) goes by its month:
   when the month holds less than its weeks add up to (Factory's, by
@@ -1892,8 +1980,11 @@ each of these groups ordered by the share used.
   counts. Accounts whose
   pace is within a tenth of the highest in their band count as alike, and
   among them the one magpie sent the fewest tokens lately goes first. A
-  Claude account not known goes first once, as in Smart; another unknown
-  account counts as a fresh week.
+  Claude or ChatGPT account not known goes first once, as in Smart (a
+  ChatGPT one while another is known); another unknown account counts as
+  a fresh week. A ChatGPT account whose usage
+  page can't be read is known from the week its answers tell, until a
+  reading works again.
 - **Speed first**: the account, key or group member that answered this
   model fastest lately first. magpie keeps, in memory, how long each one's
   streamed answers took to their first token and how many tokens a second
@@ -3113,8 +3204,10 @@ key. See [Connecting anything else](#connecting-anything-else) for the
 protocol-specific base URLs. Keep `3425` behind a firewall or VPN and do not
 expose it publicly without gateway-key authentication.
 
-Such a page is in **gateway mode**: it shows Providers, Gateway, Routing,
-Usage, Sessions, Plugins and Settings, with no Agents or Library tab.
+Such a page is in **gateway mode**: it shows Sessions, Library, Providers,
+Routing, Gateway, Usage, Masking, Plugins and Settings, with no Agents tab.
+The Library has its MCP servers alone, with the MCP router: other
+computers' apps connect at the router's address with a gateway key.
 Sessions lists only the sessions of other computers' agents that came
 through this gateway, never this machine's agents' session files
 ([gateway sessions](subsystems/gateway-sessions.md)). Settings leaves out what is written into this machine's agents (provider in
