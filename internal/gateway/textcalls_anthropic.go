@@ -86,6 +86,8 @@ func (t *anthropicTextCalls) event(ev []byte) []byte {
 	switch typ {
 	case "content_block_start":
 		pre := t.release()
+		pre = append(pre, t.startHeld...)
+		t.startHeld = nil
 		t.top = max(t.top, index+1)
 		var cb struct {
 			Type string `json:"type"`
