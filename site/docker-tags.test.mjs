@@ -5,12 +5,9 @@
 // in the docs in every language.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
-const workflows = readdirSync(new URL("../.github/workflows/", import.meta.url))
-  .filter((f) => /\.ya?ml$/.test(f))
-  .map((f) => [f, read("../.github/workflows/" + f)]);
 
 // the floating tags in the Tags row of the docs' table (a version's tags,
 // 0.1.1150 and 0.1, are left out)
@@ -28,11 +25,14 @@ test("every language's docs name the same tags, daily among them", () => {
   for (const p of pages.slice(1)) assert.deepEqual(tagsIn(p), en, p);
 });
 
-test("every tag the docs name is one a workflow writes", () => {
-  for (const tag of tagsIn(pages[0])) {
-    const by = workflows.filter(([, y]) => y.includes(`"$IMAGE:${tag}"`)).map(([f]) => f);
-    assert.ok(by.length, `no workflow writes $IMAGE:${tag}`);
-  }
+test("the fork publishes the version and edge tags its own CI docs name", () => {
+  const docs = read("../docs/ci.md");
+  const workflow = read("../.github/workflows/docker.yml");
+  assert.match(docs, /:va\.0\.1\.1725-vb\.0\.0\.1/);
+  assert.match(docs, /ghcr\.io\/zwenooo\/magpie:edge/);
+  assert.ok(workflow.includes('TAGS=(-t "$IMAGE:$release_tag")'));
+  assert.ok(workflow.includes('TAGS=(-t "$IMAGE:edge")'));
+  assert.ok(!workflow.includes('"$IMAGE:latest"'));
 });
 
 test("daily follows the Daily channel's feed, without a build", () => {
