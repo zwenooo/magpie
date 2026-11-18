@@ -70,7 +70,7 @@ const (
 	SIWCUsageURL = "https://chatgpt.com/settings/usage"
 )
 
-var siwcClient = &http.Client{Timeout: 30 * time.Second}
+var siwcClient = &http.Client{Timeout: 30 * time.Second, CheckRedirect: KeepsCredentials}
 
 // siwcNoUsage is what a ChatGPT API account's usage line says: OpenAI's
 // API tells no plan usage, and the account added as ChatGPT (Codex's
@@ -644,6 +644,15 @@ func siwcBody(body []byte) []byte {
 		input, _ := m["input"].([]any)
 		if k = conversationKey(own, input); k != "" {
 			m["prompt_cache_key"] = k
+		}
+	}
+	// GPT-6.2 reads top-level instructions after the input, uncached
+	// every turn: they go first in it (InstructionsAfterInput)
+	if own, _ := m["instructions"].(string); own != "" {
+		if model, _ := m["model"].(string); InstructionsAfterInput(model) {
+			input, _ := m["input"].([]any)
+			m["input"] = append([]any{DeveloperMessage(own)}, input...)
+			delete(m, "instructions")
 		}
 	}
 	if tools, ok := m["tools"].([]any); ok {

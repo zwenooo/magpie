@@ -195,22 +195,41 @@ func TestForkGitHubStableSelection(t *testing.T) {
 	fresh, _ := forkFixture("va.0.1.1725-vb.0.0.10")
 	fresh.Published = now.Add(-time.Hour)
 	list := []forkGitHubRelease{old, fresh}
-	if got := forkChoose(list, false, now); got == nil || got.Tag != fresh.Tag {
+	if got := forkChoose(list, "", now); got == nil || got.Tag != fresh.Tag {
 		t.Fatal("every-version did not choose newer numeric fork revision")
 	}
-	if got := forkChoose(list, true, now); got == nil || got.Tag != old.Tag {
+	if got := forkChoose(list, "stable", now); got == nil || got.Tag != old.Tag {
 		t.Fatal("Stable did not preserve Monday/three-day soak")
 	}
 	list[1].Body = "> **Urgent release:** important fix"
-	if got := forkChoose(list, true, now); got == nil || got.Tag != fresh.Tag {
+	if got := forkChoose(list, "stable", now); got == nil || got.Tag != fresh.Tag {
 		t.Fatal("urgent release was held back")
 	}
 	list[1].Published = now.Add(time.Hour)
-	if got := forkChoose(list, true, now); got == nil || got.Tag != old.Tag {
+	if got := forkChoose(list, "stable", now); got == nil || got.Tag != old.Tag {
 		t.Fatal("future release selected")
 	}
-	if forkChoose([]forkGitHubRelease{fresh}, true, now) != nil {
+	if forkChoose([]forkGitHubRelease{fresh}, "stable", now) != nil {
 		t.Fatal("unsoaked release selected on Stable")
+	}
+}
+
+func TestForkDailyCutoff(t *testing.T) {
+	cut := time.Date(2026, 10, 28, 20, 0, 0, 0, time.UTC)
+	old, _ := forkFixture("va.0.1.1725-vb.0.0.1")
+	old.Published = cut.Add(-24 * time.Hour)
+	fresh, _ := forkFixture("va.0.1.1725-vb.0.0.2")
+	fresh.Published = cut.Add(-time.Hour)
+	list := []forkGitHubRelease{old, fresh}
+	if got := forkChoose(list, "daily", cut.Add(-time.Second)); got == nil || got.Tag != old.Tag {
+		t.Fatalf("before cutoff: %v", got)
+	}
+	if got := forkChoose(list, "daily", cut); got == nil || got.Tag != fresh.Tag {
+		t.Fatalf("at cutoff: %v", got)
+	}
+	list[1].Body = "**Urgent release:** fix"
+	if got := forkChoose(list, "daily", cut.Add(-time.Second)); got == nil || got.Tag != fresh.Tag {
+		t.Fatalf("urgent: %v", got)
 	}
 }
 

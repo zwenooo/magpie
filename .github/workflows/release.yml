@@ -73,7 +73,7 @@ jobs:
     uses: ./.github/workflows/test.yml
     with:
       ref: ${{ needs.prepare.outputs.sha }}
-      oses: '["ubuntu-latest","windows-latest"]'
+      suite: '[{"os":"ubuntu-latest"},{"os":"windows-latest"}]'
     permissions:
       contents: read
 

@@ -41,6 +41,8 @@ func TestForkFeedsCanBeDisabledBeforeHTTP(t *testing.T) {
 	}{
 		{"latest", func() error { _, err := Latest(ctx); return err }, errUpdatesDisabled},
 		{"latest in language", func() error { _, err := LatestIn(ctx, "zh"); return err }, errUpdatesDisabled},
+		{"every", func() error { _, err := LatestEvery(ctx, "zh"); return err }, errUpdatesDisabled},
+		{"stable", func() error { _, err := LatestStable(ctx); return err }, errUpdatesDisabled},
 		{"notes between", func() error { _, err := NotesBetween(ctx, "", "9.9.9", ""); return err }, errNotesDisabled},
 		{"notes back", func() error { _, err := NotesBack(ctx, "9.9.9", 10, "zh"); return err }, errNotesDisabled},
 	} {

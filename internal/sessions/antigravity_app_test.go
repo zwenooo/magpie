@@ -1,7 +1,9 @@
 package sessions
 
 import (
+	"bytes"
 	"database/sql"
+	"encoding/binary"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -182,5 +184,187 @@ func TestAntigravityAppCutRow(t *testing.T) {
 	b, _ := hex.DecodeString("0A0C08E8BCB6D60610F09EC7EF021802320C08EDBCB6D60610E08CA0A2023A0C08EDBCB6D60610A09BAAA402420C08EDBCB6D60610A09BAAA4024A7508A60A")
 	if _, _, ok := agAppStep(b); ok {
 		t.Error("a row cut inside its model call read as a call")
+	}
+}
+
+// oioio's Antigravity database (#help, 11-06) names gemini-4-argon's
+// generator "gemini-4-argon-d": Google's deployment of that model, as
+// gemini-3.8-flash-n is 3.8 Flash's. It counts as gemini-4-argon, so Usage
+// shows one model at its price. A lone letter after another maker's id, or
+// a Gemini id whose last word is longer, stays as written.
+func TestAntigravityAppDeploymentName(t *testing.T) {
+	gen := func(field int, m string) []byte {
+		inner := append(binary.AppendUvarint(nil, uint64(field)<<3|2), byte(len(m)))
+		inner = append(inner, m...)
+		return append([]byte{1<<3 | 2, byte(len(inner))}, inner...)
+	}
+	for in, want := range map[string]string{
+		"gemini-4-argon-d":      "gemini-4-argon",
+		"gemini-3.8-flash-n":    "gemini-3.8-flash",
+		"gemini-3.8-flash-lite": "gemini-3.8-flash-lite",
+		"gemini-3.8-flash-nano": "gemini-3.8-flash-nano",
+		"gemini-4-argon":        "gemini-4-argon",
+		"gemini-d":              "gemini-d",
+		"gpt-5-d":               "gpt-5-d",
+		"claude-sonnet-4-5-n":   "claude-sonnet-4-5-n",
+		"gemini-4-argon-D":      "gemini-4-argon-D",
+	} {
+		for _, field := range []int{19, 21, 22} {
+			if got := agAppModel(gen(field, in)); got != want {
+				t.Errorf("field %d %q: %q, want %q", field, in, got, want)
+			}
+		}
+	}
+}
+
+// antigravitySummariesSchema is conversation_summaries.db as Antigravity
+// 2.29.0's language_server makes it in ~/.gemini/antigravity on its first
+// start (run in a sandbox HOME, 11-07): agy's table, in the app's folder.
+const antigravitySummariesSchema = "CREATE TABLE `conversation_summaries` (`conversation_id` text,`title` text NOT NULL DEFAULT \"\",`preview` text NOT NULL DEFAULT \"\",`step_count` integer NOT NULL DEFAULT 0,`last_modified_time` datetime NOT NULL,`workspace_uris` text NOT NULL,`status` text NOT NULL DEFAULT \"\",`source` text NOT NULL DEFAULT \"\",`project_id` text NOT NULL DEFAULT \"\",`agent_name` text NOT NULL DEFAULT \"\",`parent_conversation_id` text NOT NULL DEFAULT \"\",`nesting_depth` integer NOT NULL DEFAULT 0,`battle_id` text NOT NULL DEFAULT \"\",`winning_conversation_id` text NOT NULL DEFAULT \"\",`not_fully_idle` numeric NOT NULL DEFAULT false,`killed` numeric NOT NULL DEFAULT false,`last_user_input_time` datetime NOT NULL,`last_user_input_step_index` integer NOT NULL DEFAULT -1,`app_data_dir` text NOT NULL DEFAULT \"\",`raw_summary` blob,`group_id` text NOT NULL DEFAULT \"\",PRIMARY KEY (`conversation_id`));\n" +
+	"CREATE INDEX `idx_conversation_summaries_last_user_input_time` ON `conversation_summaries`(`last_user_input_time`);\n" +
+	"CREATE INDEX `idx_conversation_summaries_last_modified_time` ON `conversation_summaries`(`last_modified_time`);"
+
+// xxooioo (Discord #help, 11-07): every Antigravity app session read "(no
+// prompt)". The app's name for a conversation is its row of
+// conversation_summaries.db: before a title, preview holds the user's own
+// words (agy's real row: title "", preview "hi"), and once the app names
+// it, title. A conversation with no row stays unnamed.
+func TestAntigravityAppTitle(t *testing.T) {
+	claude, _ := setup(t)
+	home := filepath.Join(filepath.Dir(claude), "home")
+	const id, other = "37c3c786-9a11-44be-97df-b8fc1ccebc78", "b9eace9a-b15a-4dde-a440-b52e02016fa5"
+	antigravityFixture(t, home, id)
+	antigravityFixture(t, home, other)
+	db, err := sql.Open("sqlite", filepath.Join(home, ".gemini", "antigravity", "conversation_summaries.db")+"?_pragma=journal_mode(WAL)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(antigravitySummariesSchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO conversation_summaries (conversation_id, title, preview, step_count, last_modified_time, workspace_uris, status, project_id, last_user_input_time, app_data_dir) VALUES (?, '', '修一下登录页的跳转', 2, '2026-11-07 00:12:46.60116+00:00', '[\"file:///work/site\"]', 'CASCADE_RUN_STATUS_IDLE', 'default-project', '2026-11-07 00:12:43.784481+00:00', 'antigravity')", id); err != nil {
+		t.Fatal(err)
+	}
+	ss := List(0)
+	if s := find(t, ss, "antigravity", id); s.Title != "修一下登录页的跳转" {
+		t.Fatalf("before a title: %q, want the preview", s.Title)
+	}
+	if s := find(t, ss, "antigravity", other); s.Title != "" {
+		t.Fatalf("no row: %q", s.Title)
+	}
+
+	if _, err := db.Exec("UPDATE conversation_summaries SET title = 'Login redirect fix', preview = 'Login redirect fix' WHERE conversation_id = ?", id); err != nil {
+		t.Fatal(err)
+	}
+	if s := find(t, List(0), "antigravity", id); s.Title != "Login redirect fix" {
+		t.Fatalf("after the app named it: %q", s.Title)
+	}
+}
+
+// xxooioo (Discord, 11-07): every Antigravity app session sat under "No
+// folder". A conversation's folder is its summary row's first local
+// workspace URI, as agy's is; a row with none, and a conversation with no
+// row, have no folder.
+func TestAntigravityAppFolder(t *testing.T) {
+	claude, _ := setup(t)
+	home := filepath.Join(filepath.Dir(claude), "home")
+	const site, api, bare, none = "37c3c786-9a11-44be-97df-b8fc1ccebc78", "4f1d2a77-0c3e-4b8e-9d61-2a5e7c90b311", "8e2b6c14-7f5a-4d09-a3c2-61d0f4e9b7a5", "b9eace9a-b15a-4dde-a440-b52e02016fa5"
+	for _, id := range []string{site, api, bare, none} {
+		antigravityFixture(t, home, id)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(home, ".gemini", "antigravity", "conversation_summaries.db")+"?_pragma=journal_mode(WAL)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(antigravitySummariesSchema); err != nil {
+		t.Fatal(err)
+	}
+	for id, ws := range map[string]string{site: `["file:///work/site"]`, api: `["file:///work/api","file:///work/site"]`, bare: `[]`} {
+		if _, err := db.Exec("INSERT INTO conversation_summaries (conversation_id, title, preview, step_count, last_modified_time, workspace_uris, status, project_id, last_user_input_time, app_data_dir) VALUES (?, 'A talk', 'A talk', 2, '2026-11-07 00:12:46.60116+00:00', ?, 'CASCADE_RUN_STATUS_IDLE', 'default-project', '2026-11-07 00:12:43.784481+00:00', 'antigravity')", id, ws); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ss := List(0)
+	for id, want := range map[string]string{site: "/work/site", api: "/work/api", bare: "", none: ""} {
+		if s := find(t, ss, "antigravity", id); s.Cwd != want {
+			t.Errorf("%s: folder %q, want %q", id, s.Cwd, want)
+		}
+	}
+}
+
+// A parse of an app conversation kept from before its folder was read has
+// no folder under the same row, so the cache doesn't keep it.
+func TestAntigravityAppParseBeforeFolderReadAgain(t *testing.T) {
+	var b bytes.Buffer
+	c := cacheFile{Version: cacheVersion, Zone: "z", Parsers: map[string]int{"antigravity": 1}, Files: map[string]*state{"/a.db": {Agent: "antigravity", Size: 1}}}
+	if err := encodeCache(&b, c); err != nil {
+		t.Fatal(err)
+	}
+	files, ok := decodeCache(b.Bytes(), "z")
+	if !ok {
+		t.Fatal("refused")
+	}
+	if _, kept := files["/a.db"]; kept {
+		t.Fatal("a parse from before the folder was read is kept")
+	}
+}
+
+// Each of the Antigravity app's calls carries its time to the first token
+// and how long it took, from its step's row (guyng35955 on X, for agy,
+// whose rows are the app's).
+func TestAntigravityAppCallTimes(t *testing.T) {
+	claude, _ := setup(t)
+	home := filepath.Join(filepath.Dir(claude), "home")
+	antigravityFixture(t, home, "37c3c786-9a11-44be-97df-b8fc1ccebc78")
+	var got [][2]int64
+	for _, c := range Calls(time.Time{}) {
+		if c.Agent == "antigravity" {
+			got = append(got, [2]int64{c.TTFT, c.Millis})
+		}
+	}
+	slices.SortFunc(got, func(a, b [2]int64) int { return int(b[1] - a[1]) })
+	// viewable_at and finished_generating_at less created_at, of steps 1,
+	// 3, 5 and 11
+	want := [][2]int64{{6055, 10521}, {10466, 10475}, {3800, 9702}, {4837, 4842}}
+	if !slices.Equal(got, want) {
+		t.Errorf("ttft and ms %v, want %v", got, want)
+	}
+}
+
+// A response two steps share is timed from its first step's start and
+// first content to its last step's end.
+func TestAntigravityAppOneResponseTimedWhole(t *testing.T) {
+	claude, _ := setup(t)
+	home := filepath.Join(filepath.Dir(claude), "home")
+	path := antigravityFixture(t, home, "b9eace9a-b15a-4dde-a440-b52e02016fa5")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var b []byte
+	if err := db.QueryRow("SELECT metadata FROM steps WHERE idx = 1").Scan(&b); err != nil {
+		t.Fatal(err)
+	}
+	// step 1 again, as step 4, its start 5s later and its end 7s later
+	ts := func(field uint64, sec int64, nanos uint64) []byte {
+		in := appendVarintField(appendVarintField(nil, 1, uint64(sec)), 2, nanos)
+		return appendBytesField(nil, field, in)
+	}
+	later := append(append(append([]byte{}, b...), ts(1, 1791860323, 193779000)...), ts(7, 1791860335, 668813000)...)
+	if _, err := db.Exec("INSERT INTO steps (idx, metadata) VALUES (4, ?)", later); err != nil {
+		t.Fatal(err)
+	}
+	calls, err := antigravityRead(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) == 0 || calls[0].step != 4 {
+		t.Fatalf("calls %+v, want step 1's response at step 4 first", calls)
+	}
+	if got := timesFrom(calls[0].began, calls[0].first, calls[0].ended); got != (stepTimes{ttft: 10466, millis: 17475}) {
+		t.Errorf("%+v, want 10466ms to the first token of 17475ms", got)
 	}
 }

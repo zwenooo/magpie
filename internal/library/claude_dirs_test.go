@@ -171,6 +171,45 @@ func TestClaudeDirsAddedByHand(t *testing.T) {
 	}
 }
 
+func TestClaudeDirsKeepInstructionsOnAutomaticSync(t *testing.T) {
+	homeDir := sandbox(t)
+	account := reclaudeDir(t, homeDir, "1", `{}`)
+	file := filepath.Join(account, "CLAUDE.md")
+	shared := "Keep this instruction."
+	ok(t)(SaveInstructions(InstructionsChange{Shared: &shared, Agents: []string{"claude"}}))
+	before := []byte(read(t, file))
+	lostLibrary(t, nil, nil)
+	ok(t)(Sync())
+	applyWiped(t, before, file)
+	ok(t)(SaveInstructions(InstructionsChange{Shared: &shared, Agents: []string{"claude", "codex"}}))
+	l := loaded(t)
+	l.Instructions.Agents = []string{"codex"}
+	if err := l.save(); err != nil {
+		t.Fatal(err)
+	}
+	ok(t)(Sync())
+	if got := read(t, file); got != "" {
+		t.Fatalf("automatic take-back left %q, want an empty file", got)
+	}
+}
+
+func TestClaudeDirsMirrorSkillRouter(t *testing.T) {
+	homeDir := sandbox(t)
+	account := reclaudeDir(t, homeDir, "1", `{}`)
+	source := filepath.Join(homeDir, "source")
+	skill(t, filepath.Join(source, "pdf"), "pdf", "Read PDFs")
+	ok(t)(InstallSkills(source, []string{"pdf"}, []string{"claude"}))
+	ok(t)(SetSkillRouter(true))
+	entry := filepath.Join(account, "skills", RouterSkill)
+	if !routerOurs(entry) || !strings.Contains(read(t, filepath.Join(entry, "SKILL.md")), "## pdf") {
+		t.Fatal("the account cannot see the routed pdf skill")
+	}
+	ok(t)(SetSkillRouter(false))
+	if _, err := os.Lstat(entry); !os.IsNotExist(err) || !ours(filepath.Join(account, "skills", "pdf"), "pdf") {
+		t.Fatal("turning off the router did not restore the direct skill")
+	}
+}
+
 func TestClaudeDirsForgetAFolderGone(t *testing.T) {
 	h := sandbox(t)
 	acc := reclaudeDir(t, h, "1", `{}`)

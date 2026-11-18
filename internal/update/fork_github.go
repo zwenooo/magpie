@@ -13,11 +13,13 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/yetone/magpie/internal/lazyre"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 type forkGitHubRelease struct {
@@ -161,18 +163,27 @@ func forkReleaseList(ctx context.Context) ([]forkGitHubRelease, error) {
 	return all, nil // matches the existing 1500-release notes retention cap
 }
 
-var forkUrgent = regexp.MustCompile(`(?im)^[ \t]*(?:>[ \t]*)?\*\*urgent release:\*\*`)
+var forkUrgent = lazyre.New(`(?im)^[ \t]*(?:>[ \t]*)?\*\*urgent release:\*\*`)
 
 // Preserve the upstream Stable channel: Monday's newest release already three
 // days old, or a newer urgent release. Every-version also excludes previews.
-func forkChoose(list []forkGitHubRelease, stable bool, now time.Time) *forkGitHubRelease {
+func forkChoose(list []forkGitHubRelease, channel string, now time.Time) *forkGitHubRelease {
 	now = now.UTC()
-	monday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, -(int(now.Weekday())+6)%7)
-	cut := monday.Add(-72 * time.Hour)
+	cut := now
+	switch channel {
+	case settings.UpdateStable:
+		monday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, -(int(now.Weekday())+6)%7)
+		cut = monday.Add(-72 * time.Hour)
+	case settings.UpdateDaily:
+		cut = time.Date(now.Year(), now.Month(), now.Day(), 20, 0, 0, 0, time.UTC)
+		if cut.After(now) {
+			cut = cut.AddDate(0, 0, -1)
+		}
+	}
 	var best *forkGitHubRelease
 	for i := range list {
 		r := &list[i]
-		if !r.eligible(now) || stable && r.Published.After(cut) && !forkUrgent.MatchString(r.Body) {
+		if !r.eligible(now) || r.Published.After(cut) && !forkUrgent.MatchString(r.Body) {
 			continue
 		}
 		if best == nil || Newer(forkNormalizedTag(r.Tag), forkNormalizedTag(best.Tag)) {
@@ -182,12 +193,12 @@ func forkChoose(list []forkGitHubRelease, stable bool, now time.Time) *forkGitHu
 	return best
 }
 
-func forkLatest(ctx context.Context, lang string, stable bool) (*Release, error) {
+func forkLatest(ctx context.Context, lang string, channel string) (*Release, error) {
 	list, err := forkReleaseList(ctx)
 	if err != nil {
 		return nil, err
 	}
-	chosen := forkChoose(list, stable, time.Now())
+	chosen := forkChoose(list, channel, time.Now())
 	if chosen == nil {
 		return nil, errors.New("no published fork release is available for this update channel; see " + forkReleases)
 	}

@@ -19,7 +19,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -27,6 +26,7 @@ import (
 
 	"github.com/tidwall/gjson"
 
+	"github.com/yetone/magpie/internal/lazyre"
 	"github.com/yetone/magpie/internal/settings"
 )
 
@@ -156,16 +156,6 @@ func pruneHandoffs(dir string, now time.Time) {
 			os.Remove(filepath.Join(dir, e.Name()))
 		}
 	}
-}
-
-// claudeFormat says whether readTranscriptOf reads an agent's file as Claude
-// Code's lines (its default case).
-func claudeFormat(agent string) bool {
-	switch agent {
-	case "opencode", "cursor", "codex", "pi", "raft", "cindy", "omp", "kimi", "agy":
-		return false
-	}
-	return true
 }
 
 var ccCompactSummary = []byte(`"isCompactSummary":true`)
@@ -309,7 +299,7 @@ func (r *hoRead) add(p Part) {
 	}
 }
 
-var hoTagOpen = regexp.MustCompile(`^<([A-Za-z][\w.-]*)(?:\s[^>]*)?>`)
+var hoTagOpen = lazyre.New(`^<([A-Za-z][\w.-]*)(?:\s[^>]*)?>`)
 
 // userWords is what the user said in a part that starts with what the
 // agent put in (textPart's context): the words after its leading tagged
@@ -400,7 +390,7 @@ var hoEdits = map[string]bool{
 	"str_replace_based_edit_tool": true,
 }
 
-var hoPatchFile = regexp.MustCompile(`(?m)^\*\*\* (?:Add|Update|Delete) File: (.+?)\s*$`)
+var hoPatchFile = lazyre.New(`(?m)^\*\*\* (?:Add|Update|Delete) File: (.+?)\s*$`)
 
 // changedFiles are the files a tool call changes: the path it is given, or
 // those a patch names.
@@ -451,13 +441,14 @@ type hoResult struct {
 // shortened, then cut to their first words, then left out, oldest first.
 func writeHandoff(w io.Writer, s Session, name, full string, fullSize int, here bool) (hoResult, error) {
 	from, compacted := int64(0), false
-	if claudeFormat(s.Agent) && s.BranchOf == "" {
+	claude := parserFor(s.Agent).claude
+	if claude && s.BranchOf == "" {
 		var err error
 		if from, compacted, err = lastCompaction(s.Path); err != nil {
 			return hoResult{}, err
 		}
 	}
-	r := &hoRead{compacted: compacted, notices: claudeFormat(s.Agent), seen: map[string]bool{}}
+	r := &hoRead{compacted: compacted, notices: claude, seen: map[string]bool{}}
 	each := func(_ bool, p Part) bool { r.add(p); return true }
 	var err error
 	if compacted {
@@ -813,7 +804,7 @@ func (b *hoBudget) render() string {
 	return out.String()
 }
 
-var hoHeading = regexp.MustCompile(`^#{1,6}(?:\s|$)`)
+var hoHeading = lazyre.New(`^#{1,6}(?:\s|$)`)
 
 // nested is what was said with its own Markdown headings two levels down,
 // below the record's own (its title, each turn's), so none reads as a

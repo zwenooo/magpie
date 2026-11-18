@@ -22,7 +22,7 @@ func TestRenewLoginsKeepsSavedClaudeSignedIn(t *testing.T) {
 	claudeThree(t) // team@ and max@ saved, Claude Code on pro@
 	keepAliveClean(t)
 	var text atomic.Value
-	text.Store("Current week (all models): 1% used · resets Nov 6 at 11am (Asia/Dubai)")
+	text.Store(resetsAhead("Current week (all models): 1% used · resets Nov 6 at 11am (Asia/Dubai)"))
 	fakeClaudeUsage(t, &text, nil)
 	var mu sync.Mutex
 	var dirs []string
@@ -151,6 +151,17 @@ func TestRenewLoginsKeepsSavedClaudeSignedIn(t *testing.T) {
 	}
 }
 
+// resetsAhead moves a /usage text's "resets Nov 6 at 11am" three days past
+// now: these tests read at the real time, and once that hour went by the
+// week read as reset, Used 0 (#5481).
+func resetsAhead(text string) string {
+	dubai, err := time.LoadLocation("Asia/Dubai")
+	if err != nil {
+		panic(err)
+	}
+	return strings.ReplaceAll(text, "Nov 6 at 11am", time.Now().In(dubai).AddDate(0, 0, 3).Format("Jan 2 at 3pm"))
+}
+
 // keepAliveClean has the test start, and leave, with no renewal on record
 // as failed (renewWaiting) and no reading kept from another test.
 func keepAliveClean(t *testing.T) {
@@ -179,16 +190,7 @@ func keepAliveClean(t *testing.T) {
 func TestRenewLoginsKeepsClaudeReading(t *testing.T) {
 	claudeThree(t)
 	keepAliveClean(t)
-	// the reporter's lines with their reset three days on, so the week is
-	// still running whenever the test runs: from Nov 6 11am Dubai time the
-	// reporter's own date had reset it, and the reading was 0% (failing on
-	// Linux and macOS from that hour)
-	dubai, err := time.LoadLocation("Asia/Dubai")
-	if err != nil {
-		t.Fatal(err)
-	}
-	reset := time.Now().In(dubai).Add(72*time.Hour).Format("Jan 2 at 3pm") + " (Asia/Dubai)"
-	weekly := strings.ReplaceAll(claudeWeeklyOnly, "Nov 6 at 11am (Asia/Dubai)", reset)
+	weekly := resetsAhead(claudeWeeklyOnly)
 	var text atomic.Value
 	text.Store(weekly)
 	fakeClaudeUsage(t, &text, nil)

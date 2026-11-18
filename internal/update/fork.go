@@ -2,8 +2,9 @@ package update
 
 import (
 	"errors"
-	"regexp"
 	"strings"
+
+	"github.com/yetone/magpie/internal/lazyre"
 )
 
 // Keep this fork's distribution policy here so upstream update machinery
@@ -20,7 +21,7 @@ var (
 	errNotesDisabled   = errors.New("release notes checks are disabled; read release notes at " + forkReleases)
 )
 
-var forkVersion = regexp.MustCompile(`^(?:va\.|v)?((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)-vb\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))$`)
+var forkVersion = lazyre.New(`^(?:va\.|v)?((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)-vb\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))$`)
 
 // The public tag names both origins; the binary retains a numeric SemVer
 // for existing version parsers and native application metadata.

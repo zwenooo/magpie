@@ -230,7 +230,8 @@ func RemoveClaudeDir(d string) (*Result, error) {
 		return nil, err
 	}
 	if g := st.Given[dirKey(abs)]; g != nil {
-		l.giveClaudeDir(abs, nil, nil, "", g, newBackups(), res)
+		empty := ""
+		l.giveClaudeDir(abs, nil, nil, "", &empty, false, g, newBackups(), res)
 		if g.empty() {
 			delete(st.Given, dirKey(abs))
 		}
@@ -240,7 +241,7 @@ func RemoveClaudeDir(d string) (*Result, error) {
 
 // syncClaudeDirs gives each other Claude Code folder what Claude Code here
 // was given (all is the sync's targets): the last step of a sync.
-func (l *Library) syncClaudeDirs(all []*Target, b *backups, res *Result) {
+func (l *Library) syncClaudeDirs(all []*Target, b *backups, res *Result, auto bool) {
 	var here *Target
 	for _, t := range all {
 		if t.Agent.ID == "claude" && t.Agent.WSL == "" {
@@ -278,7 +279,21 @@ func (l *Library) syncClaudeDirs(all []*Target, b *backups, res *Result) {
 			}
 		}
 	}
-	text := l.wanted("claude")
+	var text *string
+	if len(dirs) > 0 && !slices.ContainsFunc(res.Problems, func(problem Problem) bool {
+		return problem.Agent == "claude" && problem.What == "instructions"
+	}) {
+		want := l.wanted("claude")
+		if !auto || want != "" || !l.instructionsLost() {
+			text = &want
+		}
+	}
+	skills := a.Skills
+	router := ""
+	if a.Router {
+		router = routerDir(here.Skills)
+		skills = append(slices.Clone(skills), RouterSkill)
+	}
 	// a folder gone since (an account removed) is forgotten
 	for k := range st.Given {
 		if slices.ContainsFunc(dirs, func(d string) bool { return dirKey(d) == k }) {
@@ -293,7 +308,7 @@ func (l *Library) syncClaudeDirs(all []*Target, b *backups, res *Result) {
 		if g == nil {
 			g = &claudeDirGiven{}
 		}
-		l.giveClaudeDir(d, servers, a.Skills, text, g, b, res)
+		l.giveClaudeDir(d, servers, skills, router, text, auto, g, b, res)
 		if g.empty() {
 			delete(st.Given, dirKey(d))
 		} else {
@@ -309,7 +324,7 @@ func (l *Library) syncClaudeDirs(all []*Target, b *backups, res *Result) {
 // instructions part text (nil and "" for none), taking out what magpie
 // put there before (g) that isn't among them; g becomes what d holds of
 // magpie's now.
-func (l *Library) giveClaudeDir(d string, servers map[string]map[string]any, skills []string, text string, g *claudeDirGiven, b *backups, res *Result) {
+func (l *Library) giveClaudeDir(d string, servers map[string]map[string]any, skills []string, router string, text *string, auto bool, g *claudeDirGiven, b *backups, res *Result) {
 	id := claudeDirID(d)
 	fail := func(what string, err error) { res.fail(id, what, fmt.Errorf("%s: %w", d, err)) }
 
@@ -351,7 +366,8 @@ func (l *Library) giveClaudeDir(d string, servers map[string]map[string]any, ski
 	var now []string
 	for _, name := range skills {
 		p := filepath.Join(sd, name)
-		if ours(p, name) {
+		routed := name == RouterSkill && router != ""
+		if routed && routerOurs(p) && sameDir(realDir(p), realDir(router)) || !routed && ours(p, name) {
 			now = append(now, name)
 			continue
 		}
@@ -366,7 +382,15 @@ func (l *Library) giveClaudeDir(d string, servers map[string]map[string]any, ski
 				continue
 			}
 		}
-		if err := link(p, name); err != nil {
+		var err error
+		if routed {
+			if err = os.MkdirAll(sd, 0o755); err == nil {
+				err = dirLink(router, p)
+			}
+		} else {
+			err = link(p, name)
+		}
+		if err != nil {
 			fail("skill:"+name, err)
 			continue
 		}
@@ -378,7 +402,7 @@ func (l *Library) giveClaudeDir(d string, servers map[string]map[string]any, ski
 			continue
 		}
 		p := filepath.Join(sd, name)
-		if !ours(p, name) {
+		if !ours(p, name) && !(name == RouterSkill && routerOurs(p)) {
 			continue // replaced by the user since
 		}
 		var err error
@@ -398,7 +422,7 @@ func (l *Library) giveClaudeDir(d string, servers map[string]map[string]any, ski
 	g.Skills = now
 
 	// instructions: magpie's part of its CLAUDE.md
-	if text != "" || g.Instructions {
+	if text != nil && (*text != "" || g.Instructions) {
 		p := filepath.Join(d, "CLAUDE.md")
 		raw, err := os.ReadFile(p)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -406,19 +430,24 @@ func (l *Library) giveClaudeDir(d string, servers map[string]map[string]any, ski
 			return
 		}
 		was := strings.ReplaceAll(string(raw), "\r\n", "\n")
-		want := withBlock(was, text)
+		want := withBlock(was, *text)
 		if strings.TrimSpace(want) != strings.TrimSpace(was) {
 			if err := b.keep(id, p); err != nil {
 				fail("instructions", err)
 				return
 			}
-			if err := writeText(p, want); err != nil {
+			if auto && strings.TrimSpace(want) == "" {
+				err = edit.WriteAtomic(p, nil)
+			} else {
+				err = writeText(p, want)
+			}
+			if err != nil {
 				fail("instructions", err)
 				return
 			}
 			res.changed(id)
 		}
-		g.Instructions = text != ""
+		g.Instructions = *text != ""
 	}
 }
 

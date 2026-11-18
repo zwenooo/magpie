@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/yetone/magpie/internal/filelock"
 	"github.com/yetone/magpie/internal/filememo"
+	"github.com/yetone/magpie/internal/lazyre"
 	"github.com/yetone/magpie/internal/proc"
 	"github.com/yetone/magpie/internal/settings"
 	"github.com/yetone/magpie/internal/steady"
@@ -117,13 +117,13 @@ func normalizeSource(s SessionSource) (SessionSource, error) {
 // ScanSource reads only the requested source, without registering or copying it.
 func ScanSource(s SessionSource) (SourceScan, error) {
 	out := SourceScan{Sessions: []SourceSession{}}
+	if sourceAgent(s.Agent) && !Reads(s.Agent) {
+		return out, ErrNotRead
+	}
 	s, err := normalizeSource(s)
 	out.Source = s
 	if err != nil {
 		return out, err
-	}
-	if !Reads(s.Agent) {
-		return out, ErrNotRead
 	}
 	files, err := sourceFiles(s)
 	if err != nil {
@@ -145,7 +145,7 @@ func ScanSource(s SessionSource) (SourceScan, error) {
 			return out, fmt.Errorf("could not read session %s", f.path)
 		}
 		out.Sessions = append(out.Sessions, SourceSession{
-			ID: strings.TrimPrefix(f.key, s.Agent+":"), Title: cmp.Or(g.Custom, g.Named, g.Title, g.First), Cwd: g.Cwd, Last: g.Last,
+			ID: strings.TrimPrefix(f.key, s.Agent+":"), Title: cmp.Or(g.more().Custom, g.more().Named, g.Title, g.more().First), Cwd: g.Cwd, Last: g.Last,
 		})
 	}
 	return out, nil
@@ -255,7 +255,7 @@ func sameSourceFolder(a, b string) bool {
 	return sourceWithin(a, b) && sourceWithin(b, a)
 }
 
-var sourceName = regexp.MustCompile(`^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\.jsonl$`)
+var sourceName = lazyre.New(`^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\.jsonl$`)
 
 // sourceFiles follows only Claude's projects/project/session layout. Links
 // inside a source and unrelated JSONL journals are not traversal roots.
@@ -277,7 +277,7 @@ func sourceFiles(s SessionSource) ([]file, error) {
 				continue
 			}
 			id := strings.TrimSuffix(e.Name(), ".jsonl")
-			f := file{agent: s.Agent, key: s.Agent + ":" + id, path: filepath.Join(root, e.Name()), main: true, readOnly: true, size: info.Size(), mod: info.ModTime()}
+			f := file{agent: s.Agent, key: s.Agent + ":" + id, path: filepath.Join(root, e.Name()), main: true, readOnly: true, size: info.Size(), mod: modOf(info.ModTime())}
 			valid, err := sourceTranscript(f)
 			if err != nil {
 				scanErr = cmp.Or(scanErr, fmt.Errorf("%s: %w", f.path, err))
@@ -349,7 +349,7 @@ func uniqueSourceFiles(files []file) []file {
 
 type sourceIdentity struct {
 	size  int64
-	mod   time.Time
+	mod   modTime
 	valid bool
 }
 
@@ -478,7 +478,7 @@ func resumeOf(s Session) string {
 	if s.ReadOnly {
 		return ""
 	}
-	return resumeCommand(s.WSL, s.Agent, s.ID, s.Cwd, s.Path)
+	return resumeFor(s.WSL, s.Agent, s.ID, s.Cwd, s.Path)
 }
 
 // claudeHomeResume resumes a Claude Code transcript kept in a config folder's
@@ -488,7 +488,7 @@ func resumeOf(s Session) string {
 // Nothing is offered when the folder it ran in isn't on this computer, as a
 // Cowork session's folder in Desktop's VM isn't.
 func claudeHomeResume(s Session) string {
-	if s.WSL != "" || s.Gateway || s.Path == "" || !safeID.MatchString(s.ID) || filepath.Base(s.Path) != s.ID+".jsonl" {
+	if s.WSL != "" || cliGone("claude") || s.Gateway || s.Path == "" || !safeID.MatchString(s.ID) || filepath.Base(s.Path) != s.ID+".jsonl" {
 		return ""
 	}
 	projects := filepath.Dir(filepath.Dir(s.Path))

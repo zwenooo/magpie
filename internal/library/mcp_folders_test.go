@@ -151,6 +151,30 @@ func TestServerFoldersCarried(t *testing.T) {
 	}
 }
 
+func TestServerFoldersFollowSharedStart(t *testing.T) {
+	sandbox(t)
+	keptServer(t, "shared", "private")
+	ok(t)(ServerHere("ops", []string{"local-program"}))
+	bundle, err := Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.Folders) != 1 || string(bundle.Folders[0].Program["server.py"]) != "shared" {
+		t.Fatal("the local command hid the shared program")
+	}
+	sandbox(t)
+	ok(t)(SaveServer("", Server{Name: "ops", Transport: "stdio", Command: "shared-program"}))
+	write(t, filepath.Join(privateDir("ops"), "key"), "only here")
+	ok(t)(ServerHere("ops", []string{"local-program", privateRef}))
+	bundle, err = Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.Folders) != 0 {
+		t.Fatal("folders referenced only by the local command were carried")
+	}
+}
+
 func TestServerFoldersGoWithTheServer(t *testing.T) {
 	sandbox(t)
 	keptServer(t, "print('v1')\n", "x\n")

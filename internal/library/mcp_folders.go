@@ -148,7 +148,11 @@ func collectFolders(l *Library, budget int64) ([]*CarriedFolders, int64) {
 	var out []*CarriedFolders
 	var used int64
 	for _, s := range sorted(l.MCP, func(s *Server) string { return s.Name }) {
-		if s.Local || s.Remote() || !s.names(programRef) && !s.names(privateRef) {
+		if s.Local || l.ownedPart(s.Bundle) {
+			continue
+		}
+		s = carriedStart(s)
+		if s.Remote() || !s.names(programRef) && !s.names(privateRef) {
 			continue
 		}
 		c := &CarriedFolders{Name: s.Name}
@@ -179,8 +183,11 @@ func collectFolders(l *Library, budget int64) ([]*CarriedFolders, int64) {
 // backups, and the folders of a server b no longer has go with it. A
 // server kept to this computer keeps its own, and so does one b carries
 // no folder of.
-func putFolders(l *Library, b *Bundle) error {
+func putFolders(l *Library, b *Bundle, pluginServers []*Server) error {
 	keep := map[string]bool{}
+	for _, server := range pluginServers {
+		keep[server.Name] = true
+	}
 	for _, s := range l.MCP {
 		if s.Local {
 			keep[s.Name] = true

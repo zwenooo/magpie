@@ -21,6 +21,16 @@ func handoffOf(t *testing.T, s Session) (string, hoResult) {
 	return b.String(), r
 }
 
+func TestHandoffFromDatabaseSession(t *testing.T) {
+	setup(t)
+	dir := filepath.Join(t.TempDir(), "omb")
+	t.Setenv("OMB_DATA_DIR", dir)
+	ombFixture(t, dir)
+	session := ombSession(t, List(0), ombFruits)
+	record, _ := handoffOf(t, session)
+	inOrder(t, record, "Say hi, then list three fruits", "你好，再说一次", "Hello from the fake model, reply 3.")
+}
+
 // inOrder fails unless each of parts is in md, one after the other.
 func inOrder(t *testing.T, md string, parts ...string) {
 	t.Helper()

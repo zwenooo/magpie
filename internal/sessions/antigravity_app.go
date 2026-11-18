@@ -1,27 +1,33 @@
 package sessions
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/binary"
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/yetone/magpie/internal/dirent"
-	"github.com/yetone/magpie/internal/provider"
 )
 
 // The Antigravity app's (the desktop IDE's, agent "antigravity") own
 // conversations, on the Sessions and Usage pages, read where the app keeps
 // them whether or not it reached magpie's gateway (#2190, yygutn; xxooioo
 // on Discord). The app keeps each conversation as a SQLite database,
-// ~/.gemini/antigravity/conversations/<conversation id>.db, written in WAL
+// ~/.gemini/antigravity/conversations/<conversation id>.db (Insiders uses
+// ~/.gemini/antigravity-insiders/conversations), written in WAL
 // mode while it runs. Its messages are encrypted at rest; the figures read
-// here are not. As Antigravity 2.23.0 on macOS writes them (yygutn's real
+// here are not. What was said is also written in plain text beside it,
+// brain/<conversation id>/.system_generated/logs/transcript_full.jsonl
+// (antigravityTranscript): the steps as agy CLI writes them, user turns,
+// replies, tool calls and their results, which the session viewer reads
+// (@yansheng1003 on X: it showed only the title and preview). As Antigravity 2.23.0 on macOS writes them (yygutn's real
 // rows on #2190; the app isn't installed on any machine magpie is tried on):
 //
 //	steps         idx, metadata BLOB, …: one row a step
@@ -30,6 +36,8 @@ import (
 // steps.metadata is a plain protobuf message:
 //
 //	1   the step's start (google.protobuf.Timestamp: 1 seconds, 2 nanos)
+//	6   when its first content came (viewable_at), on a model's step
+//	7   when its model finished writing (finished_generating_at)
 //	9   the model call's usage, on a model's step:
 //	      2 input tokens, less what was read from the cache
 //	      3 output tokens
@@ -39,6 +47,13 @@ import (
 //	20  where the step sits: 3 the gen_metadata idx of its generator
 //	    (absent for generator 0)
 //
+// The message is exa.cortex_pb.CortexStepMetadata, as agy 1.5.9's binary
+// describes it: 1 created_at, 6 viewable_at, 7 finished_generating_at. A
+// model's step is created as its request goes out, so 6 less 1 is its time to the first token and 7 less
+// 1 how long the call took (stepTimesOf): agy 1.5.9 against a fake Gemini
+// endpoint that held its first chunk 2.01s and ended at 4.03s wrote
+// 2014ms and 4032ms.
+//
 // gen_metadata.data's field 1 is the message asked of the model, whose
 // field 19 is the model's id ("gemini-3.8-flash-n", counted as
 // gemini-3.8-flash), else 21 or 22 (cc-bar's reader). Nothing else of either column is read. Each call is the app's,
@@ -46,6 +61,16 @@ import (
 // gateway's to count, matched to the gateway's record by its tokens and
 // time as an agy step is (usage's agyGateway: the app sends no session
 // header).
+//
+// What the app calls a conversation is its row of
+// conversation_summaries.db beside conversations/, the database agy keeps
+// (agy.go): the app's language server is agy's, and Antigravity 2.29.0's
+// makes the same table in ~/.gemini/antigravity on its first start. title
+// is the name the app gives it, preview what it lists the conversation as
+// before that (the user's own words), and workspace_uris the folders open
+// when it was started, the first local one its folder on the Sessions page
+// (agyFolder). Without the row, the steps' text being encrypted, a
+// conversation has no name and no folder (xxooioo on Discord).
 //
 // A session is listed read only: the app has no command to pick a
 // conversation up again from a terminal.
@@ -57,22 +82,48 @@ func AntigravityAppDir() string {
 	return filepath.Join(home, ".gemini", "antigravity")
 }
 
+// AntigravityInsidersDir is the Insiders app's separate data folder.
+func AntigravityInsidersDir() string {
+	return filepath.Join(filepath.Dir(AntigravityAppDir()), "antigravity-insiders")
+}
+
 // antigravityConversations is the folder of the app's conversation databases.
 func antigravityConversations() string {
 	return filepath.Join(AntigravityAppDir(), "conversations")
 }
 
-// antigravityFiles are the app's conversations, one database a session.
-func antigravityFiles() []file { return antigravityFilesIn(antigravityConversations()) }
+// antigravityFiles are stable and Insiders' conversations. Insiders' ids
+// have their own prefix so a UUID present in both stores is two sessions
+// with separate summaries and call ids. Stable's existing ids stay the same.
+func antigravityFiles() []file {
+	return append(antigravityFilesIn(antigravityConversations(), runtime.GOOS),
+		antigravityInsiders(filepath.Join(AntigravityInsidersDir(), "conversations"), runtime.GOOS)...)
+}
+
+// antigravityInsiders are the Insiders app's conversation databases in dir,
+// keyed apart from stable's.
+func antigravityInsiders(dir, goos string) []file {
+	out := antigravityFilesIn(dir, goos)
+	for i := range out {
+		out[i].key = "antigravity:insiders-" + strings.TrimPrefix(out[i].key, "antigravity:")
+	}
+	return out
+}
 
 // antigravityFilesIn are the conversation databases in dir. A file's size
 // and time are the database's and its write-ahead log's together, so a
-// write that is in the log alone still reads the conversation again.
-func antigravityFilesIn(dir string) []file {
+// write that is in the log alone still reads the conversation again; rev
+// is its summary row, so a title the app gives it later does too. The
+// row's folders are read as goos names them ("linux" in a WSL distro).
+func antigravityFilesIn(dir, goos string) []file {
 	if !Reads("antigravity") {
 		return nil
 	}
 	entries, _ := os.ReadDir(dir)
+	if len(entries) == 0 {
+		return nil
+	}
+	rows := agySummariesOn(filepath.Dir(dir), goos)
 	var out []file
 	for _, e := range entries {
 		id, ok := strings.CutSuffix(e.Name(), ".db")
@@ -83,15 +134,41 @@ func antigravityFilesIn(dir string) []file {
 		if !stat(&f) {
 			continue
 		}
-		if fi, err := os.Stat(f.path + "-wal"); err == nil {
-			f.size += fi.Size()
-			if fi.ModTime().After(f.mod) {
-				f.mod = fi.ModTime()
+		for _, p := range []string{f.path + "-wal", antigravityTranscript(f.path)} {
+			if fi, err := os.Stat(p); err == nil {
+				f.size += fi.Size()
+				if fi.ModTime().After(f.mod.Time()) {
+					f.mod = modOf(fi.ModTime())
+				}
 			}
+		}
+		if r, ok := rows[id]; ok {
+			m := f.w()
+			m.agy, m.rev = &r, agyRev(r)
 		}
 		out = append(out, f)
 	}
 	return out
+}
+
+// antigravityTranscript is the plain-text transcript of the conversation
+// whose database is db: brain/<id>/.system_generated/logs/transcript_full.jsonl
+// in the same data folder (stable's, Insiders' or a WSL distro's), as
+// Antigravity 2.30 writes it. Its size and time are the session file's
+// too (antigravityFilesIn), so a step it adds reads the session again.
+func antigravityTranscript(db string) string {
+	id := strings.TrimSuffix(filepath.Base(db), ".db")
+	return filepath.Join(filepath.Dir(filepath.Dir(db)), "brain", id, ".system_generated", "logs", "transcript_full.jsonl")
+}
+
+// antigravityTranscriptOf reads the conversation whose database is db from
+// its transcript, as agy's; ErrNoTranscript when the app wrote none.
+func antigravityTranscriptOf(db string, keep func([]byte) bool, add func(bool, Part) bool) error {
+	p := antigravityTranscript(db)
+	if _, err := os.Stat(p); errors.Is(err, os.ErrNotExist) {
+		return ErrNoTranscript
+	}
+	return agyTranscript(p, keep, add)
 }
 
 // antigravityCallFiles are the same databases as call sources.
@@ -104,6 +181,48 @@ type agAppCall struct {
 	model    string
 	tokens   Tokens
 	response string
+	// began, first and ended: the step's start, first content and end
+	// (stepTimesOf); a response's later step keeps its first step's
+	// start and first content
+	began, first, ended time.Time
+}
+
+// stepTimes is how long a model's step took from its start: to its first
+// content (ttft) and to its end (millis), in ms; 0 for what isn't known.
+type stepTimes struct{ ttft, millis int64 }
+
+// stepTimesOf reads a step's times from its metadata: 1 its start, 6 its
+// first content, 7 its model's end. A time before the start, or a first
+// content after the end, is not known.
+func stepTimesOf(b []byte) stepTimes {
+	var start, first, end time.Time
+	_ = pbWalk(b, func(num int, v uint64, d []byte) {
+		if d == nil {
+			return
+		}
+		switch num {
+		case 1:
+			start = pbTime(d)
+		case 6:
+			first = pbTime(d)
+		case 7:
+			end = pbTime(d)
+		}
+	})
+	return timesFrom(start, first, end)
+}
+
+// timesFrom is stepTimes from a call's start, first content and end.
+func timesFrom(start, first, end time.Time) stepTimes {
+	var t stepTimes
+	if start.IsZero() || end.IsZero() || end.Before(start) {
+		return t
+	}
+	t.millis = max(end.Sub(start).Milliseconds(), 1)
+	if !first.IsZero() && !first.Before(start) && !first.After(end) {
+		t.ttft = max(first.Sub(start).Milliseconds(), 1)
+	}
+	return t
 }
 
 // errAgApp is a protobuf that can't be read.
@@ -114,11 +233,11 @@ var errAgApp = errors.New("antigravity: unreadable metadata")
 // A call whose response id came before is the later step of that response,
 // and replaces it.
 func antigravityRead(path string) ([]agAppCall, error) {
-	db, err := provider.OpenReadOnly(path)
+	db, done, err := openAppStore(path)
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
+	defer done()
 	tx, err := db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, err
@@ -156,6 +275,9 @@ func antigravityRead(path string) ([]agAppCall, error) {
 		}
 		c.step, c.model = idx, models[gen]
 		if i, seen := byResponse[c.response]; seen && c.response != "" {
+			if was := out[i]; !was.began.IsZero() {
+				c.began, c.first = was.began, cmp.Or(was.first, c.first)
+			}
 			out[i] = c
 			continue
 		}
@@ -176,6 +298,15 @@ func agAppStep(b []byte) (c agAppCall, gen int64, ok bool) {
 		case 1:
 			if d != nil {
 				c.at = pbTime(d)
+				c.began = c.at
+			}
+		case 6:
+			if d != nil {
+				c.first = pbTime(d)
+			}
+		case 7:
+			if d != nil {
+				c.ended = pbTime(d)
 			}
 		case 9:
 			usage = d
@@ -235,17 +366,34 @@ func agAppModel(b []byte) string {
 	})
 	for _, m := range named {
 		if m != "" && len(m) <= 200 {
-			// Google names the deployment serving gemini-3.8-flash
-			// "gemini-3.8-flash-n", an id no request can ask for (the
-			// owner's real Antigravity account, b2432754e): it is that
-			// model, at its price
-			if base, ok := strings.CutSuffix(m, "-n"); ok && strings.HasPrefix(base, "gemini-") {
+			if base, ok := GeminiDeployment(m); ok {
 				return base
 			}
 			return m
 		}
 	}
 	return ""
+}
+
+// GeminiDeployment is the Gemini model a Google deployment's name stands
+// for, and whether m is such a name: a gemini-* id with one letter after
+// its last hyphen. Google names the deployment serving gemini-3.8-flash
+// "gemini-3.8-flash-n" (the owner's real Antigravity account, b2432754e)
+// and the one serving gemini-4-argon "gemini-4-argon-d" (oioio's
+// Antigravity database, 11-06): ids no request can ask for, which are that
+// model, at its price. No Gemini model's own id ends in a lone letter
+// (-lite, -nano, -pro, -001 and -exp are longer), and other makers' ids
+// are left as written.
+func GeminiDeployment(m string) (string, bool) {
+	i := strings.LastIndexByte(m, '-')
+	if i < 0 || len(m)-i != 2 || m[i+1] < 'a' || m[i+1] > 'z' {
+		return m, false
+	}
+	base := m[:i]
+	if !strings.HasPrefix(base, "gemini-") || len(base) == len("gemini-") {
+		return m, false
+	}
+	return base, true
 }
 
 // pbTime is a google.protobuf.Timestamp, zero when it has no seconds.
@@ -316,7 +464,10 @@ func parseAntigravity(f file) *state {
 	if err != nil {
 		return &state{}
 	}
-	s := &state{Size: f.size, Mod: f.mod.UnixNano()}
+	s := &state{Size: f.size, Mod: f.mod.UnixNano(), StateMore: moreOf(StateMore{DBRevision: f.m().rev})}
+	if r := f.m().agy; r != nil {
+		s.own().Named, s.Title, s.Cwd = title(r.Title), title(r.Preview), r.Cwd
+	}
 	for _, c := range calls {
 		s.saw(c.at, true)
 		s.use(dateOf(c.at), agAppModelOr(c.model), c.tokens)
@@ -343,8 +494,10 @@ func readAntigravityCalls(f file) (*callFile, bool) {
 		return st, false
 	}
 	for _, c := range calls {
+		t := timesFrom(c.began, c.first, c.ended)
 		st.Calls = append(st.Calls, Call{
 			Agent: "antigravity", Time: c.at, Session: st.Session, Model: c.model, Tokens: c.tokens,
+			TTFT: t.ttft, Millis: t.millis,
 			Msg: st.str("antigravity:" + st.Session + ":" + strconv.FormatInt(c.step, 10)),
 		})
 	}

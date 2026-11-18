@@ -7,12 +7,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/yetone/magpie/internal/lazyre"
 	"github.com/yetone/magpie/internal/settings"
 )
 
@@ -159,32 +159,40 @@ func withLang(feed, lang string) string {
 // often, and a long-unopened one would have pages of them.
 const MaxNotes = 40
 
-// StableMaxNotes is MaxNotes on the Stable channel, where an update is a
-// week of releases and its notes are read as one list (ssharpcc on X):
-// every one of them, as far as the site keeps them.
+// StableMaxNotes is MaxNotes on the Stable and Daily channels, where an
+// update is a week or a day of releases and its notes are read as one list
+// (ssharpcc on X): every one of them, as far as the site keeps them.
 const StableMaxNotes = 1500
 
 // MostNotes is how many releases' notes are shown at most on the channel
 // Settings name.
 func MostNotes() int {
-	if Stable() {
+	if Picked() {
 		return StableMaxNotes
 	}
 	return MaxNotes
 }
 
-// Stable is whether Settings' Update channel is Stable: the update feed is
-// asked for a version a week, the newest that had been out three days as
-// the week began (Monday 00:00 UTC), or an urgent one (a security hole, a
-// ban risk, lost data) as soon as it is out. The fork adapter chooses it
-// locally; an explicit custom feed receives channel=stable. A release is
-// urgent when a line of its notes starts with "**Urgent release:**".
-func Stable() bool { return settings.Load().UpdateChannel == settings.UpdateStable }
+// Channel is the saved release cadence; an unknown value means every release.
+func Channel() string {
+	switch c := settings.Shared().UpdateChannel; c {
+	case settings.UpdateStable, settings.UpdateDaily:
+		return c
+	}
+	return ""
+}
 
-// withChannel is feed asking for Stable's release on the Stable channel,
+// Picked is whether the update feed picks the version (Stable or Daily)
+// rather than offering every one.
+func Picked() bool { return Channel() != "" }
+
+// Stable is whether Settings' Update channel is Stable.
+func Stable() bool { return Channel() == settings.UpdateStable }
+
+// withChannel is feed asking for the channel's release on Stable or Daily,
 // and feed as it is on every version.
-func withChannel(feed string) string {
-	if !Stable() {
+func withChannel(feed, ch string) string {
+	if ch == "" {
 		return feed
 	}
 	u, err := url.Parse(feed)
@@ -192,7 +200,7 @@ func withChannel(feed string) string {
 		return feed
 	}
 	q := u.Query()
-	q.Set("channel", settings.UpdateStable)
+	q.Set("channel", ch)
 	u.RawQuery = q.Encode()
 	return u.String()
 }
@@ -268,7 +276,7 @@ func Back(notes []Note, upto string, n int) []Note {
 	return out
 }
 
-var heading = regexp.MustCompile(`^(#{1,6})\s+(.*?)\s*#*\s*$`)
+var heading = lazyre.New(`^(#{1,6})\s+(.*?)\s*#*\s*$`)
 
 // installHeadings are the Install section's heading in each language the
 // notes come in: the Chinese notes call it 安装, and every release's own

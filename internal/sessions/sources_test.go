@@ -55,6 +55,14 @@ func TestSessionSourceScanImport(t *testing.T) {
 	if err != nil || len(tr.Parts) == 0 || !strings.Contains(tr.Parts[0].Text, "custom directory") {
 		t.Fatalf("transcript = %+v, %v", tr, err)
 	}
+	if err := SaidReady(t.Context(), time.Minute, nil); err != nil {
+		t.Fatal(err)
+	}
+	defer ForgetSaid()
+	matches, err := SearchSaid(t.Context(), NeedleOf("custom directory"), s.Agent, 5)
+	if err != nil || len(matches.Hits) != 1 || matches.Hits[0].Session.ID != sourceTestID {
+		t.Fatalf("search imported history = %+v, %v", matches, err)
+	}
 	if calls := AgentCalls(time.Time{}, "claude-desktop"); len(calls) != 1 {
 		t.Fatalf("imported calls = %+v", calls)
 	}
