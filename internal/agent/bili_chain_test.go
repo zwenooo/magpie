@@ -35,7 +35,7 @@ func TestBiliChainIsStillMagpie(t *testing.T) {
 	const lane = "http://127.0.0.1:18787/bili/"
 	var agents []*Agent
 	for _, a := range All() {
-		if a.Check == nil || a.Launch != nil || a.WSL != "" || a.Native != nil || a.ID == "alma" || a.ID == "shelley" || a.ID == "cursorlocal" {
+		if a.Check == nil || a.Launch != nil || a.WSL != "" || a.Native != nil || a.ID == "alma" || a.ID == "shelley" || a.ID == "cursor-byok" || a.ID == "cursorlocal" {
 			continue
 		}
 		var key, want string

@@ -18,6 +18,7 @@ var noLibrary = map[string]string{
 	"penguin":           "not looked at (#5897)",
 	"aside":             "not looked at (#5897)",
 	"cursor-local":      "not looked at (#5897)",
+	"cursor-byok":       "model backend for the Cursor editor; the cursor target already owns its library files",
 	"vscode":            "not looked at (#5897)",
 	"vscode-insiders":   "not looked at (#5897)",
 	"vscodium":          "not looked at (#5897)",
