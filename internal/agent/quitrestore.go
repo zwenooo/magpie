@@ -31,6 +31,9 @@ const quitRestoredKey = "quit.restored"
 func RestoreOnQuit(as []*Agent) (restored []string, err error) {
 	var errs []string
 	for _, a := range as {
+		if a.ID == CursorBYOKID && cursorStoppedForExit() {
+			continue
+		}
 		if a.Disconnected() || !a.Wired() {
 			continue
 		}

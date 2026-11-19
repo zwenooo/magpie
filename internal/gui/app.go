@@ -446,9 +446,10 @@ func Run(version string, showMain bool, link string) error {
 		// so do the threads.
 		OnShutdown: func() {
 			unhookNoActivate()
-			stopServing()
+			drainGateway()
 			proc.EndProbes()
 			if handedOver.Load() {
+				stopCursorBackend()
 				return
 			}
 			if served.Load() != nil {
@@ -471,6 +472,7 @@ func Run(version string, showMain bool, link string) error {
 			// gone they still go on (LukeMa on X)
 			agent.PortCodexRollouts(3 * time.Second)
 			restoreAgentsOnQuit()
+			stopCursorBackend()
 			updates.install(false)
 		},
 		// Wails exits on some webview errors; say why before it does.

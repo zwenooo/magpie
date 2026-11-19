@@ -37,6 +37,14 @@ or shutdown; user edits and real sign-ins stay. Windows trust is per-user;
 macOS uses the login keychain; Linux shows an administrator installation command.
 The CA is retained after disconnect. Magpie never forcibly restarts Cursor.
 
+The desktop drains its gateway before restoring agents on quit. With quit
+restoration enabled, the Cursor adapter still has the child it needs to
+disconnect and record a temporary restore; only then does shutdown block
+further catalog writes. An update restart may already have stopped the
+child, which restores its own Cursor settings on exit. In that case the old
+process leaves the saved connection to its successor instead of disconnecting
+it again. A manual Disconnect remains off on the next start.
+
 `TestCursorBYOK*`, runtime subprocess tests, `TestCursorBYOKBundledRuntime`,
 Rust `managed`/`managed_child` tests and `cursor-managed.test.cjs` cover these
 boundaries without modifying live user profiles or certificate trust. See

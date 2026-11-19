@@ -105,6 +105,57 @@ func TestCursorBYOKShutdownWaitsAndBlocksBackgroundReconnect(t *testing.T) {
 	}
 }
 
+func TestCursorBYOKQuitAfterBackendShutdown(t *testing.T) {
+	home := syncHome(t)
+	isolateCursorLifecycle(t)
+	newCursorBYOKFixture(t, home)
+	cursor, err := Find(CursorBYOKID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cursor.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	StopCursorBackend()
+	all := []*Agent{cursor}
+	restored, err := RestoreOnQuit(all)
+	if err != nil || len(restored) != 0 || cursor.Disconnected() || !cursorBYOKConnected() {
+		t.Fatalf("quit after shutdown: restored=%v disconnected=%v saved=%v err=%v", restored, cursor.Disconnected(), cursorBYOKConnected(), err)
+	}
+	if err := cursor.Sync(); err == nil {
+		t.Fatal("the exiting process accepted a catalog write")
+	}
+}
+
+func TestCursorBYOKQuitWithLiveBackend(t *testing.T) {
+	home := syncHome(t)
+	isolateCursorLifecycle(t)
+	newCursorBYOKFixture(t, home)
+	cursor, err := Find(CursorBYOKID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cursor.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	all := []*Agent{cursor}
+	restored, err := RestoreOnQuit(all)
+	if err != nil || len(restored) != 1 || restored[0] != CursorBYOKID || cursor.Disconnected() || cursorBYOKConnected() {
+		t.Fatalf("quit restore: restored=%v disconnected=%v saved=%v err=%v", restored, cursor.Disconnected(), cursorBYOKConnected(), err)
+	}
+	rewired, err := RewireOnStart(all)
+	if err != nil || len(rewired) != 1 || !cursorBYOKConnected() {
+		t.Fatalf("start: rewired=%v saved=%v err=%v", rewired, cursorBYOKConnected(), err)
+	}
+	if err := cursor.Disconnect(); err != nil {
+		t.Fatal(err)
+	}
+	restored, err = RestoreOnQuit(all)
+	if err != nil || len(restored) != 0 || !cursor.Disconnected() || cursorBYOKConnected() {
+		t.Fatalf("manual disconnect: restored=%v disconnected=%v saved=%v err=%v", restored, cursor.Disconnected(), cursorBYOKConnected(), err)
+	}
+}
+
 func TestCursorBYOKFailedRestartCanRestoreItsSavedConnection(t *testing.T) {
 	home := syncHome(t)
 	isolateCursorLifecycle(t)

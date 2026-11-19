@@ -117,6 +117,13 @@ func ResumeCursorBackend() error {
 	cursorSetupMu.Unlock()
 	return cursorBYOKWrite(true, false)
 }
+
+func cursorStoppedForExit() bool {
+	cursorSetupMu.Lock()
+	defer cursorSetupMu.Unlock()
+	return cursorBackendStopping
+}
+
 func cursorBYOKManager() cursorbyok.Manager {
 	return cursorbyok.Manager{StatePath: cursorBYOKStatePath()}
 }

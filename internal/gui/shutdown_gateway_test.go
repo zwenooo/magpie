@@ -30,9 +30,10 @@ func TestDesktopShutdownDrainsGateway(t *testing.T) {
 		if !ok {
 			return true
 		}
+		var sawBranch, drained, restored bool
 		for _, stmt := range fn.Body.List {
 			if _, branch := stmt.(*ast.IfStmt); branch {
-				break
+				sawBranch = true
 			}
 			e, ok := stmt.(*ast.ExprStmt)
 			if !ok {
@@ -43,14 +44,24 @@ func TestDesktopShutdownDrainsGateway(t *testing.T) {
 				continue
 			}
 			name, ok := call.Fun.(*ast.Ident)
-			if ok && name.Name == "stopServing" {
+			if !ok {
+				continue
+			}
+			switch name.Name {
+			case "drainGateway":
+				drained = !sawBranch
+			case "restoreAgentsOnQuit":
+				restored = drained
+			case "stopCursorBackend":
+				if !restored {
+					t.Fatal("ordinary desktop quit stopped Cursor before restoring its connection")
+				}
 				found = true
-				break
 			}
 		}
 		return false
 	})
 	if !found {
-		t.Fatal("desktop shutdown does not wait for the gateway to save Claude sessions")
+		t.Fatal("desktop shutdown must drain the gateway, restore agents, then stop Cursor")
 	}
 }

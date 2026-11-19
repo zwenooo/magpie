@@ -37,6 +37,10 @@ var (
 // once those in flight have finished.
 func stopServing() {
 	stopCursorBackend()
+	drainGateway()
+}
+
+func drainGateway() {
 	gatewayMu.Lock()
 	endBackend()
 	gatewayMu.Unlock()
