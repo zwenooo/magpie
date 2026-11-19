@@ -92,7 +92,8 @@ such folder that Claude Code has run in (it has a `.claude.json`), and each
 one added by hand (`magpie library claude-dirs add <folder>`), what Claude
 Code here was given, as written there: the same MCP entries (under Claude
 Code's own lock on that `.claude.json`, the file kept with the sync's
-backups first), links to the same library skills, and the same
+backups first), project-local disabled servers and Hub routes, links to the
+same library skills and their generated slash commands, and the same
 instructions part in its `CLAUDE.md`. A same-named server there is replaced
 with the library's; an account's own skill folder by a skill's name is left
 and reported; a link to another copy is replaced. What magpie put in each

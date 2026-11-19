@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/yetone/magpie/internal/gateway"
 )
 
 // reclaudeDir makes ReClaude's folder for account id, Claude Code having
@@ -196,6 +198,9 @@ func TestClaudeDirsKeepInstructionsOnAutomaticSync(t *testing.T) {
 func TestClaudeDirsMirrorSkillRouter(t *testing.T) {
 	homeDir := sandbox(t)
 	account := reclaudeDir(t, homeDir, "1", `{}`)
+	other := reclaudeDir(t, homeDir, "2", `{}`)
+	private := filepath.Join(other, "commands", "pdf.md")
+	write(t, private, "my pdf command\n")
 	source := filepath.Join(homeDir, "source")
 	skill(t, filepath.Join(source, "pdf"), "pdf", "Read PDFs")
 	ok(t)(InstallSkills(source, []string{"pdf"}, []string{"claude"}))
@@ -204,9 +209,93 @@ func TestClaudeDirsMirrorSkillRouter(t *testing.T) {
 	if !routerOurs(entry) || !strings.Contains(read(t, filepath.Join(entry, "SKILL.md")), "## pdf") {
 		t.Fatal("the account cannot see the routed pdf skill")
 	}
+	command := filepath.Join(account, "commands", "pdf.md")
+	if body := read(t, command); !strings.Contains(body, filepath.Join(entry, ".skills", "pdf", "SKILL.md")) || !strings.Contains(body, "$ARGUMENTS") {
+		t.Fatalf("account command points outside its router: %s", body)
+	}
+	if res := ok(t)(Sync()); slices.Contains(res.Changed, claudeDirID(account)) {
+		t.Fatalf("second sync changed %s", account)
+	}
 	ok(t)(SetSkillRouter(false))
+	gone(t, command)
+	if read(t, private) != "my pdf command\n" {
+		t.Fatal("the account's own command was changed")
+	}
+	ok(t)(SetSkillRouter(true))
+	write(t, command, "my replacement\n")
+	ok(t)(SkillRouterHow("pdf", true))
+	if read(t, command) != "my replacement\n" {
+		t.Fatal("edited command removed with the stub")
+	}
 	if _, err := os.Lstat(entry); !os.IsNotExist(err) || !ours(filepath.Join(account, "skills", "pdf"), "pdf") {
 		t.Fatal("turning off the router did not restore the direct skill")
+	}
+}
+
+func TestClaudeDirsProjectScope(t *testing.T) {
+	home, project := scopeProject(t)
+	root, err := json.Marshal(claudeRoot(project))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := reclaudeDir(t, home, "1", `{"projects":{`+string(root)+`:{"private":42,"disabledMcpServers":["fs","mine"],"mcpServers":{"mine":{"command":"local"}}}}}`)
+	second := t.TempDir()
+	ok(t)(AddClaudeDir(second))
+	ok(t)(ProjectServerOff(project, "fs", []string{"claude"}))
+	disabled := func(dir string, want ...string) {
+		t.Helper()
+		got, _ := claudeRecord(t, dir, project)["disabledMcpServers"].([]any)
+		if !slices.Equal(anyStrs(got), want) {
+			t.Fatalf("%s disabled %v, want %v", dir, got, want)
+		}
+	}
+	disabled(first, "fs", "mine")
+	disabled(second, "fs")
+	ok(t)(ProjectServerOff(project, "fs", nil))
+	disabled(first, "fs", "mine")
+	disabled(second)
+	ok(t)(SetMCPHub(true))
+	ok(t)(ProjectServerOff(project, "docs", []string{"claude"}))
+	for _, dir := range []string{first, second} {
+		servers, _ := claudeRecord(t, dir, project)["mcpServers"].(map[string]any)
+		hub, _ := servers[HubEntry].(map[string]any)
+		address, _ := hub["url"].(string)
+		if !strings.HasSuffix(address, gateway.HubMCPPath+"claude"+gateway.HubProjectSep+projectKey(project)) {
+			t.Fatalf("wrong project hub in %s: %v", dir, hub)
+		}
+	}
+	if res := ok(t)(Sync()); slices.Contains(res.Changed, claudeDirID(first)) || slices.Contains(res.Changed, claudeDirID(second)) {
+		t.Fatalf("second sync changed accounts: %v", res.Changed)
+	}
+	ok(t)(RemoveClaudeDir(second))
+	disabled(second)
+	ok(t)(RemoveProject(project, false))
+	disabled(first, "fs", "mine")
+	for _, dir := range []string{first, second} {
+		if got := claudeRecord(t, dir, project)["mcpServers"].(map[string]any); got[HubEntry] != nil {
+			t.Fatalf("hub left in %s", dir)
+		}
+	}
+	record := claudeRecord(t, first, project)
+	if record["private"] != float64(42) || record["mcpServers"].(map[string]any)["mine"] == nil {
+		t.Fatalf("private fields lost: %v", record)
+	}
+}
+
+func TestClaudeDirsKeepProjectFiles(t *testing.T) {
+	home, project := scopeProject(t)
+	account := reclaudeDir(t, home, "1", `{}`)
+	ok(t)(ProjectServerOff(project, "fs", []string{"claude"}))
+	ok(t)(RemoveProject(project, true))
+	ok(t)(Sync())
+	if got := anyStrs(claudeRecord(t, account, project)["disabledMcpServers"]); !slices.Equal(got, []string{"fs"}) {
+		t.Fatalf("keep removed the project's disable: %v", got)
+	}
+	ok(t)(AddProject(project))
+	ok(t)(ProjectServerOff(project, "fs", []string{"claude"}))
+	ok(t)(RemoveProject(project, false))
+	if got := anyStrs(claudeRecord(t, account, project)["disabledMcpServers"]); !slices.Equal(got, []string{"fs"}) {
+		t.Fatalf("re-added project reclaimed the user's disable: %v", got)
 	}
 }
 

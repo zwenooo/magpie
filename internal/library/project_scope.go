@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/jsonc"
 	"github.com/yetone/magpie/internal/claudelock"
 	"github.com/yetone/magpie/internal/edit"
 	"github.com/yetone/magpie/internal/gateway"
@@ -165,13 +167,7 @@ func (l *Library) projectByKey(key string) *Project {
 // turns off in its disabledMcpServers; what magpie wrote there before and
 // no longer wants comes out, and nothing else of the record changes.
 func (l *Library) syncClaudeLocal(p *Project, hub *Server, fail func(what string, err error)) {
-	var want []string
-	for _, name := range offFor(p.ServersOff, "claude") {
-		if l.server(name) != nil {
-			want = append(want, name)
-		}
-	}
-	root := claudeRoot(p.Dir)
+	want := l.claudeOff(p)
 	if p.Claude == nil && hub == nil && len(want) == 0 {
 		return
 	}
@@ -188,32 +184,59 @@ func (l *Library) syncClaudeLocal(p *Project, hub *Server, fail func(what string
 		return
 	}
 	defer release()
-	// a record under another key (the folder became a repository's) goes
+	root := claudeRoot(p.Dir)
 	if p.Claude != nil && p.Claude.Root != root {
-		if err := clearClaudeLocal(path, p.Claude); err != nil {
+		if _, _, err := writeClaudeLocal(path, p.Claude.Root, p.Claude, nil, nil, nil); err != nil {
 			fail("claude", err)
 			return
 		}
 		p.Claude = nil
 	}
-	if hub == nil && len(want) == 0 && p.Claude == nil {
-		return
+	p.Claude, _, err = writeClaudeLocal(path, root, p.Claude, hub, want, nil)
+	if err != nil {
+		fail("claude", err)
 	}
-	k, ok := jsonKey(root)
-	if !ok {
-		fail("claude", fmt.Errorf("Claude Code's record of %s can't be written by magpie", root))
-		return
-	}
-	base := "projects." + k
-	if _, there := edit.GetJSONRaw(path, base); !there && (hub != nil || len(want) > 0) {
-		if err := edit.SetJSON(path, edit.KV{Path: base, Value: claudeDefaults()}); err != nil {
-			fail("claude", err)
-			return
+}
+
+func (l *Library) claudeOff(p *Project) []string {
+	var want []string
+	for _, name := range offFor(p.ServersOff, "claude") {
+		if l.server(name) != nil {
+			want = append(want, name)
 		}
 	}
+	return want
+}
+
+// writeClaudeLocal reconciles one project under the target file's Claude lock.
+// Receipts never cross account boundaries, even for the same project root.
+func writeClaudeLocal(path, root string, prev *claudeLocal, hub *Server, want []string, backup func() error) (*claudeLocal, bool, error) {
+	k, ok := jsonKey(root)
+	if !ok {
+		return prev, false, fmt.Errorf("Claude Code's record of %s can't be written by magpie", root)
+	}
+	base := "projects." + k
+	raw, err := edit.Read(path)
+	if err != nil {
+		return prev, false, err
+	}
+	plain := jsonc.ToJSON(raw)
+	if len(raw) > 0 && (!json.Valid(plain) || !gjson.ParseBytes(plain).IsObject()) {
+		return prev, false, fmt.Errorf("%s: expected a JSON object", path)
+	}
+	for _, key := range []string{"projects", base, base + ".mcpServers"} {
+		if value := gjson.GetBytes(plain, key); value.Exists() && !value.IsObject() {
+			return prev, false, fmt.Errorf("%s: expected an object at %s", path, key)
+		}
+	}
+	var put []edit.KV
+	var del []string
+	if !gjson.GetBytes(plain, base).Exists() && (hub != nil || len(want) > 0) {
+		put = append(put, edit.KV{Path: base, Value: claudeDefaults()})
+	}
 	rec := &claudeLocal{Root: root}
-	if p.Claude != nil {
-		rec.Servers, rec.Off = p.Claude.Servers, p.Claude.Off
+	if prev != nil {
+		rec.Servers, rec.Off = prev.Servers, prev.Off
 	}
 	// the hub's entry
 	var servers []string
@@ -221,85 +244,67 @@ func (l *Library) syncClaudeLocal(p *Project, hub *Server, fail func(what string
 		if hub != nil && name == hub.Name {
 			continue
 		}
-		if err := edit.DelJSON(path, base+".mcpServers."+name); err != nil {
-			fail("claude", err)
-			servers = append(servers, name)
+		key := base + ".mcpServers." + name
+		if gjson.GetBytes(plain, key).Exists() {
+			del = append(del, key)
 		}
 	}
+	var conflict error
 	if hub != nil {
 		var old map[string]any
-		if raw, ok := edit.GetJSONRaw(path, base+".mcpServers."+hub.Name); ok {
-			_ = json.Unmarshal([]byte(raw), &old)
-			if old != nil && !slices.Contains(rec.Servers, hub.Name) {
-				fail("claude", fmt.Errorf("Claude Code has a server called %s for %s already that isn't magpie's: it's left as it is", hub.Name, root))
-				old = nil
-				hub = nil
+		key := base + ".mcpServers." + hub.Name
+		value := gjson.GetBytes(plain, key)
+		raw, exists := value.Raw, value.Exists()
+		if exists && !slices.Contains(rec.Servers, hub.Name) {
+			conflict = fmt.Errorf("Claude Code has a server called %s for %s already that isn't magpie's: it's left as it is", hub.Name, root)
+		} else {
+			if exists {
+				if err := json.Unmarshal([]byte(raw), &old); err != nil {
+					return prev, false, err
+				}
 			}
-		}
-		if hub != nil {
-			if err := edit.SetJSON(path, edit.KV{Path: base + ".mcpServers." + hub.Name, Value: (&mcpFile{Format: fmtClaude}).merged(hub, old)}); err != nil {
-				fail("claude", err)
-			} else {
-				servers = append(servers, hub.Name)
+			body, err := json.Marshal((&mcpFile{Format: fmtClaude}).merged(hub, old))
+			if err != nil {
+				return prev, false, err
 			}
+			if !exists || !sameJSON(raw, string(body)) {
+				put = append(put, edit.KV{Path: key, Value: json.RawMessage(body)})
+			}
+			servers = append(servers, hub.Name)
 		}
 	}
 	rec.Servers = servers
 	// the servers turned off: the user's own names there stay theirs
 	var cur []string
-	if raw, ok := edit.GetJSONRaw(path, base+".disabledMcpServers"); ok {
-		_ = json.Unmarshal([]byte(raw), &cur)
-	}
-	next := slices.DeleteFunc(slices.Clone(cur), func(n string) bool { return slices.Contains(rec.Off, n) && !slices.Contains(want, n) })
-	var mine []string
-	for _, n := range want {
-		if !slices.Contains(cur, n) {
-			next = append(next, n)
-			mine = append(mine, n)
-		} else if slices.Contains(rec.Off, n) {
-			mine = append(mine, n)
+	if value := gjson.GetBytes(plain, base+".disabledMcpServers"); value.Exists() {
+		if err := json.Unmarshal([]byte(value.Raw), &cur); err != nil {
+			return prev, false, err
 		}
 	}
+	next, mine := offList(cur, rec.Off, want)
 	if !slices.Equal(next, cur) {
-		if next == nil {
-			next = []string{}
-		}
-		if err := edit.SetJSON(path, edit.KV{Path: base + ".disabledMcpServers", Value: next}); err != nil {
-			fail("claude", err)
-			mine = rec.Off
-		}
+		put = append(put, edit.KV{Path: base + ".disabledMcpServers", Value: next})
 	}
-	sort.Strings(mine)
 	rec.Off = mine
-	if len(rec.Servers) == 0 && len(rec.Off) == 0 {
-		p.Claude = nil
-		return
-	}
-	p.Claude = rec
-}
-
-// clearClaudeLocal takes what magpie wrote out of Claude Code's record
-// rec names, its lock held.
-func clearClaudeLocal(path string, rec *claudeLocal) error {
-	k, ok := jsonKey(rec.Root)
-	if !ok {
-		return nil
-	}
-	base := "projects." + k
-	for _, name := range rec.Servers {
-		if err := edit.DelJSON(path, base+".mcpServers."+name); err != nil {
-			return err
+	changed := len(put)+len(del) > 0
+	if changed {
+		body, err := edit.PatchJSON(raw, put, del)
+		if err != nil {
+			return prev, false, err
+		}
+		if backup != nil {
+			if err := backup(); err != nil {
+				return prev, false, err
+			}
+		}
+		if err := edit.WriteAtomic(path, body); err != nil {
+			return prev, false, err
 		}
 	}
-	var cur []string
-	if raw, ok := edit.GetJSONRaw(path, base+".disabledMcpServers"); ok {
-		_ = json.Unmarshal([]byte(raw), &cur)
+	if len(rec.Servers) == 0 && len(rec.Off) == 0 {
+		rec = nil
 	}
-	next := slices.DeleteFunc(slices.Clone(cur), func(n string) bool { return slices.Contains(rec.Off, n) })
-	if len(next) == len(cur) {
-		return nil
-	}
-	return edit.SetJSON(path, edit.KV{Path: base + ".disabledMcpServers", Value: append([]string{}, next...)})
+	return rec, changed, conflict
 }
 
 // codexOffRel is Codex's file in a project.

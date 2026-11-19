@@ -517,6 +517,9 @@ func RemoveProject(dir string, keep bool) (*Result, error) {
 			return fmt.Errorf("no project %s", dir)
 		}
 		if keep {
+			if err := forgetClaudeDirProject(claudeRoot(p.Dir)); err != nil {
+				return err
+			}
 			l.Projects = slices.DeleteFunc(l.Projects, func(x *Project) bool { return x == p })
 			return nil
 		}
