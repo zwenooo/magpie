@@ -106,3 +106,10 @@ jobs:
           source build/fork/release-version.sh
           make_latest=$(fork_release_latest "$VERSION" "$latest_tag")
           gh release edit "$REQUESTED_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest="$make_latest"
+
+  homebrew:
+    needs: publish
+    if: needs.publish.result == 'success'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/homebrew.yml

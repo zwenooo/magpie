@@ -1,18 +1,18 @@
 class Magpie < Formula
   desc "Pick the model each AI coding agent on your machine uses"
   homepage "https://github.com/zwenooo/magpie"
-  version "0.1.3140-vb.0.0.3"
+  version "0.1.4501-vb.0.0.1"
   license "MIT"
 
   on_macos do
     depends_on arch: :arm64
-    url "https://github.com/zwenooo/magpie/releases/download/va.0.1.3140-vb.0.0.3/magpie-cli-darwin-arm64"
-    sha256 "6cbcb8db273afabd2ba90b2fcdacb53e75c83410bb28cbeeb7154bf09c188cc0"
+    url "https://github.com/zwenooo/magpie/releases/download/va.0.1.4501-vb.0.0.1/magpie-cli-darwin-arm64"
+    sha256 "007290fc2a3a8e0e51d49362c077f9d6205130cf98db7ab3eed4f3d353b7970e"
   end
   on_linux do
     depends_on arch: :x86_64
-    url "https://github.com/zwenooo/magpie/releases/download/va.0.1.3140-vb.0.0.3/magpie-cli-linux-amd64"
-    sha256 "dcf95f8b98eb31f95f50c006930e1f846160ae1ebb1482328df4d6cfbb7e7cc4"
+    url "https://github.com/zwenooo/magpie/releases/download/va.0.1.4501-vb.0.0.1/magpie-cli-linux-amd64"
+    sha256 "b939afc4127615124c70f80a65421aec6685d9438215f80c1cd7ca1316cfe853"
   end
 
   def install

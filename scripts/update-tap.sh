@@ -38,7 +38,24 @@ sha() {  # $1 = SHA256SUMS contents, $2 = asset name
 
 latest_version() {
   curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" |
-    jq -er '.tag_name | select(type == "string" and length > 0)'
+    jq -er 'select(.draft == false and .prerelease == false) | .tag_name | select(type == "string" and length > 0)'
+}
+
+sync_latest() {
+  local tag version previous file eligible
+  tag=$(latest_version) || die "cannot determine the latest formal Release of $REPO"
+  parse_fork_release "$tag" || die "invalid fork release tag: $tag"
+  version=$release_version
+  for file in "$OUT/Formula/magpie.rb" "$OUT/Casks/magpie-app.rb"; do
+    previous=$(sed -n 's/^  version "\([^"]*\)"$/\1/p' "$file")
+    parse_fork_release "va.$previous" || die "invalid tap version in $file"
+    eligible=$(fork_release_latest "$version" "va.$previous")
+    if [[ "$eligible" == false ]]; then
+      echo "Tap is already newer ($previous); leaving it unchanged."
+      return
+    fi
+  done
+  render "$tag"
 }
 
 render() {
@@ -162,7 +179,8 @@ self_check() (
 )
 
 case "${1:-}" in
+  --sync-latest) sync_latest ;;
   --self-check) self_check ;;
-  "" | -h | --help) die "usage: update-tap.sh <va.X.Y.Z-vb.X.Y.Z>|--self-check" ;;
+  "" | -h | --help) die "usage: update-tap.sh <va.X.Y.Z-vb.X.Y.Z>|--sync-latest|--self-check" ;;
   *) render "$1" ;;
 esac

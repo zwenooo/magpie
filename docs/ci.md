@@ -118,8 +118,8 @@ source/version, unexpired artifacts, tag/main/official ancestry, and the same
 checksum gate. It downloads and uploads inside Actions, without running
 artifact binaries or rebuilding them. Draft recovery and Latest ordering match
 the normal release workflow; public releases cannot be overwritten. Promotion
-does not update Homebrew automatically; run the existing tap update separately
-after publication. Its scripts come from the trusted `main` workflow commit.
+uses the same Homebrew sync as a formal tag release after publication. Its
+verification scripts come from the trusted `main` workflow commit.
 
 ## Optional credentials and services
 

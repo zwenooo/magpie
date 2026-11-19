@@ -64,13 +64,30 @@ esac
 SH
 chmod +x "$work/bin/curl"
 export PATH="$work/bin:$PATH" TAP_TEST_TAG="$tag" TAP_TEST_SUMS="$work/sums" TAP_TEST_JSON="$work/release.json"
-for json in "{\"name\":\"Release\",\"tag_name\":\"$tag\"}" "{ \"tag_name\" : \"$tag\" }"; do
+for json in "{\"draft\":false,\"prerelease\":false,\"tag_name\":\"$tag\"}" "{ \"tag_name\" : \"$tag\", \"draft\":false, \"prerelease\":false }"; do
   printf '%s\n' "$json" > "$TAP_TEST_JSON"
   bash "$root/scripts/update-tap.sh" --self-check
 done
-for json in '{}' '{"tag_name":null}' '{"tag_name":42}' '{"tag_name":"v0.1.1725"}' '{broken'; do
+cp -R "$work/out" "$work/before"
+export TAP_OUT_DIR="$work/out" TAP_TEST_TAG=va.0.1.1725-vb.0.0.10
+formal() { printf '{"draft":false,"prerelease":false,"tag_name":"%s"}\n' "$1" > "$TAP_TEST_JSON"; }
+formal "$TAP_TEST_TAG"
+bash "$root/scripts/update-tap.sh" --sync-latest
+TAP_OUT_DIR="$work/expected" bash "$root/scripts/update-tap.sh" "$TAP_TEST_TAG"
+diff -r "$work/expected" "$TAP_OUT_DIR"
+bash "$root/scripts/update-tap.sh" --sync-latest
+diff -r "$work/expected" "$TAP_OUT_DIR"
+formal va.0.1.1725-vb.0.0.9
+for ahead in Formula Casks; do
+  cp -R "$work/before/." "$TAP_OUT_DIR"
+  cp -R "$work/expected/$ahead/." "$TAP_OUT_DIR/$ahead"
+  cp -R "$TAP_OUT_DIR" "$work/mixed-$ahead"
+  bash "$root/scripts/update-tap.sh" --sync-latest
+  diff -r "$work/mixed-$ahead" "$TAP_OUT_DIR"
+done
+for json in '{}' '{"tag_name":null}' '{"tag_name":42}' '{"tag_name":"v0.1.1725"}' '{broken' "{\"draft\":true,\"prerelease\":false,\"tag_name\":\"$TAP_TEST_TAG\"}" "{\"draft\":false,\"prerelease\":true,\"tag_name\":\"$TAP_TEST_TAG\"}"; do
   printf '%s\n' "$json" > "$TAP_TEST_JSON"
-  if bash "$root/scripts/update-tap.sh" --self-check; then
+  if bash "$root/scripts/update-tap.sh" --sync-latest; then
     echo "invalid latest release metadata accepted: $json" >&2; exit 1
   fi
 done

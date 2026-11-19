@@ -27,7 +27,10 @@ test('accepts only a completed successful own Release run', () => {
 test('all 17 required jobs must pass; only publication jobs may be skipped', () => {
   assert.equal(requiredJobs.length, 17);
   assert.equal(validateJobs(run, jobs), 1);
-  validateJobs(run, [...jobs, { ...jobs[0], name: 'publish', conclusion: 'skipped' }]);
+  for (const name of ['publish', 'homebrew', 'homebrew / sync']) {
+    validateJobs(run, [...jobs, { ...jobs[0], name, conclusion: 'skipped' }]);
+  }
+  assert.throws(() => validateJobs(run, [...jobs, { ...jobs[0], name: 'homebrew / other', conclusion: 'skipped' }]));
   assert.throws(() => validateJobs(run, jobs.slice(1)));
   assert.throws(() => validateJobs(run, [...jobs, jobs[0]]));
   for (const patch of [{ conclusion: 'skipped' }, { conclusion: 'failure' }, { run_attempt: 2 }, { head_sha: 'b'.repeat(40) }]) {

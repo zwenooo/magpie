@@ -1,0 +1,29 @@
+name: Sync published Homebrew tap
+
+on: workflow_call
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: github.repository == 'zwenooo/magpie'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: homebrew-tap
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          ref: main
+      - name: Sync the tap to the current public Latest
+        shell: bash
+        run: |
+          bash scripts/update-tap.sh --sync-latest
+          git add Formula/magpie.rb Casks/magpie-app.rb
+          git diff --cached --quiet && exit 0
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'brew: sync downloads to the published Latest release'
+          git push origin HEAD:main

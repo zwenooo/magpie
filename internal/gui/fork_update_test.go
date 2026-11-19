@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -44,8 +45,15 @@ func TestForkUpdateCheckAndDownload(t *testing.T) {
 			payload := []byte("fork update fixture")
 			sum := sha256.Sum256(payload)
 			var downloads atomic.Int32
+			releaseNotes := make(chan struct{})
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
+				case "/notes":
+					<-releaseNotes
+					if r.URL.Query().Get("after") != current || r.URL.Query().Get("upto") != latest {
+						t.Errorf("wrong notes range: %s", r.URL.RawQuery)
+					}
+					json.NewEncoder(w).Encode(map[string]any{"releases": []update.Note{{Version: latest, Notes: "**Urgent release:** fixture"}}})
 				case "/latest":
 					json.NewEncoder(w).Encode(update.Release{Version: latest, URL: page, Notes: "Fork update fixture notes.", Assets: map[string]update.Asset{
 						update.BinaryAsset(): {URL: "http://" + r.Host + "/asset", Size: int64(len(payload)), SHA256: hex.EncodeToString(sum[:])},
@@ -63,6 +71,7 @@ func TestForkUpdateCheckAndDownload(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 			t.Setenv("MAGPIE_UPDATE_FEED", server.URL+"/latest")
+			t.Setenv("MAGPIE_NOTES_FEED", server.URL+"/notes")
 			oldVersion, oldUpdates := Version, updates
 			Version = current
 			t.Cleanup(func() { Version, updates = oldVersion, oldUpdates })
@@ -79,6 +88,11 @@ func TestForkUpdateCheckAndDownload(t *testing.T) {
 			}
 			before := forkUpdateExecutableHash(t, exe)
 			u := &updater{exe: exe}
+			finishNotes := sync.OnceFunc(func() {
+				close(releaseNotes)
+				u.noteChecks.Wait()
+			})
+			t.Cleanup(finishNotes)
 			u.self, err = os.Stat(exe)
 			if err != nil {
 				t.Fatal(err)
@@ -140,6 +154,11 @@ func TestForkUpdateCheckAndDownload(t *testing.T) {
 				if body, err := os.ReadFile(u.staged); err != nil || !bytes.Equal(body, payload) {
 					t.Fatalf("staged file differs from verified payload: %v", err)
 				}
+			}
+			Version = latest
+			finishNotes()
+			if u.behind.Base != current || u.behind.Urgent != latest {
+				t.Fatalf("late notes recorded against the wrong release: %+v", u.behind)
 			}
 		})
 	}

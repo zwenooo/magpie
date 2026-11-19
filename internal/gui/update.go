@@ -119,6 +119,8 @@ type updater struct {
 	// for followReplaced to restart into.
 	installed bool
 	followed  bool
+
+	noteChecks sync.WaitGroup
 }
 
 type updateJSON struct {
@@ -638,7 +640,8 @@ func (u *updater) run() {
 		if u.behind.Urgent == "" {
 			// an urgent release between this one and the latest: its
 			// notes aren't the latest's
-			go u.urgentBetween(rel.Version, lang)
+			current, latest := Version, rel.Version
+			u.noteChecks.Go(func() { u.urgentBetween(current, latest, lang) })
 		}
 	}
 	switch {
@@ -868,16 +871,16 @@ func (u *updater) jsonIn(lang string) updateJSON {
 
 // urgentBetween notes it when a release after this one up to latest is
 // urgent: a security fix a few releases back isn't in the latest's notes.
-func (u *updater) urgentBetween(latest, lang string) {
+func (u *updater) urgentBetween(current, latest, lang string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	notes, err := update.NotesBetween(ctx, Version, latest, lang)
+	notes, err := update.NotesBetween(ctx, current, latest, lang)
 	if err != nil {
 		return
 	}
 	for _, n := range notes {
 		if update.UrgentIn(n.Notes) {
-			b := update.NoteUrgent(Version, n.Version)
+			b := update.NoteUrgent(current, n.Version)
 			u.mu.Lock()
 			u.behind = b
 			u.mu.Unlock()
