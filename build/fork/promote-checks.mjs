@@ -51,7 +51,7 @@ export function validateJobs(run, jobs) {
     assert.equal(job.run_attempt, run.run_attempt, 'Job belongs to another attempt');
     assert.equal(job.head_sha, run.head_sha, 'Job source SHA mismatch');
     assert.equal(job.status, 'completed', `Unfinished job: ${job.name}`);
-    const skippedPublish = ['publish', 'homebrew'].includes(job.name) && job.conclusion === 'skipped';
+    const skippedPublish = ['publish', 'homebrew', 'homebrew / sync'].includes(job.name) && job.conclusion === 'skipped';
     assert(job.conclusion === 'success' || skippedPublish, `Job did not pass: ${job.name}`);
     byName.set(job.name, job);
   }

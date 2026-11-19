@@ -595,40 +595,6 @@ jobs:
   homebrew:
     needs: [prepare, publish]
     if: needs.publish.result == 'success' && needs.prepare.outputs.prerelease == 'false'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    concurrency:
-      group: homebrew-tap
-      cancel-in-progress: false
     permissions:
       contents: write
-    env:
-      VERSION: ${{ needs.prepare.outputs.version }}
-      TAG: ${{ needs.prepare.outputs.tag }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
-      - uses: actions/download-artifact@v4
-        with:
-          name: release-bundle
-          path: ${{ runner.temp }}/release
-      - name: Update this fork's Homebrew formula and cask
-        env:
-          TAP_SUMS_FILE: ${{ runner.temp }}/release/SHA256SUMS
-        run: |
-          set -euo pipefail
-          # Releasing an older stable tag must not downgrade the tap.
-          previous=$(sed -n 's/^  version "\([^"]*\)"/\1/p' Casks/magpie-app.rb 2>/dev/null || true)
-          if [ -n "$previous" ] && [ "$(printf '%s\n%s\n' "$VERSION" "$previous" | sort -V | tail -1)" != "$VERSION" ]; then
-            echo "Tap is already newer ($previous); leaving it unchanged."
-            exit 0
-          fi
-          bash scripts/update-tap.sh "$TAG"
-          git add Formula/magpie.rb Casks/magpie-app.rb
-          git diff --cached --quiet && exit 0
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m "brew: update fork downloads to $VERSION"
-          git push origin HEAD:main
+    uses: ./.github/workflows/homebrew.yml
