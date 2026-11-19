@@ -211,6 +211,7 @@ func TestSettingsSaveKeepsWhatItDoesNotSend(t *testing.T) {
 		AgentTelemetryOff:    true,
 		RedactModel:          true,
 		RedactModelName:      "astrlink-guard",
+		RedactModelDir:       filepath.Join(t.TempDir(), "models"),
 		RedactModelScore:     map[string]float64{"astrlink-guard": 0.9},
 		RedactRouteTo:        "fake/m1",
 	}
