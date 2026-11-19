@@ -5,7 +5,21 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/yetone/magpie/internal/update"
 )
+
+func TestForkContainerPullForOfferedRelease(t *testing.T) {
+	for version, want := range map[string]string{
+		"0.1.400-vb.0.0.1": "docker pull ghcr.io/zwenooo/magpie:va.0.1.400-vb.0.0.1",
+		"0.1.400":          "",
+	} {
+		u := &updater{state: "available", stuck: "container", latest: &update.Release{Version: version}}
+		if got := u.json().Pull; got != want {
+			t.Errorf("%s: got %q, want %q", version, got, want)
+		}
+	}
+}
 
 // The Docker image runs /magpie as nonroot, in a folder it may not write
 // to and with no password prompt, so the page said "move it to a folder you

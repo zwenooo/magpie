@@ -23,6 +23,15 @@ var (
 
 var forkVersion = lazyre.New(`^(?:va\.|v)?((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)-vb\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))$`)
 
+func UsesForkFeed() bool { return Feed() == forkUpdateFeed }
+
+func ContainerPull(version string) string {
+	if !forkVersion.MatchString(version) {
+		return ""
+	}
+	return "docker pull ghcr.io/zwenooo/magpie:" + forkReleaseTag(version)
+}
+
 // The public tag names both origins; the binary retains a numeric SemVer
 // for existing version parsers and native application metadata.
 func forkReleaseTag(version string) string {

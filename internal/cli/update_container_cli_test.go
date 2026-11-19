@@ -22,7 +22,7 @@ func TestUpdateInContainerSaysPullTheImage(t *testing.T) {
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// no checksum: a download is refused before anything is fetched or written
-		json.NewEncoder(w).Encode(update.Release{Version: "0.1.11", URL: "https://github.com/yetone/magpie-releases/releases/tag/v0.1.11",
+		json.NewEncoder(w).Encode(update.Release{Version: "0.1.11-vb.0.0.1", URL: update.ReleasePage("0.1.11-vb.0.0.1"),
 			Assets: map[string]update.Asset{update.BinaryAsset(): {URL: "http://" + r.Host + "/asset"}}})
 	}))
 	defer srv.Close()
@@ -44,7 +44,7 @@ func TestUpdateInContainerSaysPullTheImage(t *testing.T) {
 
 	updateInContainer = func() bool { return true }
 	err := updateCmd([]string{"update"})
-	if err == nil || !strings.Contains(err.Error(), "docker pull ghcr.io/yetone/magpie:latest") {
+	if err == nil || !strings.Contains(err.Error(), "docker pull ghcr.io/zwenooo/magpie:va.0.1.11-vb.0.0.1") {
 		t.Fatalf("in a container: %v", err)
 	}
 

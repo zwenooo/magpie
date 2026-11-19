@@ -4625,7 +4625,7 @@ function servedAnew(u) {
 function updateStuck(u) {
   const p = u.packaged;
   if (p) return p.command ? t("{manager} installed magpie ({pkg}), so {manager} updates it, not magpie: {cmd}", { manager: p.manager, pkg: p.package, cmd: p.command }) : t("{manager} installed magpie, so {manager} updates it, not magpie.", { manager: p.manager });
-  if (u.stuck === "container") return t("magpie runs in a container, so it can't update itself; pull the new image (docker pull ghcr.io/yetone/magpie:latest) and recreate the container.");
+  if (u.stuck === "container") return u.pull ? t("Pull the new image ({cmd}) and recreate the container.", { cmd: u.pull }) : t("Pull the new image and recreate the container.");
   if (u.stuck === "not-writable") return t("magpie can't write to the folder it runs from ({dir}), so it can't update itself; move it to a folder you can write to and open it from there.", { dir: u.stuckDir || "" });
   return u.stuck === "translocated"
     ? t("macOS is running magpie from a temporary copy, so it can't update itself; move magpie to Applications and open it from there.")
@@ -20326,7 +20326,7 @@ function renderSettings() {
   // automatic updates off.
   const uc = ["stable", "daily"].includes(s.updateChannel) ? s.updateChannel : "every";
   row(t("Update channel"), t(uc === "stable" ? "One version a week, out for three days first, and urgent fixes at once. What's new lists every change since yours"
-    : uc === "daily" ? "One version a day, the newest that passed its tests, and urgent fixes at once. What's new lists every change since yours" : "Every version as soon as it is out"), "",
+    : uc === "daily" ? "One version a day at 20:00 UTC; urgent fixes at once" : "Every version as soon as it is out"), "",
     segs([["every", t("Every version")], ["daily", t("Daily")], ["stable", t("Stable")]], uc,
       (v) => savePrefs({ ...keep, updateChannel: v === "every" ? "" : v }))).classList.add("update-channel-row");
   // whether a newer version found is downloaded at once, or only said to
@@ -20365,8 +20365,9 @@ function renderSettings() {
     row(who, t("MAGPIE_PUBLIC_URL: where other computers reach the gateway, with a gateway key"), s.publicURL, copyBtn(s.publicURL, who)).id = "publicURLRow";
   }
   const site = el("button", "text", t("Open"));
-  site.onclick = () => api("open", { url: "https://usemagpie.ai" }).catch(() => {});
-  row(t("Website"), t("downloads, docs and what's new"), "usemagpie.ai", site);
+  const releases = "github.com/zwenooo/magpie/releases";
+  site.onclick = () => api("open", { url: "https://" + releases }).catch(statusErr);
+  row(t("Website"), t("What's new"), releases, site);
   const lic = el("button", "text", t("View"));
   lic.onclick = showNotices;
   row(t("Open-source licenses"), t("the notices of the code and data magpie is built with"), "", lic);
@@ -20379,8 +20380,8 @@ function renderSettings() {
   const repo = el("button", "github");
   repo.innerHTML = GITHUB_SVG;
   repo.append(el("span", "", "GitHub"));
-  repo.title = "github.com/yetone/magpie";
-  repo.onclick = () => api("open", { url: "https://github.com/yetone/magpie" }).catch(() => {});
+  repo.title = "github.com/zwenooo/magpie";
+  repo.onclick = () => api("open", { url: "https://" + repo.title }).catch(statusErr);
   row(t("Community"), t("questions, ideas and feedback, on Discord or GitHub"), "", join, repo);
   // the facts that help a fix, copied (never put in the link), then the
   // feedback post on X, to reply to there (River_WLan on X)

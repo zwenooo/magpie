@@ -300,13 +300,10 @@ var (
 // swap: the zip's magpie.app is renamed over the bundle, signed by the
 // same team (sameSigner), and the bare binary is renamed over itself.
 //
-// The same on Windows: an x64 magpie on an Arm64 computer, emulated,
-// updates to the arm64 exe (@EV_John_Liu on X, "magpie是转译的"). The swap
-// is the x64 one: canStart starts the download, which runs natively there,
-// the running exe is moved aside and the arm64 one renamed in under its
-// name, and magpie.com is written again from the new app's own launcher.
+// Windows x64 under emulation stays x64 for the fork's release matrix.
+// Other feeds retain the native Windows-on-Arm upgrade.
 func arch() string {
-	if goarch == "amd64" && (goos == "darwin" && translated() || goos == "windows" && emulated()) {
+	if goarch == "amd64" && (goos == "darwin" && translated() || goos == "windows" && !UsesForkFeed() && emulated()) {
 		return "arm64"
 	}
 	return goarch

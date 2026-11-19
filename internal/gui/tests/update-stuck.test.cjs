@@ -24,13 +24,13 @@ const words = {
 };
 
 const folder = { state: "available", current: "0.1.400", latest: "0.1.401", url: "https://github.com/yetone/magpie-releases/releases/tag/v0.1.401", stuck: "not-writable", stuckDir: DIR };
-const container = { state: "available", current: "0.1.400", latest: "0.1.401", url: "https://github.com/yetone/magpie-releases/releases/tag/v0.1.401", stuck: "container" };
+const container = { state: "available", current: "0.1.400", latest: "0.1.401-vb.0.0.1", url: "https://github.com/zwenooo/magpie/releases/tag/va.0.1.401-vb.0.0.1", stuck: "container", pull: "docker pull ghcr.io/zwenooo/magpie:va.0.1.401-vb.0.0.1" };
 const pull = {
-  en: "magpie runs in a container, so it can't update itself; pull the new image (docker pull ghcr.io/yetone/magpie:latest) and recreate the container.",
-  zh: "magpie 运行在容器里，无法自动更新；请拉取新镜像（docker pull ghcr.io/yetone/magpie:latest）并重新创建容器。",
-  "zh-TW": "magpie 在容器中執行，無法自動更新；請拉取新映像（docker pull ghcr.io/yetone/magpie:latest）並重新建立容器。",
-  ja: "magpie はコンテナで実行されているため、自動アップデートできません。新しいイメージを取得し（docker pull ghcr.io/yetone/magpie:latest）、コンテナを作り直してください。",
-  de: "magpie läuft in einem Container und kann sich daher nicht selbst aktualisieren; laden Sie das neue Image (docker pull ghcr.io/yetone/magpie:latest) und erstellen Sie den Container neu.",
+  en: "Pull the new image (docker pull ghcr.io/zwenooo/magpie:va.0.1.401-vb.0.0.1) and recreate the container.",
+  zh: "请拉取新镜像（docker pull ghcr.io/zwenooo/magpie:va.0.1.401-vb.0.0.1）并重新创建容器。",
+  "zh-TW": "請拉取新映像（docker pull ghcr.io/zwenooo/magpie:va.0.1.401-vb.0.0.1）並重新建立容器。",
+  ja: "新しいイメージを取得し（docker pull ghcr.io/zwenooo/magpie:va.0.1.401-vb.0.0.1）、コンテナを作り直してください。",
+  de: "Laden Sie das neue Image (docker pull ghcr.io/zwenooo/magpie:va.0.1.401-vb.0.0.1) und erstellen Sie den Container neu.",
 };
 const cases = [
   { name: "a magpie that can't write to its folder says why it can't update", update: folder, langs: ["en", "zh", "ja", "de"], why: (lang) => words[lang].why },

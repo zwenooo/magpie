@@ -51,7 +51,7 @@ const strings = [
   "update it there",
   "That magpie is too old to be updated from here: update it on that computer once.",
   "Updating it from here takes a gateway key with full access there; this provider's key is read-only or held.",
-  "It runs in a container: pull the new image (docker pull ghcr.io/yetone/magpie:latest) and recreate the container.",
+  "Pull the new image ({cmd}) and recreate the container.",
   "{manager} installed it there: update it with {manager}.",
   "{manager} installed it there: update it with {cmd}",
   "It was built from source: update it the way it was built.",
@@ -60,7 +60,7 @@ const strings = [
 
 const rows = [
   remote("home", "Home", { remoteUpdate: { say: "updating to {v}", tip: strings[2], v: "v0.1.200" } }),
-  remote("nas", "NAS", { remoteUpdate: { say: "can't update itself", tip: strings[8] } }),
+  remote("nas", "NAS", { remoteUpdate: { say: "can't update itself", tip: strings[8], cmd: "docker pull ghcr.io/zwenooo/magpie:va.0.1.200-vb.0.0.1" } }),
   remote("arch", "Arch", { remoteUpdate: { say: "can't update itself", tip: strings[10], manager: "pacman", cmd: "yay -S magpie-bin" } }),
   remote("lab", "Lab", { remoteUpdate: { say: "automatic updates off", tip: strings[4] } }),
   remote("old", "Old", { remoteUpdate: { say: "update it there", tip: strings[6] } }),
@@ -89,7 +89,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           const tip = await rup(name).getAttribute("title");
           assert.ok(tip.length > 20, `${name}'s tip says why: ${tip}`);
         }
-        assert.match(await rup("NAS").getAttribute("title"), /docker pull ghcr\.io\/yetone\/magpie:latest/);
+        assert.match(await rup("NAS").getAttribute("title"), /docker pull ghcr\.io\/zwenooo\/magpie:va\.0\.1\.200-vb\.0\.0\.1/);
         assert.match(await rup("Arch").getAttribute("title"), /yay -S magpie-bin/);
         assert.match(await rup("Arch").getAttribute("title"), /pacman/);
         assert.match(await rup("Home").getAttribute("title"), /v0\.1\.200/);

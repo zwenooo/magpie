@@ -3419,6 +3419,12 @@ with a link builder: <https://usemagpie.ai/docs/import>.
 
 ## Install
 
+This section describes the upstream distribution. For this fork use
+[Build and update](../FORK.md#build-and-update) and the [fork update
+contract](ci.md#application-updates) for its downloads, checksum trust,
+container tags and channel selection; the upstream site, signing policy
+and automatic Stable selection below do not apply to fork releases.
+
 Download the app for macOS, Windows or Linux from
 [usemagpie.ai](https://usemagpie.ai), or install it from a terminal (on
 Linux, the desktop app, with WebKitGTK 4.1 installed for it on a desktop

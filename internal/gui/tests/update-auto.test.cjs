@@ -7,8 +7,8 @@
 // The rows are in Settings' About tab. No click moves the page. The
 // switch's line says it checks: whether what it finds is downloaded at once
 // is Download updates automatically's (#3893). On hover the switch's
-// card also says why an update can be trusted: its signed checksums and its
-// SLSA build attestation (ArcticLampyrid on X), with a small mark on its
+// card also says why an update can be trusted: its release checksums and the
+// mirror trust boundary, with a small mark on its
 // name; no section of its own. English and Chinese; no backend, the API is
 // faked.
 const assert = require("node:assert/strict");
@@ -23,10 +23,10 @@ const assets = path.resolve(__dirname, "../assets");
 const words = {
   en: { auto: "Automatic updates", every: "Update check interval", off: "Off", on: "On", m30: "30 min", h6: "6 h", h24: "24 h",
     version: "Version", check: "Check", isOff: "Automatic updates are off", latest: "Up to date", whileOn: "While automatic updates are on", often: "How often magpie looks for a newer version",
-    what: "Checks for a newer magpie by itself", signed: "ed25519", attested: "Sigstore" },
+    what: "Checks for a newer magpie by itself", checksum: "SHA-256", repo: "zwenooo/magpie" },
   zh: { auto: "自动更新", every: "检查更新间隔", off: "关闭", on: "开启", m30: "30 分钟", h6: "6 小时", h24: "24 小时",
     version: "版本", check: "检查", isOff: "自动更新已关闭", latest: "已是最新", whileOn: "自动更新开启时生效", often: "magpie 多久检查一次新版本",
-    what: "自动检查 magpie 新版本", signed: "ed25519", attested: "Sigstore" },
+    what: "自动检查 magpie 新版本", checksum: "SHA-256", repo: "zwenooo/magpie" },
 };
 
 function settingsPayload(lang, ctl) {
@@ -131,7 +131,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const card = page.locator(".set-hint.on");
         await card.waitFor();
         const said = await card.textContent();
-        assert.ok(said.includes(w.what) && said.includes(w.signed) && said.includes(w.attested), "the card doesn't say why an update is safe: " + said);
+        assert.ok(said.includes(w.what) && said.includes(w.checksum) && said.includes(w.repo), "the card doesn't say why an update is safe: " + said);
+        assert.doesNotMatch(said, /Sigstore|ed25519|SLSA/i);
         await page.mouse.move(1, 1);
         await page.locator(".set-hint").waitFor({ state: "hidden" });
         assert.equal((await every.locator(".opt.on").innerText()).trim(), w.h6);
