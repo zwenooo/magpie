@@ -1048,6 +1048,11 @@ for a plugin that does not update by itself. See
 
 ### When an update downloads
 
+For the fork, Settings › About opens the fork's Releases page. Its trust
+hint describes the release SHA-256 manifest, not upstream's signed feed.
+The local and remote container hints name the requested release image (no
+floating tag). See the [fork update contract](../../FORK.md#build-and-update).
+
 With downloads automatic (`NoAutoDownload` off, the default), a version
 magpie finds is downloaded at once, in the background, by whichever check
 found it: the clock's (`checkByClock`, 5 s after start, then every

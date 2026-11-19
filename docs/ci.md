@@ -108,7 +108,10 @@ are rejected. An older publication does not replace a newer Latest release.
 No tag or public Release is created by merely migrating this CI or running
 a build-only dispatch. Docker is separate: version tags produce a manifest
 tagged with the complete public tag, such as `:va.0.1.1725-vb.0.0.1`; a
-dispatch on `main` publishes `ghcr.io/zwenooo/magpie:edge`.
+dispatch on `main` publishes `ghcr.io/zwenooo/magpie:edge`. Container update
+instructions use the target release's complete `va.…-vb.…` tag, not `:edge`,
+`:latest`, `:stable` or `:daily`. There is no fork image tag for an ordinary
+upstream version supplied by a custom feed.
 
 An explicitly versioned build-only Release run on `main` (a dispatch) can also be published
 with **Promote verified release** after it completes successfully. Create the
@@ -177,7 +180,11 @@ replaced by someone able to write to it. Because the Team IDs differ, an
 installed ad-hoc app refuses a Developer ID signed update, and the reverse;
 the first signed release needs one manual installation.
 
-The default channel offers the highest formal fork version. The Stable
+The default channel offers the highest formal fork version, including on a
+fresh install; the version installed does not imply a channel preference.
+Daily selects the highest formal release published by the most recent 20:00 UTC,
+without querying an upstream CI ledger. Urgent releases bypass this cutoff.
+The Stable
 channel preserves upstream's weekly rule: at Monday 00:00 UTC, select the
 newest release published at least 72 hours earlier; a newer release whose
 notes contain `**Urgent release:**` can be offered immediately. Ineligible

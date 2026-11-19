@@ -78,7 +78,7 @@ func updateAutoCmd(args []string) error {
 }
 
 // updateMirrorCmd is `magpie update mirror [<prefix>|off]`: the GitHub
-// download mirror an update goes through when usemagpie.ai's file fails, the app's own among them
+// asset mirror for downloads, not for the release metadata or checksums
 // (settings.UpdateMirror). With nothing, it says which.
 func updateMirrorCmd(args []string) error {
 	s := settings.Load()
@@ -100,10 +100,10 @@ func updateMirrorCmd(args []string) error {
 		}
 	}
 	if s.UpdateMirror == "" {
-		fmt.Println("updates are downloaded from usemagpie.ai, and from GitHub when that fails", muted.Render("· magpie update mirror <prefix> has GitHub's come through a mirror; the checksum is still usemagpie.ai's"))
+		fmt.Println("fork updates are downloaded from GitHub Releases (zwenooo/magpie)", muted.Render("· magpie update mirror <prefix> mirrors assets, not the release SHA-256 checksums"))
 		return nil
 	}
-	fmt.Println("updates are downloaded from usemagpie.ai, and through", bold.Render(s.UpdateMirror), "when that fails", muted.Render("· each is checked against usemagpie.ai's checksum · magpie update mirror off goes back to GitHub"))
+	fmt.Println("fork update assets are downloaded through", bold.Render(s.UpdateMirror), muted.Render("· SHA-256 checksums come directly from GitHub Releases (zwenooo/magpie) · magpie update mirror off goes back to GitHub"))
 	return nil
 }
 
@@ -137,7 +137,7 @@ func updateChannelCmd(args []string) error {
 		fmt.Println("update channel: stable", muted.Render("· a version a week, the newest out three days as the week began, and an urgent one at once · magpie update channel daily: one a day · every: each one as it comes out"))
 		return nil
 	case settings.UpdateDaily:
-		fmt.Println("update channel: daily", muted.Render("· a version a day, the newest that passed its tests, and an urgent one at once · magpie update channel stable: one a week · every: each one as it comes out"))
+		fmt.Println("update channel: daily", muted.Render("· the newest fork release out by 20:00 UTC each day, and an urgent one at once · magpie update channel stable: one a week · every: each one as it comes out"))
 		return nil
 	}
 	fmt.Println("update channel: every version", muted.Render("· each one as it comes out · magpie update channel daily: one a day · stable: one a week; an urgent one at once on both"))
@@ -278,7 +278,10 @@ func updateCmd(args []string) error {
 	// the Docker image's /magpie, run as nonroot: the image is what is
 	// updated, and a replace would only fail with "permission denied"
 	if exe, err := updateExecutable(); err == nil && !update.Writable(filepath.Dir(exe)) && !updateCanElevate() && updateInContainer() {
-		return fmt.Errorf("this magpie runs in a container and can't replace itself; pull the new image (docker pull ghcr.io/yetone/magpie:latest) and recreate the container")
+		if cmd := update.ContainerPull(rel.Version); cmd != "" {
+			return fmt.Errorf("this magpie runs in a container; pull the new image (%s) and recreate the container", cmd)
+		}
+		return fmt.Errorf("this magpie runs in a container; pull the new image and recreate the container")
 	}
 	// a package manager's binary (Homebrew's, pacman's magpie-bin from
 	// the AUR, a .deb's): replaced under it, the manager's database names

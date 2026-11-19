@@ -34,7 +34,7 @@ func takeStable(ctx context.Context) {
 	if !freshInstall.Load() {
 		return
 	}
-	if !update.Released(Version) || settings.Shared().UpdateChannel != "" {
+	if update.UsesForkFeed() || !update.Released(Version) || settings.Shared().UpdateChannel != "" {
 		freshInstall.Store(false)
 		return
 	}

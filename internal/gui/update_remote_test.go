@@ -101,6 +101,9 @@ func TestUpdateAskedByAnotherMagpie(t *testing.T) {
 // the page translates: updating for a while, or why it didn't, with the
 // command a container or a package manager is updated by.
 func TestRemoteUpdateNote(t *testing.T) {
+	oldVersion := Version
+	t.Cleanup(func() { Version = oldVersion })
+	Version = "0.1.200-vb.0.0.2"
 	provider.ForgetRemoteUpdatesForTest()
 	t.Cleanup(provider.ForgetRemoteUpdatesForTest)
 	now := time.Now()
@@ -112,7 +115,7 @@ func TestRemoteUpdateNote(t *testing.T) {
 		say, tip string
 	}{
 		{provider.RemoteUpdate{State: "updating", Version: "v0.1.200"}, "updating to {v}", "{v}"},
-		{provider.RemoteUpdate{State: "unsupported", Why: "container"}, "can't update itself", "docker pull ghcr.io/yetone/magpie:latest"},
+		{provider.RemoteUpdate{State: "unsupported", Why: "container", Version: "0.1.200-vb.0.0.1"}, "can't update itself", "{cmd}"},
 		{provider.RemoteUpdate{State: "unsupported", Why: "package", Manager: "Homebrew", Command: "brew upgrade magpie"}, "can't update itself", "{cmd}"},
 		{provider.RemoteUpdate{State: "unsupported", Why: "not-writable"}, "can't update itself", "update it there"},
 		{provider.RemoteUpdate{State: "off"}, "automatic updates off", "turned off"},
@@ -122,6 +125,9 @@ func TestRemoteUpdateNote(t *testing.T) {
 	for _, c := range cases {
 		provider.SetRemoteUpdateForTest("office", c.out)
 		j := remoteUpdateNote("office", now)
+		if c.out.Why == "container" && (j == nil || j.Cmd != "docker pull ghcr.io/zwenooo/magpie:va.0.1.200-vb.0.0.2") {
+			t.Fatalf("remote container target: %+v", j)
+		}
 		if j == nil || j.Say != c.say || !strings.Contains(j.Tip, c.tip) {
 			t.Errorf("%+v: %+v", c.out, j)
 		}

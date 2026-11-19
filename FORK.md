@@ -207,11 +207,14 @@ from this repository, requires this computer's own files (its binary, and on
 a Mac the app's zip), the notices and the SHA-256 manifest, and passes
 verified asset metadata to the existing updater. A release may leave other
 systems out: from `va.0.1.3001-vb.0.0.2` releases build only Windows x64,
-macOS Apple Silicon and Linux x64.
+macOS Apple Silicon and Linux x64. An x64 GUI or CLI running under Windows
+on Arm emulation therefore updates to x64, not an unpublished Arm64 exe.
 It does not discover official upstream binaries or privacy-filter releases.
-The default channel offers each formal fork release. Stable keeps upstream's
-weekly selection: the newest release already three days old at Monday
-00:00 UTC, or a newer release marked urgent.
+Every version is the default, even on a fresh install of the release that
+currently qualifies for Stable. Daily selects the highest formal fork version
+published by the most recent 20:00 UTC. Stable selects the highest published
+at least 72 hours before Monday 00:00 UTC. A newer urgent release is offered
+immediately on either channel; neither channel queries upstream CI or tags.
 
 The application's existing automatic-check, automatic-download and restart
 settings still control when an update is fetched and installed. Setting

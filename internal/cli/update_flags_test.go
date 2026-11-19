@@ -2,6 +2,7 @@ package cli
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/yetone/magpie/internal/settings"
@@ -29,6 +30,12 @@ func TestUpdateFlags(t *testing.T) {
 	}
 
 	groupsHome(t)
+	for _, args := range [][]string{nil, {"https://mirror.example/"}} {
+		out, err := stdoutOf(t, func() error { return updateMirrorCmd(args) })
+		if err != nil || !strings.Contains(out, "zwenooo/magpie") || !strings.Contains(out, "SHA-256") || strings.Contains(out, "usemagpie.ai") {
+			t.Fatalf("mirror %v: %q, %v", args, out, err)
+		}
+	}
 	if err := updateCmd([]string{"update", "mirror", "https://mirror.example/"}); err != nil {
 		t.Fatal(err)
 	}

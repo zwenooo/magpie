@@ -20,11 +20,12 @@ func onWindows(t *testing.T, arch string, em bool) {
 	emulated = func() bool { return em }
 }
 
-// An x64 magpie emulated on Windows on Arm updates to the arm64 exe, the
+// An x64 magpie using a custom feed on Windows on Arm updates to the arm64 exe, the
 // app and the terminal build alike (@EV_John_Liu on X); an x64 Windows
 // computer, and an arm64 build, update to their own. Emulation is
 // Windows' alone: a Mac or Linux magpie asked about it is unchanged.
 func TestWindowsOnArmUpdatesToArm64(t *testing.T) {
+	t.Setenv("MAGPIE_UPDATE_FEED", "https://custom.invalid/latest")
 	was := GUI
 	t.Cleanup(func() { GUI = was })
 	for _, c := range []struct {
@@ -49,21 +50,23 @@ func TestWindowsOnArmUpdatesToArm64(t *testing.T) {
 	}
 }
 
-// Emulated, the update downloads the arm64 exe, not the x64 one, and swaps
-// it in for the running x64 exe as any update is: under the same name, the
-// old one moved aside.
-func TestWindowsOnArmInstallsArm64Exe(t *testing.T) {
+// A current fork release has only the x64 exe for Windows.
+func TestForkWindowsOnArmInstallsX64Exe(t *testing.T) {
+	t.Setenv("MAGPIE_UPDATE_FEED", "")
 	was := GUI
 	t.Cleanup(func() { GUI = was })
-	GUI = true
 	onWindows(t, "amd64", true)
+	GUI = false
+	if got := BinaryAsset(); got != "magpie-cli-windows-amd64.exe" {
+		t.Fatalf("emulated CLI: %s", got)
+	}
+	GUI = true
 	wasStart := canStart
 	t.Cleanup(func() { canStart = wasStart })
 	canStart = func(string) error { return nil }
 
 	bodies := map[string]string{
 		"magpie-windows-amd64.exe": "2.0 for x64",
-		"magpie-windows-arm64.exe": "2.0 for arm64",
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(bodies[strings.TrimPrefix(r.URL.Path, "/")]))
@@ -87,7 +90,7 @@ func TestWindowsOnArmInstallsArm64Exe(t *testing.T) {
 	if _, err := InstallBinaryAside(staged, exe); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(exe); string(got) != "2.0 for arm64" {
-		t.Fatalf("magpie.exe is %q, want the arm64 build", got)
+	if got, _ := os.ReadFile(exe); string(got) != "2.0 for x64" {
+		t.Fatalf("magpie.exe is %q, want the published x64 build", got)
 	}
 }

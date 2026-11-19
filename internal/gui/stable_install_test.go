@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,23 @@ import (
 	"github.com/yetone/magpie/internal/settings"
 	"github.com/yetone/magpie/internal/update"
 )
+
+func TestForkFreshInstallKeepsEvery(t *testing.T) {
+	sandboxHome(t)
+	t.Setenv("MAGPIE_UPDATE_FEED", "")
+	oldVersion, oldStable := Version, latestStable
+	t.Cleanup(func() { Version, latestStable = oldVersion, oldStable; freshInstall.Store(false) })
+	Version = "0.1.200-vb.0.0.1"
+	latestStable = func(context.Context) (*update.Release, error) {
+		t.Fatal("fresh fork install tried to infer Stable from its version")
+		return nil, nil
+	}
+	freshInstall.Store(true)
+	takeStable(context.Background())
+	if freshInstall.Load() || settings.Load().UpdateChannel != "" {
+		t.Fatal("fresh install did not keep Every version")
+	}
+}
 
 // A fresh install of Stable's version stays on Stable (fishmagic80 on X):
 // usemagpie.ai's Stable download, 0.1.11, put in where magpie never ran,

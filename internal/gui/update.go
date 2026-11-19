@@ -134,6 +134,7 @@ type updateJSON struct {
 	Run int64 `json:"run,omitempty"`
 	// available, stuck "not-writable": the folder magpie may not write to
 	StuckDir string `json:"stuckDir,omitempty"`
+	Pull     string `json:"pull,omitempty"`
 	// available, stuck "package": the package manager that installed
 	// magpie and updates it (pacman's magpie-bin from the AUR, say), and
 	// the command that does
@@ -828,6 +829,9 @@ func (u *updater) jsonIn(lang string) updateJSON {
 	}
 	if u.state == "available" {
 		j.Stuck = u.stuck
+		if u.stuck == "container" && u.latest != nil {
+			j.Pull = update.ContainerPull(u.latest.Version)
+		}
 		if u.stuck == "not-writable" {
 			j.StuckDir = u.exeDir
 		}
