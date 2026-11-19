@@ -279,9 +279,9 @@ func updateCmd(args []string) error {
 	// updated, and a replace would only fail with "permission denied"
 	if exe, err := updateExecutable(); err == nil && !update.Writable(filepath.Dir(exe)) && !updateCanElevate() && updateInContainer() {
 		if cmd := update.ContainerPull(rel.Version); cmd != "" {
-			return fmt.Errorf("this magpie runs in a container; pull the new image (%s) and recreate the container", cmd)
+			return fmt.Errorf("this magpie runs in a container and can't replace itself; pull the image of %s (%s) and recreate the container from it", rel.Version, cmd)
 		}
-		return fmt.Errorf("this magpie runs in a container; pull the new image and recreate the container")
+		return fmt.Errorf("this magpie runs in a container and can't replace itself; pull the new image and recreate the container")
 	}
 	// a package manager's binary (Homebrew's, pacman's magpie-bin from
 	// the AUR, a .deb's): replaced under it, the manager's database names

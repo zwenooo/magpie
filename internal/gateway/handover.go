@@ -182,12 +182,16 @@ func (s *Server) stopAccepting() {
 }
 
 // closesWhenHandedOff has each reply the gateway gives once it takes no
-// connection (stopAccepting) close its connection, so the agent's next
-// request dials the magpie serving the port after this one rather than
-// waiting on a connection this one's end closes (unreadConns).
+// connection (stopAccepting), or once it drains (a SIGTERM, Drain), close
+// its connection, so the agent's next request dials the magpie serving the
+// port after this one (the Service's next pod) rather than going out on a
+// connection this one's end closes. A rolling update's old pod keeps the
+// connections agents kept alive to it, and its end closed each one after
+// the reply under way, which said nothing of it: the agent's next request
+// on it was refused (a broken pipe), once for each such connection.
 func (s *Server) closesWhenHandedOff(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.notAccepting.Load() {
+		if s.notAccepting.Load() || s.draining.Load() {
 			w.Header().Set("Connection", "close")
 		}
 		h.ServeHTTP(w, r)
@@ -202,6 +206,33 @@ func (s *Server) handingOver() bool { return Handover || s.handedOff.Load() }
 func (s *Server) drainFor() time.Duration {
 	if s.handingOver() {
 		return handedOffDrain
+	}
+	if g := time.Duration(s.grace.Load()); g > 0 {
+		return g // Drain's
+	}
+	return shortDrain
+}
+
+// Drain readies the gateway's end for a stop that should cut nothing: a
+// SIGTERM to `magpie serve`, which is how Kubernetes, Docker and a service
+// manager end it (a rolling update's old pod). GET / answers 503 from now
+// on, so a readiness probe (`magpie healthcheck`) takes this magpie out of
+// its Service, and once ctx ends the requests in flight, a stream an agent
+// is reading included, are given grace to finish rather than shortDrain's
+// 2s. The listener closes as ctx ends, as before: new connections go to
+// the next magpie, or are refused.
+func (s *Server) Drain(grace time.Duration) {
+	s.grace.Store(int64(grace))
+	s.draining.Store(true)
+}
+
+// Draining: Drain was called.
+func (s *Server) Draining() bool { return s.draining.Load() }
+
+// Grace is the grace Drain gave, shortDrain before it was called.
+func (s *Server) Grace() time.Duration {
+	if g := time.Duration(s.grace.Load()); g > 0 {
+		return g
 	}
 	return shortDrain
 }

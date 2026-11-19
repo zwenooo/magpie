@@ -75,10 +75,10 @@ func remoteUpdateNote(id string, now time.Time) *remoteUpdateJSON {
 	default:
 		switch u.Why {
 		case "container":
-			j.Cmd = update.ContainerPull(Version)
+			j.Cmd = update.ContainerPull(u.Version)
 			j.Tip = "Pull the new image and recreate the container."
 			if j.Cmd != "" {
-				j.Tip = "Pull the new image ({cmd}) and recreate the container."
+				j.Tip = "It runs in a container: pull the image of {v} ({cmd}) and recreate the container from it."
 			}
 		case "package":
 			j.Tip = "{manager} installed it there: update it with {manager}."

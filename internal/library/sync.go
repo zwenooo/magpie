@@ -111,7 +111,8 @@ func (l *Library) sync() *Result {
 func syncSteps(all, gone []*Target, b *backups, res *Result) []func(*Library) {
 	// a skill whose app moved it is followed first, for every agent to
 	// get the moved one (skill_moved.go)
-	steps := []func(*Library){func(l *Library) { l.followMovedSkills() }}
+	// an edit made in a subagent's own file too (subagent_file.go)
+	steps := []func(*Library){func(l *Library) { l.followMovedSkills(); l.markDangling(); l.followSubagentFiles() }}
 	for _, t := range all {
 		steps = append(steps, func(l *Library) {
 			l.syncInstructions(t, all, b, res, true)
@@ -120,6 +121,7 @@ func syncSteps(all, gone []*Target, b *backups, res *Result) []func(*Library) {
 			l.syncEnv(t, b, res)
 			l.syncSubagents(t, b, res)
 			l.syncCommands(t, b, res)
+			l.syncRules(t, b, res)
 		})
 	}
 	// an edit made in an agent's copy of a skill goes to the library first,
@@ -153,7 +155,7 @@ func syncSteps(all, gone []*Target, b *backups, res *Result) []func(*Library) {
 	}
 	// magpie's copies in a WSL distro no agent there is linked to any more
 	steps = append(steps, func(l *Library) { l.sweepWSLStores(append(slices.Clone(all), gone...), res) })
-	steps = append(steps, func(l *Library) { l.syncProjects(res) })
+	steps = append(steps, func(l *Library) { l.syncProjects(res) }, func(l *Library) { l.writeSubagentFiles() })
 	// Claude Code's other config folders get what Claude Code here was
 	// given, after all of it is (claude_dirs.go, zwenooo/magpie fork)
 	return append(steps, func(l *Library) { l.syncClaudeDirs(all, b, res, true) })
@@ -417,6 +419,9 @@ type AgentView struct {
 	ProjectMCP string `json:"projectMCP,omitempty"`
 	// ProjectSubagents is the folder in a project it reads subagents from
 	ProjectSubagents string `json:"projectSubagents,omitempty"`
+	// ProjectHooks is the file in a project it reads hooks from, which a
+	// project's plugins' hooks are written into (project_plugins.go)
+	ProjectHooks string `json:"projectHooks,omitempty"`
 	// ProjectInstructions is the file in a project it reads the
 	// project's instructions from, when there is none yet
 	ProjectInstructions string `json:"projectInstructions,omitempty"`
@@ -555,7 +560,11 @@ type View struct {
 	// the agents that can take them do with them
 	Commands      []CommandView      `json:"commands"`
 	CommandAgents []CommandAgentView `json:"commandAgents"`
-	FoundServers  []Found            `json:"foundServers"`
+	// Rules are the library's rules, and RuleAgents what the agents that
+	// can take them do with them (rules.go)
+	Rules        []RuleView      `json:"rules"`
+	RuleAgents   []RuleAgentView `json:"ruleAgents"`
+	FoundServers []Found         `json:"foundServers"`
 	// Plugins are the plugins kept as one item each (plugin.go)
 	Plugins     []PluginView `json:"plugins"`
 	Skills      []SkillView  `json:"skills"`
@@ -566,13 +575,16 @@ type View struct {
 	NewSkills []NewSkill `json:"newSkills"`
 	// CheckFolders is whether a check looks in folders the user added
 	// skills from, which the page then offers with no remote skill
-	CheckFolders bool              `json:"checkFolders,omitempty"`
-	Projects     []ProjectView     `json:"projects"`
-	Instructions *InstructionsView `json:"instructions"`
-	Dir          string            `json:"dir"`
-	Backups      string            `json:"backups"`
-	SkillGroups  []SkillGroup      `json:"skillGroups"`
-	CopySkills   bool              `json:"copySkills"` // the library gives skills as copies (#896)
+	CheckFolders bool          `json:"checkFolders,omitempty"`
+	Projects     []ProjectView `json:"projects"`
+	// ClaudeInstalled are the plugins Claude Code has installed itself,
+	// which a project can turn on for its folder (project_claude_plugins.go)
+	ClaudeInstalled []ClaudePluginView `json:"claudeInstalled"`
+	Instructions    *InstructionsView  `json:"instructions"`
+	Dir             string             `json:"dir"`
+	Backups         string             `json:"backups"`
+	SkillGroups     []SkillGroup       `json:"skillGroups"`
+	CopySkills      bool               `json:"copySkills"` // the library gives skills as copies (#896)
 	// SharedSkills: every skill on here is in ~/.agents/skills too
 	// (skills_shared.go), at SharedDir
 	SharedSkills bool   `json:"sharedSkills"`
@@ -641,7 +653,8 @@ func readView(problems []Problem, glance bool) (*View, error) {
 	// a skill whose app moved it to its new version's folder is linked
 	// there (skill_moved.go); what was kept of the links is let go then,
 	// for the rest of the read to see the new one
-	if l.followMovedSkills() {
+	moved := l.followMovedSkills()
+	if l.markDangling() || moved {
 		forget()
 		forget = readParts()
 		if err := l.save(); err != nil {
@@ -695,7 +708,7 @@ func readView(problems []Problem, glance bool) (*View, error) {
 	}
 	for _, t := range targets {
 		av := AgentView{ID: t.Agent.ID, Name: t.Agent.Name, Icon: t.Agent.Icon, Instructions: t.Instructions, Skills: t.Skills,
-			SkillsAlso: t.SkillsAlso, Note: t.Note, MCPVia: t.MCPVia, ProjectSkills: ProjectSkillsDir(t.Agent.ID), ProjectMCP: ProjectMCPFile(t.Agent.ID), ProjectSubagents: ProjectSubagentsDir(t.Agent.ID),
+			SkillsAlso: t.SkillsAlso, Note: t.Note, MCPVia: t.MCPVia, ProjectSkills: ProjectSkillsDir(t.Agent.ID), ProjectMCP: ProjectMCPFile(t.Agent.ID), ProjectSubagents: ProjectSubagentsDir(t.Agent.ID), ProjectHooks: ProjectHooksFile(t.Agent.ID),
 			ProjectInstructions: ProjectInstrFile(t.Agent.ID),
 			ProjectOff:          slices.Contains(projectOffAgents, t.Agent.ID), ProjectSkillOff: slices.Contains(projectSkillOffAgents, t.Agent.ID),
 			ProjectNoSSE: ProjectNoSSE(t.Agent.ID)}
@@ -802,6 +815,7 @@ func readView(problems []Problem, glance bool) (*View, error) {
 	v.Env, v.EnvAgents = l.envView(append(slices.Clone(targets), gone...), of)
 	v.Subagents, v.SubagentAgents = l.subagentsView(targets, asleep, of)
 	v.Commands, v.CommandAgents = l.commandsView(targets, asleep, of)
+	v.Rules, v.RuleAgents = l.rulesView(targets, asleep, of)
 	v.Plugins = l.pluginsView()
 	tr := &tracer{}
 	for _, s := range l.Skills {
@@ -865,6 +879,9 @@ func readView(problems []Problem, glance bool) (*View, error) {
 	v.NewSkills = newSkills(l)
 	v.CheckFolders = l.addedFromFolders()
 	v.Projects = projectViews(l, problems)
+	if v.ClaudeInstalled = ReadClaudeInstalled(); v.ClaudeInstalled == nil {
+		v.ClaudeInstalled = []ClaudePluginView{}
+	}
 	v.SkillGroups = l.skillGroups()
 	v.CheckDue = checkDue(l)
 	if glance {

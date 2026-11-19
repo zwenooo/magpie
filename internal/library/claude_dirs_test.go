@@ -282,6 +282,28 @@ func TestClaudeDirsProjectScope(t *testing.T) {
 	}
 }
 
+func TestClaudeDirsProjectPluginHub(t *testing.T) {
+	home, project, _ := pluginProjects(t)
+	write(t, filepath.Join(home, ".claude.json"), `{}`)
+	account := reclaudeDir(t, home, "1", `{}`)
+	ok(t)(SetMCPHub(true))
+	ok(t)(ProjectPlugin(project, "acme-kit", []string{"claude"}))
+	hubURL := func(dir string) string {
+		servers, _ := claudeRecord(t, dir, project)["mcpServers"].(map[string]any)
+		hub, _ := servers[HubEntry].(map[string]any)
+		url, _ := hub["url"].(string)
+		return url
+	}
+	mainURL := hubURL(home)
+	if !strings.HasSuffix(mainURL, gateway.HubMCPPath+"claude"+gateway.HubProjectSep+projectKey(project)) || hubURL(account) != mainURL {
+		t.Fatalf("plugin-only project hub: main %q, account %q", mainURL, hubURL(account))
+	}
+	ok(t)(ProjectPlugin(project, "acme-kit", nil))
+	if url := hubURL(account); url != "" {
+		t.Fatalf("project hub left in account: %s", url)
+	}
+}
+
 func TestClaudeDirsKeepProjectFiles(t *testing.T) {
 	home, project := scopeProject(t)
 	account := reclaudeDir(t, home, "1", `{}`)

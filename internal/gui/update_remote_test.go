@@ -125,12 +125,16 @@ func TestRemoteUpdateNote(t *testing.T) {
 	for _, c := range cases {
 		provider.SetRemoteUpdateForTest("office", c.out)
 		j := remoteUpdateNote("office", now)
-		if c.out.Why == "container" && (j == nil || j.Cmd != "docker pull ghcr.io/zwenooo/magpie:va.0.1.200-vb.0.0.2") {
+		if c.out.Why == "container" && (j == nil || j.V != c.out.Version || j.Cmd != "docker pull ghcr.io/zwenooo/magpie:va.0.1.200-vb.0.0.1") {
 			t.Fatalf("remote container target: %+v", j)
 		}
 		if j == nil || j.Say != c.say || !strings.Contains(j.Tip, c.tip) {
 			t.Errorf("%+v: %+v", c.out, j)
 		}
+	}
+	provider.SetRemoteUpdateForTest("office", provider.RemoteUpdate{State: "unsupported", Why: "container", Version: "0.1.4479"})
+	if j := remoteUpdateNote("office", now); j == nil || j.Cmd != "" || j.Tip != "Pull the new image and recreate the container." {
+		t.Errorf("container: %+v", j)
 	}
 	provider.SetRemoteUpdateForTest("office", provider.RemoteUpdate{State: "current"})
 	if j := remoteUpdateNote("office", now); j != nil {

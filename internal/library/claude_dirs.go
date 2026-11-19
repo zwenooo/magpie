@@ -508,10 +508,12 @@ func (l *Library) claudeDirScopes() map[string]claudeProjectScope {
 	scopes := map[string]claudeProjectScope{}
 	for _, project := range l.Projects {
 		off := l.claudeOff(project)
-		if len(off) == 0 && (!l.MCPHub || len(project.Servers) == 0 && len(project.ServersOff) == 0) {
+		if len(off) == 0 && (!l.MCPHub || len(project.Servers)+len(project.ServersOff)+len(project.Plugins) == 0) {
 			continue
 		}
-		hub := l.projectHubs(project)["claude"]
+		effective := *project
+		_, effective.Servers, _ = l.withPlugins(project)
+		hub := l.projectHubs(&effective)["claude"]
 		if hub != nil || len(off) > 0 {
 			scopes[claudeRoot(project.Dir)] = claudeProjectScope{hub: hub, off: off}
 		}

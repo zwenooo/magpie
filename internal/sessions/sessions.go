@@ -1661,6 +1661,8 @@ func saved() {
 	saving.Unlock()
 	ccFamilyWrites.Wait()
 	ccRestWrites.Wait()
+	ccRestIDWrites.Wait()
+	ccUUIDWait()
 	flushCallPack()
 }
 
@@ -2972,7 +2974,8 @@ func priceOf(s settings.Settings, model string) (catalog.Price, bool) {
 	// claude-opus-4-6
 	for _, id := range []string{bare, dated.ReplaceAllString(bare, ""), provider.PricedName(bare)} {
 		if pr, ok := catalog.PricedBy(makers(id), id); ok {
-			return pr, true
+			// an Antigravity role id at what Antigravity counts it at
+			return provider.AgyScoped(m, pr), true
 		}
 	}
 	// Grok Build's fast variant (grok-4.7-build-fast), which only the Grok
