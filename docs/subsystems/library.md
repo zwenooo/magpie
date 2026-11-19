@@ -58,6 +58,19 @@ Pi's extensions and packages.
 
 ## Constraints and failure behavior
 
+- In this fork, each additional `CLAUDE_CONFIG_DIR` has its own project records
+  in `.claude.json`. For a project, sync merges the Claude disabled-server names
+  and the project-specific Hub entry, not the main account's `projects` object.
+  An existing local server named `magpie` is left alone and reported. Each
+  account records only the names it added in this computer's `claude-dirs.json`;
+  re-enabling a server or removing a project or account removes only those
+  entries. Removing a project with **Keep** relinquishes ownership instead.
+- The extra account's `commands` folder gets the main Claude skill router's
+  generated slash commands, pointing through its own router link. Pre-existing
+  commands are not adopted; an edited command survives cleanup. The journal
+  tracks generated files by hash. Other commands and permission rules are not
+  mirrored.
+
 - magpie takes away only what `Applied` or its mark says it wrote. A folder of the user's with a skill's name is never touched. The user's own fields in an MCP entry are kept.
 - A library with no instructions to give (no agent ticked, or no shared text) has lost them, as far as an automatic write knows. `Sync` (each start, and beside a change) then leaves every agent's part where it is and logs a line per agent, naming a record whose last write hashes empty; only the page's own write (`changeInstructions`) takes parts back. An automatic write never removes a whole instructions file: it empties one in place. A set's or an agent's extra text that is there but can't be read is a `Problem`, never an empty text (#5709: an emptied Library wiped nine agents' AGENTS.md at start, four deleted whole; `TestEmptyLibraryApplyLeavesAgentsFilesAlone`, `TestUntickedLibraryApplyLeavesFilesAlone`, `TestUnreadableTextLeavesFilesAlone`).
 - An edit never silently loses. When an agent's copy of a skill and the library both changed, the newest edit wins, and the losing one is kept with the backups.

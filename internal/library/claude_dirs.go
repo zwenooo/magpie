@@ -38,6 +38,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/yetone/magpie/internal/agent"
 	"github.com/yetone/magpie/internal/claudelock"
 	"github.com/yetone/magpie/internal/edit"
 	"github.com/yetone/magpie/internal/settings"
@@ -55,13 +56,15 @@ type claudeDirsState struct {
 }
 
 type claudeDirGiven struct {
-	MCP          []string `json:"mcp,omitempty"`
-	Skills       []string `json:"skills,omitempty"`
-	Instructions bool     `json:"instructions,omitempty"`
+	Projects       map[string]*claudeLocal `json:"projects,omitempty"`
+	RouterCommands []SubagentFile          `json:"routerCommands,omitempty"`
+	MCP            []string                `json:"mcp,omitempty"`
+	Skills         []string                `json:"skills,omitempty"`
+	Instructions   bool                    `json:"instructions,omitempty"`
 }
 
 func (g *claudeDirGiven) empty() bool {
-	return len(g.MCP) == 0 && len(g.Skills) == 0 && !g.Instructions
+	return len(g.MCP) == 0 && len(g.Skills) == 0 && !g.Instructions && len(g.Projects) == 0 && len(g.RouterCommands) == 0
 }
 
 func readClaudeDirs() (*claudeDirsState, error) {
@@ -223,7 +226,6 @@ func RemoveClaudeDir(d string) (*Result, error) {
 	if i < 0 {
 		return nil, fmt.Errorf("%s wasn't added by hand", abs)
 	}
-	st.Dirs = slices.Delete(st.Dirs, i, i+1)
 	res := &Result{Changed: []string{}, Problems: []Problem{}}
 	l, err := load()
 	if err != nil {
@@ -231,10 +233,13 @@ func RemoveClaudeDir(d string) (*Result, error) {
 	}
 	if g := st.Given[dirKey(abs)]; g != nil {
 		empty := ""
-		l.giveClaudeDir(abs, nil, nil, "", &empty, false, g, newBackups(), res)
+		l.giveClaudeDir(abs, nil, nil, "", nil, nil, &empty, false, g, newBackups(), res)
 		if g.empty() {
 			delete(st.Given, dirKey(abs))
 		}
+	}
+	if len(res.Problems) == 0 {
+		st.Dirs = slices.Delete(st.Dirs, i, i+1)
 	}
 	return res, st.save()
 }
@@ -303,12 +308,16 @@ func (l *Library) syncClaudeDirs(all []*Target, b *backups, res *Result, auto bo
 			delete(st.Given, k)
 		}
 	}
+	var projects map[string]claudeProjectScope
+	if len(dirs) > 0 {
+		projects = l.claudeDirScopes()
+	}
 	for _, d := range dirs {
 		g := st.Given[dirKey(d)]
 		if g == nil {
 			g = &claudeDirGiven{}
 		}
-		l.giveClaudeDir(d, servers, skills, router, text, auto, g, b, res)
+		l.giveClaudeDir(d, servers, skills, router, a.RouterCommands, projects, text, auto, g, b, res)
 		if g.empty() {
 			delete(st.Given, dirKey(d))
 		} else {
@@ -324,7 +333,7 @@ func (l *Library) syncClaudeDirs(all []*Target, b *backups, res *Result, auto bo
 // instructions part text (nil and "" for none), taking out what magpie
 // put there before (g) that isn't among them; g becomes what d holds of
 // magpie's now.
-func (l *Library) giveClaudeDir(d string, servers map[string]map[string]any, skills []string, router string, text *string, auto bool, g *claudeDirGiven, b *backups, res *Result) {
+func (l *Library) giveClaudeDir(d string, servers map[string]map[string]any, skills []string, router string, commands []SubagentFile, projects map[string]claudeProjectScope, text *string, auto bool, g *claudeDirGiven, b *backups, res *Result) {
 	id := claudeDirID(d)
 	fail := func(what string, err error) { res.fail(id, what, fmt.Errorf("%s: %w", d, err)) }
 
@@ -362,6 +371,7 @@ func (l *Library) giveClaudeDir(d string, servers map[string]map[string]any, ski
 	}
 
 	// skills: links to the library's, in its skills folder
+	g.syncProjects(f.Path, id, projects, b, res)
 	sd := filepath.Join(d, "skills")
 	var now []string
 	for _, name := range skills {
@@ -420,6 +430,23 @@ func (l *Library) giveClaudeDir(d string, servers map[string]map[string]any, ski
 	}
 	slices.Sort(now)
 	g.Skills = now
+	var files []ownFile
+	if router != "" && slices.Contains(now, RouterSkill) {
+		for _, command := range commands {
+			name := command.Name
+			path := filepath.Join(d, "commands", name+".md")
+			if !slices.ContainsFunc(g.RouterCommands, func(file SubagentFile) bool { return file.Path == path }) {
+				if _, err := os.Lstat(path); err == nil {
+					continue
+				} else if !os.IsNotExist(err) {
+					fail("command:"+name, err)
+					continue
+				}
+			}
+			files = append(files, ownFile{name: name, path: path, body: func() []byte { return routerCommand(name, routedAt(router, sd, name)) }})
+		}
+	}
+	g.RouterCommands = syncOwnFiles(&Target{Agent: &agent.Agent{ID: id, Name: d}}, "command", g.RouterCommands, files, b, res)
 
 	// instructions: magpie's part of its CLAUDE.md
 	if text != nil && (*text != "" || g.Instructions) {
@@ -448,6 +475,83 @@ func (l *Library) giveClaudeDir(d string, servers map[string]map[string]any, ski
 			res.changed(id)
 		}
 		g.Instructions = *text != ""
+	}
+}
+
+type claudeProjectScope struct {
+	hub *Server
+	off []string
+}
+
+func forgetClaudeDirProject(root string) error {
+	state, err := readClaudeDirs()
+	if err != nil {
+		return err
+	}
+	changed := false
+	for key, given := range state.Given {
+		if given.Projects[root] != nil {
+			delete(given.Projects, root)
+			if given.empty() {
+				delete(state.Given, key)
+			}
+			changed = true
+		}
+	}
+	if changed {
+		return state.save()
+	}
+	return nil
+}
+
+func (l *Library) claudeDirScopes() map[string]claudeProjectScope {
+	scopes := map[string]claudeProjectScope{}
+	for _, project := range l.Projects {
+		off := l.claudeOff(project)
+		if len(off) == 0 && (!l.MCPHub || len(project.Servers) == 0 && len(project.ServersOff) == 0) {
+			continue
+		}
+		hub := l.projectHubs(project)["claude"]
+		if hub != nil || len(off) > 0 {
+			scopes[claudeRoot(project.Dir)] = claudeProjectScope{hub: hub, off: off}
+		}
+	}
+	return scopes
+}
+
+func (g *claudeDirGiven) syncProjects(path, id string, scopes map[string]claudeProjectScope, b *backups, res *Result) {
+	if len(scopes)+len(g.Projects) == 0 {
+		return
+	}
+	release, err := claudelock.Config(path)
+	if err != nil {
+		res.fail(id, "project:claude", err)
+		return
+	}
+	defer release()
+	if g.Projects == nil {
+		g.Projects = map[string]*claudeLocal{}
+	}
+	roots := sortedKeys(scopes)
+	for _, root := range sortedKeys(g.Projects) {
+		if _, keep := scopes[root]; !keep {
+			roots = append(roots, root)
+		}
+	}
+	for _, root := range roots {
+		scope := scopes[root]
+		record, changed, err := writeClaudeLocal(path, root, g.Projects[root], scope.hub, scope.off, func() error { return b.keep(id, path) })
+		if err != nil {
+			res.fail(id, "project:claude", fmt.Errorf("%s: %w", root, err))
+		}
+		if changed {
+			res.changed(id)
+		}
+		if record == nil {
+			delete(g.Projects, root)
+		} else {
+			g.Projects[root] = record
+		}
 	}
 }
 
