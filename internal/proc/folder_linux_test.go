@@ -14,7 +14,8 @@ import (
 // the call, and must live on after it returns.
 func TestOpenFolderDoesNotWaitForTheFileManager(t *testing.T) {
 	bin, dir, pidf := t.TempDir(), t.TempDir(), filepath.Join(t.TempDir(), "pid")
-	script := "#!/bin/sh\necho $$ > " + pidf + "\necho \"$1\" > " + pidf + ".arg\nexec sleep 60\n"
+	t.Setenv("OPENER_PID_FILE", pidf)
+	script := "#!/bin/sh\nset -e\nprintf '%s\n' \"$1\" > \"$OPENER_PID_FILE.arg\"\necho $$ > \"$OPENER_PID_FILE\"\nexec sleep 60\n"
 	if err := os.WriteFile(filepath.Join(bin, "xdg-open"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +45,11 @@ func TestOpenFolderDoesNotWaitForTheFileManager(t *testing.T) {
 	if err := syscall.Kill(pid, 0); err != nil {
 		t.Fatalf("the opener is gone: %v", err)
 	}
-	if b, _ := os.ReadFile(pidf + ".arg"); strings.TrimSpace(string(b)) != dir {
+	b, err := os.ReadFile(pidf + ".arg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(b)) != dir {
 		t.Fatalf("opened %q, want %q", b, dir)
 	}
 }
