@@ -1,8 +1,8 @@
 cask "magpie-app" do
-  version "0.1.4501-vb.0.0.1"
-  sha256 "b33f153c3f6d7d0938bdab372c274704d0b9e10074c8c6075c50583590702adb"
+  version "0.1.4562-vb.0.0.1"
+  sha256 "a687f5f31b0350e8cdf249fb7137049824c94ce07458a3738a10b033dd9c3c36"
 
-  url "https://github.com/zwenooo/magpie/releases/download/va.0.1.4501-vb.0.0.1/magpie-darwin-arm64.zip"
+  url "https://github.com/zwenooo/magpie/releases/download/va.0.1.4562-vb.0.0.1/magpie-darwin-arm64.zip"
   name "magpie"
   desc "Pick the model each AI coding agent on your machine uses"
   homepage "https://github.com/zwenooo/magpie"
