@@ -55,6 +55,33 @@ Pi's extensions and packages.
 
 ## Runtime path
 
+### Updating an MCP program from a repository (fork)
+
+A saved command server whose entry points into `{{program}}` can opt in to
+repository updates. A plain server or skill is never assigned a source by name.
+Create a new server without selecting any agents if its program is not installed
+yet. For example, set its command to `python` and its one argument to
+`{{program}}/server.py`. Do not convert an already working absolute path until
+you have verified a separate managed entry works with that project's runtime.
+
+1. Run `magpie library mcp repo-check NAME REPOSITORY REF SUBFOLDER` to preview
+   the commit. Omit the subfolder for a server at the repository root.
+2. After reviewing that commit, run `magpie library mcp repo-update NAME SHA
+   REPOSITORY REF SUBFOLDER` with the same source. This explicitly selects the
+   program to install; it is not a package manager or dependency installer.
+3. Subsequent checks and updates need only `repo-check NAME` and `repo-update
+   NAME SHA`. Give the working server to the intended agents in the Library.
+
+This does not change skill updates, migrate external checkouts, install
+dependencies, or run setup scripts. A managed program is a snapshot, not a Git
+working tree: an MCP that needs `.git` at runtime is not directly portable this way.
+For a repository-backed server the shared Library carries the source and revision,
+not its program files. On another computer, review the source and install the
+program explicitly; syncing metadata does not fetch code. A server without a
+repository keeps its existing folder-sync behavior.
+
+### Applying Library changes locally
+
 1. **Edit.** The Library page or `magpie library` calls an exported function such as `SaveServer`, `ServerAgents`, `InstallSkills`, `SkillAgents` or `SetSkillHow`. The skills and servers pages each have Select, Turn all on, Turn all off and Remove all; the heading shows Select (and a busy Checking…, Grouping… or Updating…) and keeps the rest under its ⋯, the app's row menu (`barMore` in plugins/library/client.js). Select's bar calls `SomeSkillsAgents` or `SomeServersAgents` (`/api/library/{skills,servers}/agents-some`), Turn all on or off calls `EverySkillAgents` or `EveryServerAgents` for the agents shown, and Remove all calls `RemoveSkills` or `RemoveServers`. The hooks page has Select and Remove all too (`SomeHooksAgents`, `RemoveHooks`). Each of these is one change that takes every item out as a single removal would (#1027). Select's bar also has Remove… (#1852), which asks first, naming the count, and sends only the picked names to `RemoveSkills`, `RemoveServers` or `RemoveHooks`; ticking a group's or part's header picks all of it. A name that wasn't removed stays picked, with its error in its row's place (`pickErrs`), and the status names it; when every name fails the endpoint answers 400 and the sheet stays open. A row's agent chips start with All (`allChip` in `plugins/library/client.js`), which gives the item to every agent shown that can take it, or takes it from them all; the pickers that choose the agents before an item is added (installing skills from a repository or the market, adding, bringing in or installing a server) have the same All: most start with every agent lit, and one agent alone took a click on each of the others (#1531).
 2. **Change.** `change` edits `library.json` under the lock and calls `sync`.
 3. **Write.** For each target, `syncInstructions`, `syncMCP`, `syncHooks`, `syncSubagents` and `syncCommands` write magpie's part in the agent's format and record it in `Applied`. Skills are linked or copied into the agent's skills folder. A copy edited since it was made is taken into the library first.

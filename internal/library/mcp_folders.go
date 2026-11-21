@@ -158,7 +158,7 @@ func collectFolders(l *Library, budget int64) ([]*CarriedFolders, int64) {
 		c := &CarriedFolders{Name: s.Name}
 		var size int64
 		ok := true
-		if s.names(programRef) {
+		if s.RepoSource == nil && s.names(programRef) {
 			files, exec, n, err := readFolder(programDir(s.Name))
 			ok = err == nil
 			c.Program, c.Exec, size = files, exec, n
@@ -170,6 +170,9 @@ func collectFolders(l *Library, budget int64) ([]*CarriedFolders, int64) {
 		}
 		if !ok || size > maxCarried || used+size > budget {
 			log.Printf("library: the folders of the server %s aren't carried: unreadable, or over %d bytes", s.Name, min(maxCarried, budget-used))
+			continue
+		}
+		if s.RepoSource != nil && c.Private == nil {
 			continue
 		}
 		used += size
@@ -194,7 +197,11 @@ func putFolders(l *Library, b *Bundle, pluginServers []*Server) error {
 		}
 	}
 	carried := map[string]bool{}
+	repoPrograms := map[string]bool{}
 	for _, s := range b.MCP {
+		if s.RepoSource != nil {
+			repoPrograms[s.Name] = true
+		}
 		if !keep[s.Name] {
 			carried[s.Name] = true
 		}
@@ -216,7 +223,8 @@ func putFolders(l *Library, b *Bundle, pluginServers []*Server) error {
 		if f == nil || !carried[f.Name] {
 			continue
 		}
-		if f.Program != nil {
+		local := l.server(f.Name)
+		if f.Program != nil && !repoPrograms[f.Name] && (local == nil || local.RepoSource == nil) {
 			if aside, err = putFolder(programDir(f.Name), f.Program, f.Exec, false, aside); err != nil {
 				return fmt.Errorf("server %s: %w", f.Name, err)
 			}
