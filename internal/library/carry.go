@@ -156,6 +156,7 @@ func Collect() (*Bundle, error) {
 		// magpie's own by name, each computer's own binary; a server
 		// started its own way here goes with the synced start (mcp_here.go)
 		c := *carried(carriedStart(s))
+		c.RepoLocalCommit, c.RepoLocalHash = "", ""
 		c.Agents = orNone(slices.Sorted(slices.Values(s.Agents)))
 		b.MCP = append(b.MCP, &c)
 	}
