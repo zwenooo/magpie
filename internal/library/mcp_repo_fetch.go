@@ -69,7 +69,7 @@ func (src MCPRepoSource) coordinates() (repo, ref string, err error) {
 	repo = strings.TrimSuffix(strings.TrimSuffix(repo, "/"), ".git")
 	owner, name, split := strings.Cut(repo, "/")
 	if !ok || !split || owner == "" || name == "" || len(repo) > 256 || strings.Contains(name, "/") || !repoPortablePath(repo) || strings.ContainsFunc(owner+name, func(char rune) bool { return !repoASCIIWord(char) }) {
-		return "", "", errors.New("expected a public HTTPS GitHub repository URL")
+		return "", "", errors.New("expected an HTTPS GitHub repository URL")
 	}
 	if src.Path != "" && !repoPortablePath(src.Path) {
 		return "", "", errors.New("invalid repository subdirectory")
@@ -108,6 +108,9 @@ func repoGet(endpoint, accept string, limit int64) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
+		return nil, errRepoNeedsAuth
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub returned HTTP %d", resp.StatusCode)
 	}
@@ -119,19 +122,26 @@ func repoHead(src MCPRepoSource) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return repoResolve(repo, ref)
+	sha, _, err := repoResolve(repo, ref)
+	return sha, err
 }
 
-func repoResolve(repo, ref string) (string, error) {
-	data, err := repoGet("https://api.github.com/repos/"+repo+"/commits/"+url.PathEscape(ref), "application/vnd.github.sha", 128)
+func repoResolve(repo, ref string) (string, bool, error) {
+	endpoint := "repos/" + repo + "/commits/" + url.PathEscape(ref)
+	const accept = "application/vnd.github.sha"
+	data, err := repoGet("https://api.github.com/"+endpoint, accept, 128)
+	auth := errors.Is(err, errRepoNeedsAuth)
+	if auth {
+		data, err = repoAuthenticated(endpoint, accept, 128)
+	}
 	if err != nil {
-		return "", err
+		return "", auth, err
 	}
 	sha := strings.TrimSpace(string(data))
 	if !repoSHA(sha) || repoSHA(ref) && sha != ref {
-		return "", errors.New("GitHub did not return the requested commit")
+		return "", auth, errors.New("GitHub did not return the requested commit")
 	}
-	return sha, nil
+	return sha, auth, nil
 }
 
 func repoFiles(src MCPRepoSource, expected string) (map[string][]byte, []string, error) {
@@ -142,14 +152,19 @@ func repoFiles(src MCPRepoSource, expected string) (map[string][]byte, []string,
 	if err != nil {
 		return nil, nil, err
 	}
-	head, err := repoResolve(repo, ref)
+	head, auth, err := repoResolve(repo, ref)
 	if err != nil {
 		return nil, nil, err
 	}
 	if head != expected {
 		return nil, nil, errors.New("repository ref no longer matches the expected commit")
 	}
-	data, err := repoGet("https://codeload.github.com/"+repo+"/zip/"+expected, "application/zip", maxCarried+1<<20)
+	var data []byte
+	if auth {
+		data, err = repoAuthenticated("repos/"+repo+"/zipball/"+expected, "application/vnd.github+json", maxCarried+1<<20)
+	} else {
+		data, err = repoGet("https://codeload.github.com/"+repo+"/zip/"+expected, "application/zip", maxCarried+1<<20)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -165,7 +180,9 @@ func repoArchive(data []byte, expected, subdir string, budget int64) (map[string
 		return nil, nil, errors.New("invalid repository entry count")
 	}
 	root, _, _ := strings.Cut(archive.File[0].Name, "/")
-	if !repoPortablePath(root) || !strings.HasSuffix(root, "-"+expected) {
+	full := strings.HasSuffix(root, "-"+expected)
+	short := repoSHA(expected) && strings.HasSuffix(root, "-"+expected[:7]) && archive.Comment == expected
+	if !repoPortablePath(root) || (!full && !short) {
 		return nil, nil, errors.New("repository archive is not for the expected commit")
 	}
 	files := make(map[string][]byte)

@@ -57,6 +57,11 @@ Pi's extensions and packages.
 
 ### Updating an MCP program from a repository (fork)
 
+Public GitHub repositories need no sign-in. When GitHub refuses anonymous access,
+Magpie can use the local GitHub CLI account (`gh auth login --hostname github.com`)
+to read the ref and download the reviewed commit. The account needs read access
+on each computer; no token is copied into the server definition or synced.
+
 A saved command server whose entry points into `{{program}}` can opt in to
 repository updates. A plain server or skill is never assigned a source by name.
 Create a new server without selecting any agents if its program is not installed
