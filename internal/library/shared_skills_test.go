@@ -139,15 +139,22 @@ func TestRealDir(t *testing.T) {
 	symlink(t, filepath.Join(d, "a/real"), filepath.Join(d, "b/abs"))
 	symlink(t, filepath.Join("..", "b", "abs"), filepath.Join(d, "c/rel"))
 	symlink(t, filepath.Join(d, "c"), filepath.Join(d, "dir"))
-	want, _ := filepath.EvalSymlinks(filepath.Join(d, "a/real"))
-	for _, p := range []string{"a/real", "b/abs", "c/rel", "dir/rel", "dir/rel/scripts/.."} {
-		if got := realDir(filepath.Join(d, p)); got != want {
-			t.Errorf("%s: %s, want %s", p, got, want)
+	want, err := filepath.EvalSymlinks(filepath.Join(d, "a/real"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkPath := func(input, expected string) {
+		t.Helper()
+		got := realDir(filepath.Join(d, input))
+		relative, err := filepath.Rel(expected, got)
+		if err != nil || relative != "." {
+			t.Errorf("%s: %s, want %s (relative %q, err %v)", input, got, expected, relative, err)
 		}
 	}
-	if got := realDir(filepath.Join(d, "dir/rel/scripts")); got != filepath.Join(want, "scripts") {
-		t.Errorf("inside: %s", got)
+	for _, p := range []string{"a/real", "b/abs", "c/rel", "dir/rel", "dir/rel/scripts/.."} {
+		checkPath(p, want)
 	}
+	checkPath("dir/rel/scripts", filepath.Join(want, "scripts"))
 	// a loop, and what isn't there: the path as it is
 	symlink(t, filepath.Join(d, "loop2"), filepath.Join(d, "loop1"))
 	symlink(t, filepath.Join(d, "loop1"), filepath.Join(d, "loop2"))
