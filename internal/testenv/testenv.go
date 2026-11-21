@@ -121,7 +121,8 @@ func Isolate() (string, error) {
 		return "", err
 	}
 	for k, v := range map[string]string{
-		"HOME": home, "USERPROFILE": home,
+		"GOTMPDIR": os.TempDir(),
+		"HOME":     home, "USERPROFILE": home,
 		"XDG_CONFIG_HOME": filepath.Join(home, ".config"),
 		"XDG_CONFIG_DIRS": filepath.Join(home, "etc", "xdg"),
 		"XDG_CACHE_HOME":  filepath.Join(home, ".cache"),
