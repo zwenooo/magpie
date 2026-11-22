@@ -126,6 +126,27 @@ func TestMCPRepoUpdateTransaction(t *testing.T) {
 	}
 	ok(t)(applyMCPRepo(server.Name, src, version, fetch, (*Library).save))
 	program := filepath.Join(programDir(server.Name), "main.py")
+	oldFile, err := os.Stat(program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.server(server.Name).RepoLocalSource = nil
+	if err := l.save(); err != nil {
+		t.Fatal(err)
+	}
+	ok(t)(applyMCPRepo(server.Name, src, version, fetch, (*Library).save))
+	newFile, err := os.Stat(program)
+	if err != nil || !os.SameFile(oldFile, newFile) {
+		t.Fatal("confirming existing commit replaced the installed file", err)
+	}
+	saved, _, err := repoTarget(server.Name, nil)
+	if err != nil || saved.RepoLocalSource == nil || *saved.RepoLocalSource != *src {
+		t.Fatal("did not record local confirmation", err)
+	}
 	version = "second"
 	during = func() { server.Note = "edited while downloading"; ok(t)(SaveServer(server.Name, server)) }
 	if _, err := applyMCPRepo(server.Name, nil, version, fetch, (*Library).save); err == nil || read(t, program) != "first" {

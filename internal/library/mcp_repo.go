@@ -155,6 +155,12 @@ func applyMCPRepo(name string, source *MCPRepoSource, expected string, fetch fun
 	if have != current.RepoLocalHash {
 		return nil, fmt.Errorf("%s has local program changes; refusing to replace them", name)
 	}
+	// An older installation can gain a local source receipt by explicitly
+	// reviewing its SHA again. Do not move a running program when every byte
+	// and mode already matches the snapshot just fetched.
+	if had && have == digest {
+		return saveRepoReceipt(name, server, src, expected, digest, save)
+	}
 	if had {
 		if err := os.Rename(dir, old); err != nil {
 			return nil, err
@@ -181,18 +187,7 @@ func applyMCPRepo(name string, source *MCPRepoSource, expected string, fetch fun
 	if err := os.Rename(next, dir); err != nil {
 		return restore(err)
 	}
-	lib, err = load()
-	if err == nil {
-		current = lib.server(name)
-		if reflect.DeepEqual(server, current) {
-			current.RepoSource, current.RepoCommit, current.RepoHash = &src, expected, digest
-			current.RepoLocalCommit, current.RepoLocalHash = expected, digest
-			current.RepoLocalSource = &src
-			err = save(lib)
-		} else {
-			err = fmt.Errorf("%s changed while preparing the update; check again", name)
-		}
-	}
+	_, err = saveRepoReceipt(name, server, src, expected, digest, save)
 	if err != nil {
 		if undo := os.Rename(dir, next); undo != nil {
 			cleanup = false
@@ -203,7 +198,30 @@ func applyMCPRepo(name string, source *MCPRepoSource, expected string, fetch fun
 	return &Result{Updated: []string{name}}, nil
 }
 
+func saveRepoReceipt(name string, before *Server, src MCPRepoSource, commit, digest string, save func(*Library) error) (*Result, error) {
+	lib, err := load()
+	if err != nil {
+		return nil, err
+	}
+	current := lib.server(name)
+	if !reflect.DeepEqual(before, current) {
+		return nil, fmt.Errorf("%s changed while preparing the update; check again", name)
+	}
+	current.RepoSource, current.RepoCommit, current.RepoHash = &src, commit, digest
+	current.RepoLocalSource, current.RepoLocalCommit, current.RepoLocalHash = &src, commit, digest
+	if err := save(lib); err != nil {
+		return nil, err
+	}
+	return &Result{Current: []string{name}}, nil
+}
+
 func repoProgramHash(dir string) (string, error) {
+	return repoProgramHashWith(dir, nil)
+}
+
+// inspect reads the same bytes the digest includes. A consumer may read only
+// the one file it needs; the remainder is still hashed for the local receipt.
+func repoProgramHashWith(dir string, inspect func(rel string, size int64, data io.Reader) error) (string, error) {
 	digest := sha256.New()
 	empty := true
 	err := filepath.WalkDir(dir, func(filename string, entry fs.DirEntry, err error) error {
@@ -235,7 +253,16 @@ func repoProgramHash(dir string) (string, error) {
 			return err
 		}
 		hash := sha256.New()
-		_, err = io.Copy(hash, file)
+		var data io.Reader = file
+		if inspect != nil {
+			data = io.TeeReader(file, hash)
+			err = inspect(rel, info.Size(), data)
+			if err == nil {
+				_, err = io.Copy(io.Discard, data)
+			}
+		} else {
+			_, err = io.Copy(hash, data)
+		}
 		err = errors.Join(err, file.Close())
 		if err != nil {
 			return err
