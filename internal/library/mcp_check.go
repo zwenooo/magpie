@@ -703,23 +703,13 @@ func inProject(ctx context.Context, s *Server, h ServerHealth) ServerHealth {
 	return p
 }
 
-// inHome is whether magpie runs s, in home, for agents given it: the MCP
-// router, or Codex on magpie (sync gives it a command as RunPath unless the
-// user keeps it direct), rather than each agent starting it itself.
+// inHome is whether the hub serves s or it was given to local Codex at RunPath.
 func inHome(s *Server) bool {
 	if s.Hub == HubDirect {
 		return false
 	}
-	mu.Lock()
-	l, err := load()
-	mu.Unlock()
-	if err == nil && l.MCPHub && inHub(s, "") {
-		return true
-	}
-	runs.Lock()
-	codex := runs.wired["codex"]
-	runs.Unlock()
-	return codex && slices.Contains(s.Agents, "codex")
+	l, err := runLibrary()
+	return err == nil && (l.MCPHub && inHub(s, "") || l.runsServer(s))
 }
 
 // checkStdioIn is checkStdioAt with the command started in dir ("" for

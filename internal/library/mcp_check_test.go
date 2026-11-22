@@ -19,6 +19,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/yetone/magpie/internal/agent"
 )
 
 // The fake stdio server is this test binary, started again with
@@ -538,11 +540,14 @@ func TestCheckServerThatRefusesHome(t *testing.T) {
 	ok(t)(ServerHub(fake.Name, false))
 	fake.Hub = ""
 	fake.Agents = []string{"claude", "codex"}
-	runs.Lock()
-	was := runs.wired
-	runs.wired = map[string]bool{"codex": true}
-	runs.Unlock()
-	t.Cleanup(func() { runs.Lock(); runs.wired = was; runs.Unlock() })
+	was := runWired
+	runOn, runWired = true, func(*agent.Agent) bool { return true }
+	t.Cleanup(func() { runOn, runWired = false, was })
+	ok(t)(SaveServer(fake.Name, *fake))
+	if got = CheckServer(context.Background(), fake); !got.Project {
+		t.Fatalf("wired, without opt-in: %+v", got)
+	}
+	ok(t)(SetCodexMCPOnDemand(true))
 	if got = CheckServer(context.Background(), fake); got.Why != "home" {
 		t.Fatalf("given to Codex on magpie: got %+v, want error home", got)
 	}

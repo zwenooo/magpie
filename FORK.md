@@ -20,6 +20,7 @@ internal/provider/fork_partners.go Partner-feed policy (off by default)
 internal/sessions/sources.go     Custom read-only session directory registration
 internal/gui/sessions_sources.go Session directory scan/import API
 internal/library/mcp_folders.go  MCP servers' program and key folders carried by sync
+internal/library/mcp_run.go      Codex command MCP on-demand launch is opt-in, separate from MCP Hub
 internal/library/claude_dirs.go  The library given to Claude Code's other config folders
 internal/sessions/handoff.go     A conversation condensed for any agent to carry on
 docs/cursor-byok.md              Setup and synchronization contract

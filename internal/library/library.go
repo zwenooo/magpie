@@ -77,6 +77,9 @@ type Library struct {
 	// which hands each call on to the library's servers ticked for it, in
 	// place of their own entries (#2679, mcp_hub.go)
 	MCPHub bool `json:"mcpHub,omitempty"`
+	// CodexMCPOnDemand lets the local gateway start Codex's command servers
+	// when the hub is off. Like SharedSkills, it isn't carried in a Bundle.
+	CodexMCPOnDemand bool `json:"codexMCPOnDemand,omitempty"`
 	// SkillRouter gives each agent that can take it magpie's one skill,
 	// magpie-skills, listing the library's skills ticked for it, in place
 	// of a link of each (skill_router.go). This computer's own: Collect
@@ -150,7 +153,12 @@ type Applied struct {
 	Instructions bool     `json:"instructions,omitempty"`
 	InstrHash    string   `json:"instrHash,omitempty"` // of the part last written
 	MCP          []string `json:"mcp,omitempty"`
-	Skills       []string `json:"skills,omitempty"`
+	// CodexRunWired is the effective route at sync, compared after a rewire
+	// even when that sync was done by a different magpie process.
+	CodexRunWired bool `json:"codexRunWired,omitempty"`
+	// MCPRun is the subset of MCP successfully given as /mcp/run entries.
+	MCPRun []string `json:"mcpRun,omitempty"`
+	Skills []string `json:"skills,omitempty"`
 	// ToolsOff are, for each server, the tools magpie put in the list its
 	// entry has of those the agent leaves out; ToolRules the rules beside
 	// the servers magpie added to leave tools out (Claude Code's deny
@@ -221,11 +229,15 @@ func Dir() string { return filepath.Join(settings.Dir(), "library") }
 func path() string { return filepath.Join(settings.Dir(), "library.json") }
 
 func load() (*Library, error) {
-	l := &Library{}
 	b, err := edit.Read(path())
 	if err != nil {
 		return nil, err
 	}
+	return parseLibrary(b)
+}
+
+func parseLibrary(b []byte) (*Library, error) {
+	l := &Library{}
 	if len(b) > 0 {
 		if err := json.Unmarshal(b, l); err != nil {
 			return nil, fmt.Errorf("%s: %w", path(), err)

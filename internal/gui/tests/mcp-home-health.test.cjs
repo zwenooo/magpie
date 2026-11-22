@@ -5,10 +5,8 @@
 // it. The check starts such a server again in a project folder of its own
 // (inProject): given to agents that start it themselves, its row says how
 // many tools it has, and its tooltip that it exits in home, with what it
-// said; run by magpie in home for the agents (the MCP router, or Codex on
-// magpie), its row says it won't start in home, and its editor has
-// "Through the MCP router" to turn off even with the router off. A server
-// that is fine has no switch with the router off. Every language,
+// said; with local Codex on-demand startup enabled its row warns about
+// home and the server can be kept direct even with the shared router off.
 // Chromium and WebKit, 1100 and 390 wide; nothing scrolls sideways. No
 // backend: the API is faked here.
 const assert = require("node:assert/strict");
@@ -29,7 +27,7 @@ const agents = [
 const WORDS = [
   "It started in a project folder and listed its tools, as an agent starts it there. It exits when started in your home folder",
   "won't start in home",
-  "It exits when started in your home folder, where magpie runs it for the agents given it, and works in a project folder. Turn off Through the MCP router in its editor, so each agent starts it in its own project",
+  "It works in a project folder but exits in your home folder. Set this server to connect directly so the client starts it in its project.",
 ];
 const found = {
   fff: { state: "ok", tools: 3, project: true, detail: SAID },
@@ -40,7 +38,7 @@ const found = {
 function server(lang, calls) {
   const lib = {
     dir: `${HOME}/.magpie/library`, backups: `${HOME}/.magpie/backups`, home: HOME,
-    agents, mcpHub: false, hubPath: "/mcp/magpie/hub/",
+    agents, mcpHub: false, codexMCPOnDemand: true, hubPath: "/mcp/magpie/hub/",
     instructions: { agents: [], sets: [] }, foundServers: [], projects: [], foundSkills: [], skills: [],
     servers: [
       { name: "fff", transport: "stdio", command: `${HOME}/.local/bin/fff-mcp`, agents: ["claude"] },
@@ -54,6 +52,7 @@ function server(lang, calls) {
     if (url.pathname === "/wails/runtime.js") return route.fulfill({ contentType: "text/javascript", body: "export const Window = {};" });
     if (url.pathname === "/api/state") return route.fulfill({ json: { agents: [], profiles: [], settings: { lang, theme: "light", gateway: "http://127.0.0.1:3425" } } });
     if (url.pathname === "/api/plugins") return route.fulfill({ json: { plugins: [] } });
+    if (url.pathname === "/api/library/native") return route.fulfill({ json: [] });
     if (url.pathname === "/api/library") return route.fulfill({ json: lib });
     if (url.pathname === "/api/library/mcp/check") {
       const names = req.postDataJSON().names || Object.keys(found);
@@ -71,6 +70,7 @@ function server(lang, calls) {
     if (url.pathname === "/api/groups") return route.fulfill({ json: { groups: [] } });
     if (url.pathname === "/api/providers") return route.fulfill({ json: { providers: [], gateway: { running: true } } });
     if (url.pathname.startsWith("/api/")) return route.fulfill({ json: {} });
+    if (url.host !== "magpie.test") return route.fulfill({ status: 404, body: "" });
     const file = path.join(assets, url.pathname === "/" ? "index.html" : url.pathname);
     const contentType = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png" }[path.extname(file)];
     await route.fulfill({ body: await fs.readFile(file), contentType });
@@ -118,16 +118,15 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
 
           const rowOf = (name) => page.locator("#view-library .lib-server", { has: page.locator(`.lib-health[data-server="${name}"]`) });
           const ed = page.locator("#modal .lib-editor");
-          const sw = ed.getByRole("switch", { name: w("Through the MCP router"), exact: true });
+          const sw = ed.getByRole("switch", { name: w("Always connect this server directly"), exact: true });
           const open = async (name) => { await rowOf(name).locator(".name").click(); await ed.waitFor(); };
           const cancel = async () => { await ed.locator(":scope > .bar button", { hasText: w("Cancel") }).click(); await ed.waitFor({ state: "detached" }); };
-          // the router off, a fine server has nothing to choose
+          // Direct startup can be selected before a server fails a check.
           await open("files");
-          assert.equal(await sw.count(), 0, "a switch for a server that is fine");
+          assert.equal(await sw.getAttribute("aria-checked"), "false");
           await cancel();
-          // the one that won't start in home can be kept direct
           await open("fff-codex");
-          assert.equal(await sw.getAttribute("aria-checked"), "true");
+          assert.equal(await sw.getAttribute("aria-checked"), "false");
           await sw.click();
           await ed.locator(":scope > .bar button.primary").click();
           await ed.waitFor({ state: "detached" });

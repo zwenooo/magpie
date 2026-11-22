@@ -45,6 +45,10 @@ func ManagedGatewayState(name string) string {
 	if err != nil || s.RepoLocalCommit == "" {
 		return "unknown"
 	}
+	l, err := runLibrary()
+	if err != nil || !l.runsServer(s) {
+		return "unknown"
+	}
 	want, ok := specOf(npxDirect(here(s)))
 	if !ok {
 		return "unknown"

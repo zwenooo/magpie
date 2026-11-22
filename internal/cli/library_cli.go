@@ -39,6 +39,7 @@ const libraryUsage = `magpie library                     what the library gives 
                                      the others keeping the synced one (its name, agents and note still sync); off goes back to it
   magpie library mcp off|on <name>   take it from every agent, project and app, keeping its settings; on gives it back as it was
   magpie library mcp rm <name>
+  magpie library mcp codex-on-demand on|off    opt in to launching local Codex command servers through magpie when needed (default: off; direct servers stay direct)
   magpie library mcp router on|off   give each agent one MCP server, magpie, in place of the library's (magpie runs them, once for every agent)
   magpie library mcp router <name> shared|direct   with the router on, share the server through it (the default) or keep it each
                                      agent's own entry, as with the router off: for one that reads its project from the folder it starts in
@@ -297,6 +298,8 @@ func libraryCmd(args []string) error {
 			res, err = library.ServerOn(rest[1], rest[0] == "on")
 		case len(rest) == 2 && rest[0] == "rm":
 			res, err = library.RemoveServer(rest[1])
+		case len(rest) == 2 && rest[0] == "codex-on-demand" && (rest[1] == "on" || rest[1] == "off"):
+			res, err = library.SetCodexMCPOnDemand(rest[1] == "on")
 		case len(rest) == 2 && (rest[0] == "router" || rest[0] == "hub") && (rest[1] == "on" || rest[1] == "off"):
 			res, err = library.SetMCPHub(rest[1] == "on")
 		case len(rest) == 3 && (rest[0] == "router" || rest[0] == "hub") && (rest[2] == "shared" || rest[2] == "direct") && !strings.HasPrefix(rest[1], "-"):
@@ -618,6 +621,9 @@ func libraryStatus() error {
 		}
 	}
 	fmt.Println(bold.Render("MCP servers"))
+	if v.CodexMCPOnDemand {
+		fmt.Println(" ", muted.Render("Codex on-demand is on here; direct servers still start in Codex · magpie library mcp codex-on-demand off"))
+	}
 	if len(v.Servers) == 0 {
 		fmt.Println(" ", muted.Render("none yet"))
 	}

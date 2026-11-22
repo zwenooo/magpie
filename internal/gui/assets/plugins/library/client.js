@@ -3062,6 +3062,7 @@ magpie.plugin("library", (ctx) => {
       const unchecked = lib.servers.filter((s) => !s.repoSource && (!s.hidden && (inUse(s) || (agentless() && lib.mcpHub && inHub(s))) || health.has(s.name)) && health.get(s.name)?.key !== healthKey(s));
       queueMicrotask(() => checkHealth(unchecked));
     }
+    if (!agentless()) body.append(codexOnDemandPart());
     // an agent's own servers (Codex's node_repl, added each time it starts)
     // aren't listed: magpie leaves them as they are
     const found = agentless() ? [] : lib.foundServers.filter((f) => !f.own);
@@ -3084,6 +3085,18 @@ magpie.plugin("library", (ctx) => {
     }
     body.append(...nativeSection("mcp"));
     body.append(discover("mcp"));
+  }
+
+  function codexOnDemandPart() {
+    const list = el("div", "list lib-list");
+    const row = el("div", "row lib-row lib-codex-on-demand");
+    const who = el("div", "who");
+    const label = t("Start Codex stdio servers on demand");
+    who.append(el("div", "name", label), el("div", "sub wraps", t("With the MCP router off, Codex runs each server’s command by default. Turn this on to let magpie start eligible stdio servers on demand for Codex connected to magpie on this computer only. They start in your home folder, not the thread’s project folder. Keep servers that need the project folder direct. Reload Codex after changing this setting.")));
+    row.append(glyph(GLYPH.cmd), who, toggle(!!lib.codexMCPOnDemand, label, (on) =>
+      change("servers/codex-on-demand", { on }, t("Saved — reload Codex to read its MCP configuration"))));
+    list.append(row);
+    return list;
   }
 
   // The MCP hub (#2679): magpie as each agent's one MCP server, handing
@@ -3522,8 +3535,8 @@ magpie.plugin("library", (ctx) => {
     withPlugin(nm, s);
     if (s.plugin) nm.append(tag(t("Plugin"), "lib-local lib-plugin", t("{plugin}'s tools. Plugins can hide them from every agent, keeping the plugin; sync never carries them to your other computers", { plugin: s.plugin })));
     else if (s.local) nm.append(tag(t("Not synced"), "lib-local", s.bridge ? bridgedWhy() : t("Sync never carries it to your other computers")));
-    // out of the hub, each agent's own entry (#4382): said only while the hub is on
-    if (lib.mcpHub && s.hub === "direct") nm.append(tag(t("Not through the router"), "lib-direct", t("Each agent is given its own entry for it, as with the MCP router off")));
+    // A saved direct override survives both global switches.
+    if (s.hub === "direct") nm.append(tag(t("Direct connection"), "lib-direct", t("Each client gets this server’s own entry. Command servers are started by the client, bypassing both the MCP router and Codex on-demand startup.")));
     // its status beside the name, not in it: the name is still the name
     who.classList.add("lib-srvwho");
     who.append(nm, healthEl(s.name));
@@ -3665,7 +3678,7 @@ magpie.plugin("library", (ctx) => {
   // start it in their project and the router in home (inProject)
   const healthKey = (s) => JSON.stringify([s.transport, s.command, s.args, s.env, s.url, s.headers, s.signIn,
     s.transport === "stdio" ? [...new Set((s.agents || []).map((a) => a.split("@wsl:")[1] || ""))].sort() : null,
-    s.transport === "stdio" && !!lib.mcpHub && s.hub !== "direct"]);
+    s.transport === "stdio" && s.hub !== "direct" && (!!lib.mcpHub || (!!lib.codexMCPOnDemand && s.agents?.includes("codex"))) ? "managed" : "native"]);
   const toolList = (name) => { const h = health.get(name)?.h; return h?.state === "ok" ? h.toolList || [] : []; };
   // whether an agent the page shows gets the server, here or in a project
   // magpie keeps whose folder is there. The library keeps every agent it
@@ -3841,7 +3854,7 @@ magpie.plugin("library", (ctx) => {
       return [t("needs sign-in"), h.detail ? why + "\n" + h.detail : why];
     }
     switch (h.why) {
-      case "home": return [t("won't start in home"), more(t("It exits when started in your home folder, where magpie runs it for the agents given it, and works in a project folder. Turn off Through the MCP router in its editor, so each agent starts it in its own project"))];
+      case "home": return [t("won't start in home"), more(t("It works in a project folder but exits in your home folder. Set this server to connect directly so the client starts it in its project."))];
       // Chrome DevTools' or Playwright's server in magpie's container: its
       // tools are listed, and each fails for want of a Chrome
       case "nobrowser": return [t("no Chrome here"), t("It lists its {n} tools, but they drive a Chrome it starts itself, and there is none where magpie runs. Magpie Browser, in the Library, uses your own Chrome instead; or start it with {opt} at a Chrome it can reach", { n: h.tools, opt: h.detail })];
@@ -4580,19 +4593,15 @@ magpie.plugin("library", (ctx) => {
       sw.onclick = (e) => e.stopPropagation();
     }
     ed.append(...field(t("Sync to your other computers"), hereBox, bridged ? bridgedWhy() : t("Off keeps it on this computer: sync never carries it to your other computers, and a sync from them neither removes it nor puts theirs in its place")));
-    // with the hub on, a server can stay each agent's own entry (#4382,
-    // cuipengcx90): one that reads its project from the folder it starts
-    // in, or keeps a session's state. Shown while the hub is on, and for a
-    // server the check found won't start in home, where magpie runs it for
-    // Codex too (inHome)
     d.hub = d.hub === "direct" ? "direct" : "";
-    if (lib.mcpHub || (s && health.get(s.name)?.h?.why === "home")) {
-      const hubBox = el("div", "lib-hubbox");
-      const drawHub = () => hubBox.replaceChildren(toggle(d.hub !== "direct", t("Through the MCP router"), (on) => { d.hub = on ? "" : "direct"; drawHub(); }));
-      drawHub();
-      ed.append(...field(t("Through the MCP router"), hubBox, t("Off gives each agent its own entry for it, as with the router off: for a server that reads its project from the folder it starts in, or keeps a session's state")));
+    const directBox = el("div", "lib-hubbox");
+    const directLabel = t("Always connect this server directly");
+    const directFields = field(directLabel, directBox, t("Each client gets this server’s own entry. Command servers are started by the client, bypassing both the MCP router and Codex on-demand startup."));
+    function drawDirect() {
+      for (const f of directFields) f.hidden = !(lib.mcpHub || (lib.codexMCPOnDemand && d.transport === "stdio") || s?.hub === "direct");
+      directBox.replaceChildren(toggle(d.hub === "direct", directLabel, (on) => { d.hub = on ? "direct" : ""; drawDirect(); }));
     }
-    ed.append(err);
+    ed.append(...directFields, err);
 
     function drawAgents() {
       agentsBox.replaceChildren(agentChips(all, d.agents, (next) => { d.agents = next; drawAgents(); }, { names: true, blocked: sseBlocked(d), all: true }));
@@ -4624,6 +4633,7 @@ magpie.plugin("library", (ctx) => {
         if (f.name) d.name = f.name;
         name.value = d.name;
         kindBox.replaceChildren(kindOf());
+        drawDirect();
         drawAgents();
       };
       // a newline is the box's; ⌘/Ctrl-Enter saves, Escape closes
@@ -4637,6 +4647,7 @@ magpie.plugin("library", (ctx) => {
       return ta;
     }
     function draw() {
+      drawDirect();
       slot.replaceChildren();
       if (view === "json") {
         signBox = appBox = null;

@@ -2,6 +2,7 @@ package library
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/yetone/magpie/internal/agent"
 	"github.com/yetone/magpie/internal/libraryuse"
+	"github.com/yetone/magpie/internal/proc"
 )
 
 // The fake server magpie runs for Codex: this test binary again, with
@@ -84,7 +86,8 @@ func runFixture(t *testing.T) (*httptest.Server, string, runSpec) {
 	logf := filepath.Join(t.TempDir(), "starts")
 	spec := runSpec{Command: self, Args: []string{"-test.run=^TestFakeRunServer$"}, Env: map[string]string{"MAGPIE_FAKE_RUN": logf}}
 	resetRuns(t)
-	runGiven(map[string]runSpec{"fake": spec})
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	giveRunFixture(t, &spec)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ServeRun(w, r, strings.TrimPrefix(r.URL.Path, RunPath))
 	}))
@@ -92,12 +95,28 @@ func runFixture(t *testing.T) (*httptest.Server, string, runSpec) {
 	return srv, logf, spec
 }
 
+// giveRunFixture writes what a sync that gave (or withdrew) the fake records.
+func giveRunFixture(t *testing.T, spec *runSpec) {
+	t.Helper()
+	l := &Library{CodexMCPOnDemand: true}
+	given := map[string]runSpec{}
+	if spec != nil {
+		l.MCP = []*Server{{Name: "fake", Transport: "stdio", Command: spec.Command, Args: spec.Args, Env: spec.Env, Agents: []string{"codex"}}}
+		l.Applied = map[string]*Applied{"codex": {MCP: []string{"fake"}, MCPRun: []string{"fake"}}}
+		given["fake"] = *spec
+	}
+	if err := l.save(); err != nil {
+		t.Fatal(err)
+	}
+	runGiven(given)
+}
+
 // resetRuns ends every session's server, before the test and after it.
 func resetRuns(t *testing.T) {
 	end := func() {
 		runs.Lock()
 		all := runs.sessions
-		runs.sessions, runs.given, runs.said, runs.wired = nil, nil, nil, nil
+		runs.sessions, runs.given, runs.said = nil, nil, nil
 		runs.Unlock()
 		for _, s := range all {
 			s.mu.Lock()
@@ -197,7 +216,7 @@ func TestRunRecordsToolUse(t *testing.T) {
 	}
 	// A valid call whose command can't start never reaches the reply reader.
 	spec.Command = filepath.Join(t.TempDir(), "missing-program")
-	runGiven(map[string]runSpec{"fake": spec})
+	giveRunFixture(t, &spec)
 	post("tools/call", `{"name":"change"}`, "application/json", sid)
 	use := checkMCPCount(t, "fake", count+1, failed+1)
 	if len(use.Tools) != 2 || use.Tools["echo"].Days30.Count != 1 || use.Tools["(other)"].Days30.Count != 7 || use.Tools["(other)"].Days30.Failed != 5 {
@@ -374,20 +393,20 @@ func TestRunGivenChanged(t *testing.T) {
 	s := runs.sessions[a]
 	runs.Unlock()
 	c := s.running()
-	runGiven(map[string]runSpec{"fake": spec}) // the same: kept
+	giveRunFixture(t, &spec) // the same: kept
 	if s.running() != c {
 		t.Fatal("a sync giving the same server ended it")
 	}
 	changed := spec
 	changed.Args = append([]string{"-test.v"}, spec.Args...)
-	runGiven(map[string]runSpec{"fake": changed})
+	giveRunFixture(t, &changed)
 	<-c.done
 	call(t, srv, a, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"echo"}}`)
 	if startCount(logf) != 2 {
 		t.Fatalf("starts after the change: %v", starts(t, logf))
 	}
 	c = s.running()
-	runGiven(map[string]runSpec{})
+	giveRunFixture(t, nil)
 	<-c.done
 	req, _ := http.NewRequest("POST", srv.URL+RunPath+"fake", strings.NewReader(fmt.Sprintf(runInit, "c")))
 	resp, err := http.DefaultClient.Do(req)
@@ -437,6 +456,10 @@ func TestRunCodexEntry(t *testing.T) {
 	if _, err := SaveServer("", Server{Name: "mem", Transport: "stdio", Command: "node", Args: []string{"server.js"}, Agents: []string{"codex", "claude"}}); err != nil {
 		t.Fatal(err)
 	}
+	if codex := read(t, filepath.Join(h, ".codex/config.toml")); strings.Contains(codex, RunPath) || !strings.Contains(codex, `"server.js"`) {
+		t.Fatalf("wired with no opt-in:\n%s", codex)
+	}
+	ok(t)(SetCodexMCPOnDemand(true))
 	if _, err := SaveServer("", Server{Name: "keyed", Transport: "stdio", Command: "node", Env: map[string]string{"MAGPIE_TEST_UNSET_VAR": "${MAGPIE_TEST_UNSET_VAR}"}, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -482,6 +505,120 @@ func TestRunCodexEntry(t *testing.T) {
 	}
 }
 
+// A previous magpie gave Codex a URL without asking. Its Library has no
+// on-demand preference or applied route receipt; Sync alone must undo it.
+func TestRunOldEntryAndLocalPreference(t *testing.T) {
+	h := sandbox(t)
+	resetRuns(t)
+	was := runWired
+	runOn, runWired = true, func(*agent.Agent) bool { return true }
+	t.Cleanup(func() { runOn, runWired = false, was })
+	cfg := filepath.Join(h, ".codex", "config.toml")
+	write(t, cfg, "[mcp_servers.mem]\nurl = \"http://127.0.0.1:3425/mcp/run/mem\"\ntool_timeout_sec = 90\n")
+	write(t, path(), `{"mcp":[{"name":"mem","transport":"stdio","command":"node","args":["server.js"],"agents":["codex"]}],"applied":{"codex":{"mcp":["mem"]}}}`)
+	if _, ok := runSpecOf("mem"); ok {
+		t.Fatal("legacy URL authorized before sync")
+	}
+	ok(t)(Sync())
+	if e := codexLoads(t, cfg, "mem"); e["url"] != nil || e["command"] != "node" || !isNumber(e["tool_timeout_sec"], 90) {
+		t.Fatal(e)
+	}
+	if err := libraryuse.Observe([]string{"mem"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	check := func(on bool, coverage string) {
+		t.Helper()
+		v, err := Glance(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := json.Marshal(v)
+		if err != nil || !strings.Contains(string(b), fmt.Sprintf(`"codexMCPOnDemand":%t`, on)) {
+			t.Fatalf("view missing preference %t: %v", on, err)
+		}
+		for _, s := range v.Servers {
+			if s.Name == "mem" {
+				if s.UseStats.Coverage != coverage || s.UseStats.Candidate {
+					t.Fatalf("coverage: %+v", s.UseStats)
+				}
+				return
+			}
+		}
+		t.Fatal("no mem in view")
+	}
+	check(false, "unknown")
+	ok(t)(SetCodexMCPOnDemand(true))
+	check(true, "partial")
+	bundle, err := Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.Marshal(bundle)
+	if err != nil || strings.Contains(string(b), `"codexMCPOnDemand"`) || strings.Contains(string(b), `"mcpRun"`) {
+		t.Fatalf("bundle contains local settings: %s, %v", b, err)
+	}
+	ok(t)(Put(bundle))
+	check(true, "partial")
+	ok(t)(SetCodexMCPOnDemand(false))
+	ok(t)(Put(bundle))
+	check(false, "unknown")
+}
+
+// The second copy of the test binary plays the CLI using exactly the same
+// library and agent files. It cannot invalidate runs.given in the server.
+func TestRunSwitchInAnotherProcess(t *testing.T) {
+	const mode = "MAGPIE_TEST_RUN_CLI"
+	if action := os.Getenv(mode); action != "" {
+		runOn, runWired = true, func(*agent.Agent) bool { return true }
+		ok(t)(SetCodexMCPOnDemand(action == "on"))
+		return
+	}
+	sandbox(t)
+	srv, logf, _ := runFixture(t)
+	_, sid := call(t, srv, "", fmt.Sprintf(runInit, "cached"))
+	call(t, srv, sid, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := func(value string) {
+		t.Helper()
+		cmd := proc.Command(self, "-test.run=^TestRunSwitchInAnotherProcess$")
+		cmd.Env = append(os.Environ(), mode+"="+value)
+		if b, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("child %s: %v: %s", value, err, b)
+		}
+	}
+	set("off")
+	runs.Lock()
+	_, stale := runs.given["fake"]
+	runs.Unlock()
+	if !stale {
+		t.Fatal("did not exercise a stale gateway cache")
+	}
+	for _, method := range []string{"initialize", "tools/call", "GET"} {
+		req := httptest.NewRequest("POST", RunPath+"fake", strings.NewReader(fmt.Sprintf(`{"jsonrpc":"2.0","id":3,"method":%q}`, method)))
+		req.Header.Set("Mcp-Session-Id", sid)
+		if method == "GET" {
+			req.Method = method
+			req.Header.Set("Accept", "text/event-stream")
+			ctx, cancel := context.WithCancel(req.Context())
+			cancel()
+			req = req.WithContext(ctx)
+		}
+		rec := httptest.NewRecorder()
+		ServeRun(rec, req, "fake")
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s through stale URL: %d %s", method, rec.Code, rec.Body.String())
+		}
+	}
+	if startCount(logf) != 1 {
+		t.Fatal("old URL launched a process")
+	}
+	set("on")
+	call(t, srv, sid, `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"echo"}}`)
+}
+
 // A server the user keeps direct (#4382, cuipengcx90: cocoindex reads its
 // project from the folder it starts in) is given to Codex on magpie as its
 // command, as to every other agent, with the hub on or off: Codex starts it
@@ -495,13 +632,14 @@ func TestRunDirectServerIsCodexsCommand(t *testing.T) {
 	was := runWired
 	runWired = func(a *agent.Agent) bool { return true }
 	t.Cleanup(func() { runOn, runWired = false, was })
+	ok(t)(SetCodexMCPOnDemand(true))
 	if _, err := SaveServer("", Server{Name: "cocoindex", Transport: "stdio", Command: "ccc", Args: []string{"mcp"}, Env: map[string]string{"K": "v"}, Agents: []string{"codex", "claude"}, Hub: HubDirect}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := SaveServer("", Server{Name: "mem", Transport: "stdio", Command: "node", Args: []string{"server.js"}, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
 	}
-	check := func(when string) {
+	check := func(when string, wantShared bool) {
 		t.Helper()
 		e, err := targetByID("codex").MCP.entries()
 		if err != nil {
@@ -528,18 +666,18 @@ func TestRunDirectServerIsCodexsCommand(t *testing.T) {
 		runs.Lock()
 		runs.given = given2
 		runs.Unlock()
-		if before || !shared {
+		if before || shared != wantShared {
 			t.Fatalf("%s: before a sync /mcp/run would start the direct server %v, the shared one %v", when, before, shared)
 		}
 	}
-	check("hub off")
+	check("hub off", true)
 	if codex := read(t, filepath.Join(h, ".codex/config.toml")); !strings.Contains(codex, RunPath+"mem") {
 		t.Fatalf("a shared server isn't run by magpie any more:\n%s", codex)
 	}
 	if _, err := SetMCPHub(true); err != nil {
 		t.Fatal(err)
 	}
-	check("hub on")
+	check("hub on", false)
 	// shared again: magpie runs it for Codex, as before
 	if _, err := ServerHub("cocoindex", false); err != nil {
 		t.Fatal(err)
