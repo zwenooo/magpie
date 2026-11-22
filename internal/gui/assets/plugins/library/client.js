@@ -2922,6 +2922,54 @@ magpie.plugin("library", (ctx) => {
   const remote = (s) => s.transport === "http" || s.transport === "sse";
   const reaches = (s) => (a) => !a || (!(remote(s) && a.noRemote) && !(s.transport === "sse" && a.noSSE) && !(envRefs(s) && a.noEnvRefs));
 
+  // View state only: neither filter changes an item's settings or infers a cleanup candidate.
+  const useFilter = { skills: "all", servers: "all" };
+  const countKnown = (n) => Number.isSafeInteger(n) && n >= 0;
+  const completeUse = (u) => u?.coverage === "observed" && u.complete30 === true;
+  function matchesUse(kind, s) {
+    const u = s.useStats;
+    if (useFilter[kind] === "candidate") return u?.candidate === true;
+    if (useFilter[kind] === "low") {
+      if (!u || !["observed", "partial"].includes(u.coverage) || !countKnown(u.calls30) || !countKnown(u.reads30)) return false;
+      const n = u.calls30 + u.reads30;
+      return n <= 2 && (n > 0 || completeUse(u));
+    }
+    return true;
+  }
+  function usageFilters(kind, redraw) {
+    const box = el("div", "lib-usefilters");
+    const note = el("p", "lib-aside", t("Usage only includes paths visible on this computer. Filters never disable or remove anything."));
+    const choices = [["all", t("All items")], ["low", t("Low use (≤2 calls and reads combined in 30 days)")], ["candidate", t("Cleanup candidates (90 days)")]];
+    for (const [value, label] of choices) {
+      const b = button(label, "lib-usefilter", () => {
+        if (useFilter[kind] === value) return;
+        useFilter[kind] = value;
+        for (const opt of box.children) opt.setAttribute("aria-pressed", String(opt === b));
+        redraw();
+      });
+      b.dataset.filter = value;
+      b.setAttribute("aria-pressed", String(useFilter[kind] === value));
+      box.append(b);
+    }
+    return [note, box];
+  }
+  function usageSummary(u) {
+    const box = el("div", "lib-usestats");
+    if (!u) { box.textContent = t("No local usage data yet"); return box; }
+    // Outside observed coverage, a positive count is a lower bound. Seeing
+    // no events is not evidence of zero across paths we cannot observe.
+    const number = (n) => !countKnown(n) ? "—" : completeUse(u) ? String(n) : n > 0 ? "≥" + n : "—";
+    const ok = countKnown(u.calls30) && countKnown(u.failed30) ? u.calls30 - u.failed30 : null;
+    const coverage = u.coverage === "observed" ? t("Observed paths") : u.coverage === "partial" ? t("Partial coverage") : t("Coverage unknown");
+    const when = u.lastUsed > 0 ? new Date(u.lastUsed * 1000).toLocaleDateString(intlLang()) : t("No local record");
+    const lines = [t("30 days: {ok} succeeded · {failed} failed · {reads} reads", { ok: number(ok), failed: number(u.failed30), reads: number(u.reads30) }),
+      [t("Last used: {when}", { when }), u.candidate === true && t("Cleanup candidate")].filter(Boolean).join(" · "),
+      [coverage, countKnown(u.observedDays) && t("Days observed: {n}", { n: u.observedDays })].filter(Boolean).join(" · ")];
+    for (const line of lines) box.append(el("div", "", line));
+    box.title = lines.join("\n");
+    return box;
+  }
+
   let serversOffFolded = true; // the servers turned off, folded below the ones on
   try { serversOffFolded = localStorage.getItem("magpie.offServersOpen") !== "1"; } catch {}
   function renderServers(body) {
@@ -2950,13 +2998,16 @@ magpie.plugin("library", (ctx) => {
       const offCount = el("span", "note");
       fold.append(svg(CHEV_R, 11, 1.6), el("span", "label", t("Servers turned off")), offCount);
       offHead.append(fold);
+      const noHits = el("div", "list lib-none", t("No items match this filter."));
       const syncFold = () => {
-        const offs = offList.childElementCount, open = !!picking || !serversOffFolded;
+        const offs = offList.childElementCount, filtered = useFilter.servers !== "all";
+        const open = !!picking || filtered || !serversOffFolded;
         offHead.hidden = !offs;
-        list.hidden = offs > 0 && !list.childElementCount;
+        list.hidden = !list.childElementCount;
+        noHits.hidden = !!(offs || list.childElementCount);
         offList.hidden = !offs || !open;
         offCount.textContent = offs || "";
-        fold.disabled = !!picking;
+        fold.disabled = !!picking || filtered;
         fold.setAttribute("aria-expanded", String(open));
         fold.title = t(open ? "Fold the servers turned off away" : "Show the servers turned off");
       };
@@ -2968,7 +3019,7 @@ magpie.plugin("library", (ctx) => {
       };
       // in the order the reader picked (#481), A→Z till then
       const fill = () => {
-        const sorted = [...lib.servers].sort(byName(sortOf("libServers")));
+        const sorted = lib.servers.filter((s) => matchesUse("servers", s)).sort(byName(sortOf("libServers")));
         list.replaceChildren(...sorted.filter((s) => !s.hidden).map((s) => serverRow(s, all)));
         offList.replaceChildren(...sorted.filter((s) => s.hidden).map((s) => serverRow(s, all)));
         syncFold();
@@ -2992,7 +3043,7 @@ magpie.plugin("library", (ctx) => {
         body.append(rh);
       }
       fill();
-      body.append(list, offHead, offList);
+      body.append(...usageFilters("servers", () => { fill(); if (picking) syncPicks(); }), list, offHead, offList, noHits);
       if (picking) body.append(pickBar(all));
       const after = el("div", "after-list");
       after.append(button(t("＋ Add server"), "", () => editServer(null)));
@@ -3478,7 +3529,7 @@ magpie.plugin("library", (ctx) => {
     who.append(nm, healthEl(s.name));
     const sub = el("div", "sub mono", serverLine(s));
     sub.title = serverLine(s);
-    who.append(noteSub(s.note, sub, serverLine(s)), toolsEl(s.name));
+    who.append(noteSub(s.note, sub, serverLine(s)), toolsEl(s.name), usageSummary(s.useStats));
     row.append(mark(s.icon, s.transport === "stdio" ? GLYPH.cmd : GLYPH.web), who, ...removeAct(() => confirmRemoveServer(s)),
       // no agent to give it to: other apps reach it through the router
       ...(agentless() ? [] : [agentChips(withGone(all, s.agents), s.agents, chipsChange("servers/agents", s.name, "servers", (x) => serverRow(x, all)), { problems: s.problems, blocked: sseBlocked(s), all: true })]),
@@ -6084,7 +6135,7 @@ magpie.plugin("library", (ctx) => {
         null,
         many && [removeEveryButton("skills"), GLYPH.trash],
       ]));
-      body.append(rh);
+      body.append(rh, ...usageFilters("skills", () => { unfiltered.clear(); drawSkills(box, all); }));
       drawSkills(box, all);
       body.append(box);
       // under the list, so the skills stay where they were above it
@@ -6252,7 +6303,7 @@ magpie.plugin("library", (ctx) => {
   // and a skill off on this computer has its tag on a line of its own
   // under the name (Tao on Discord: its description and path were cut off)
   const HERE_H = 23;
-  const skillH = (s) => (s.source ? ROW_SRC_H : ROW_H) + (s.offHere ? HERE_H : 0);
+  const skillH = (s) => (s.source ? ROW_SRC_H : ROW_H) + (s.offHere ? HERE_H : 0) + (s.useStats ? 48 : 16);
 
   // By source (the groups, as they always were) or one flat list of every
   // skill by name, A→Z or Z→A (#481)
@@ -6412,8 +6463,9 @@ magpie.plugin("library", (ctx) => {
   // What a group shows: its skills the filter matches, and whether it's
   // folded. While filtering a group is open unless folded since the filter
   // changed; else as the user last left it, or folded when there are many.
-  const skillHits = (g, q) => (q ? g.skills.filter((s) => g.text.get(s).includes(q)) : g.skills);
-  const groupFolded = (g, q) => (q ? unfiltered.has(g.key) : folds[g.key] ?? lib.skills.length > MANY);
+  const skillHits = (g, q) => !q && useFilter.skills === "all" ? g.skills :
+    g.skills.filter((s) => (!q || g.text.get(s).includes(q)) && matchesUse("skills", s));
+  const groupFolded = (g, filtering) => (filtering ? unfiltered.has(g.key) : folds[g.key] ?? lib.skills.length > MANY);
 
   // Collapse all / Expand all (#1862, WardLu): every group the list shows
   // folded, or opened, at once. Only how the list looks changes, never what
@@ -6462,12 +6514,13 @@ magpie.plugin("library", (ctx) => {
       const q = skillQuery.trim().toLowerCase();
       const shown = skillGroups().filter((g) => skillHits(g, q).length);
       if (shown.length < 2) return;
-      const fold = shown.some((g) => !groupFolded(g, q));
+      const filtering = !!q || useFilter.skills !== "all";
+      const fold = shown.some((g) => !groupFolded(g, filtering));
       for (const g of shown) {
-        if (q) { if (fold) unfiltered.add(g.key); else unfiltered.delete(g.key); }
+        if (filtering) { if (fold) unfiltered.add(g.key); else unfiltered.delete(g.key); }
         else folds[g.key] = fold;
       }
-      if (!q) saveFolds();
+      if (!filtering) saveFolds();
       if (box.isConnected) drawSkills(box, all);
     });
     b.hidden = true; // till the list is drawn, which says
@@ -6492,20 +6545,20 @@ magpie.plugin("library", (ctx) => {
     const groups = skillGroups();
     const q = skillQuery.trim().toLowerCase();
     if (drawn?.box !== box) drawn = { box, lists: new Map() };
-    const hitsOf = (g) => skillHits(g, q);
+    const filtering = !!q || useFilter.skills !== "all";
     const cards = [];
     const single = groups.length === 1;
     const redraw = () => { drawSkills(box, all); };
     const shown = [];
     for (const g of groups) {
-      const hits = hitsOf(g);
+      const hits = skillHits(g, q);
       if (!hits.length) continue;
       if (!single) shown.push(g);
-      const folded = !single && groupFolded(g, q);
+      const folded = !single && groupFolded(g, filtering);
       let w = drawn.lists.get(g.key);
       if (!folded) {
         if (!w) drawn.lists.set(g.key, (w = windowed()));
-        w.set(groupItems(g, hits, all, !!q, redraw));
+        w.set(groupItems(g, hits, all, filtering, redraw));
       }
       // from one place only: its list with no heading over it
       if (single) {
@@ -6513,11 +6566,11 @@ magpie.plugin("library", (ctx) => {
         w.el.classList.add("bare");
         card.append(w.el);
         cards.push(card);
-      } else cards.push(groupCard(g, hits, all, folded, !!q, w, redraw));
+      } else cards.push(groupCard(g, hits, all, folded, filtering, w, redraw));
     }
-    if (!cards.length) cards.push(el("div", "list lib-none", t("No skill matches “{q}”.", { q: skillQuery.trim() })));
+    if (!cards.length) cards.push(el("div", "list lib-none", useFilter.skills === "all" ? t("No skill matches “{q}”.", { q: skillQuery.trim() }) : t("No items match this filter.")));
     box.replaceChildren(...cards);
-    paintFoldAll(shown, q);
+    paintFoldAll(shown, filtering);
     if (box.isConnected) { syncLists(); if (picking) syncPicks(); } // the bar's All counts what the filter shows
   }
 
@@ -6809,7 +6862,7 @@ magpie.plugin("library", (ctx) => {
   // the skills the filter shows, in every group, folded or not
   function shownSkills() {
     const q = skillQuery.trim().toLowerCase();
-    return skillGroups().flatMap((g) => (q ? g.skills.filter((s) => g.text.get(s).includes(q)) : g.skills));
+    return skillGroups().flatMap((g) => skillHits(g, q));
   }
 
   // A box for some skills: ticked when they're all picked, half when some
@@ -6850,7 +6903,8 @@ magpie.plugin("library", (ctx) => {
     const bar = el("div", "row lib-row lib-pickbar");
     const servers = picking === "servers", hooks = picking === "hooks";
     const own = servers ? lib.servers : hooks ? lib.hooks || [] : lib.skills;
-    const shown = servers || hooks ? own : shownSkills(), q = servers || hooks ? "" : skillQuery.trim();
+    const shown = servers ? own.filter((s) => matchesUse("servers", s)) : hooks ? own : shownSkills();
+    const q = servers ? useFilter.servers !== "all" : !hooks && (skillQuery.trim() || useFilter.skills !== "all");
     const every = el("label", "lib-pickall");
     every.append(pickAll(shown), el("span", "", q ? t("All {n} that match", { n: shown.length }) : t("All {n}", { n: shown.length })));
     every.onclick = (e) => e.stopPropagation();
@@ -8534,7 +8588,9 @@ magpie.plugin("library", (ctx) => {
     rm.append(svg(back ? GLYPH.putBack : GLYPH.trash, 13, 1.4));
     rm.title = back ? t("Put back in {agents}", { agents: back }) : t("Remove");
     acts.append(rm);
-    row.append(mark(s.icon, GLYPH.skill), who, acts, agentChips(withGone(all, s.agents), s.agents, chipsChange("skills/agents", s.name, "skills", (x) => skillRow(x, all)), { problems: s.problems, via: viaFor(s), all: true, always: alwaysFor(s) }));
+    row.style.height = skillH(s) + "px";
+    row.classList.toggle("lib-hasstats", !!s.useStats);
+    row.append(mark(s.icon, GLYPH.skill), who, acts, agentChips(withGone(all, s.agents), s.agents, chipsChange("skills/agents", s.name, "skills", (x) => skillRow(x, all)), { problems: s.problems, via: viaFor(s), all: true, always: alwaysFor(s) }), usageSummary(s.useStats));
     if (picking) return pickRow(row, s.name);
     row.onclick = () => viewSkill(s);
     row.title = t("Read {name}'s SKILL.md", { name: s.name });

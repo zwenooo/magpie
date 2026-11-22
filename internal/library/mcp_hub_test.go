@@ -138,6 +138,55 @@ func TestHubToolsAndCalls(t *testing.T) {
 	}
 }
 
+// The result of the dispatched tool, not the router's tool name or its
+// transport status, is the unit of use. Plugin tools bypass the transport.
+func TestHubRecordsToolUse(t *testing.T) {
+	hubSandbox(t)
+	fakePluginTools(t, search1api)
+	_, _, spec := runFixture(t)
+	s := &Server{Name: "example", Command: spec.Command, Args: spec.Args, Env: spec.Env, Transport: "stdio", Agents: []string{"codex"}, DisabledTools: []string{"off"}}
+	p := &Server{Name: "renamed-plugin", Transport: "http", Plugin: "@magpie-community/tools-search1api", Agents: []string{"codex"}}
+	l := &Library{MCPHub: true, MCP: []*Server{s, p}}
+	if err := l.save(); err != nil {
+		t.Fatal(err)
+	}
+	h := theHub{}
+	ctx := context.Background()
+	if tools := h.Tools(ctx, "codex"); len(tools) == 0 {
+		t.Fatal("no fake tools listed")
+	}
+	if health := CheckServer(ctx, s); health.State != "ok" {
+		t.Fatalf("check: %+v", health)
+	}
+	if _, err := h.Call(ctx, "codex", s.Name, "off", nil); err == nil {
+		t.Fatal("disabled tool ran")
+	}
+	checkMCPCount(t, s.Name, 0, 0)
+	args := json.RawMessage(`{"query":"private request"}`)
+	for _, tc := range []struct {
+		tool     string
+		rpcError bool
+		failed   int64
+	}{{"echo", false, 0}, {"tool-error", false, 1}, {"rpc-error", true, 2}} {
+		res, err := h.Call(ctx, "codex~private-project", s.Name, tc.tool, args)
+		if (err != nil) != tc.rpcError {
+			t.Fatalf("%s: %s %v", tc.tool, res, err)
+		}
+		checkMCPCount(t, s.Name, 1+tc.failed, tc.failed)
+	}
+	if _, err := h.Call(ctx, "", p.Name, "search", args); err != nil {
+		t.Fatal(err)
+	}
+	pluginUse := checkMCPCount(t, p.Name, 1, 0)
+	if pluginUse.ByClient["other"].Days30.Count != 1 || pluginUse.Tools["search"].Days30.Count != 1 {
+		t.Fatalf("plugin use: %+v", pluginUse)
+	}
+	use := checkMCPCount(t, s.Name, 3, 2)
+	if len(use.ByClient) != 1 || use.ByClient["codex"].Days30.Count != 3 || len(use.Tools) != 3 || use.Tools["tool-error"].Days30.Failed != 1 || use.Tools["rpc-error"].Days30.Failed != 1 {
+		t.Fatalf("hub use: %+v", use)
+	}
+}
+
 // A server that dies, or doesn't answer, is an error naming why, and the
 // next call starts it again; one left unused is ended, and started again
 // when next called.

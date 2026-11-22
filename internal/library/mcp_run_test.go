@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/yetone/magpie/internal/agent"
+	"github.com/yetone/magpie/internal/libraryuse"
 )
 
 // The fake server magpie runs for Codex: this test binary again, with
@@ -53,6 +54,10 @@ func TestFakeRunServer(t *testing.T) {
 			say(map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{"listChanged": true}}, "serverInfo": map[string]any{"name": "fake", "version": "1"}}})
 		case m.Method == "tools/list":
 			say(map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": map[string]any{"tools": []any{map[string]any{"name": "echo"}, map[string]any{"name": fmt.Sprint("pid", os.Getpid())}}}})
+		case m.Method == "tools/call" && m.Params.Name == "tool-error":
+			say(map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "private error detail"}}}})
+		case m.Method == "tools/call" && m.Params.Name == "rpc-error":
+			say(map[string]any{"jsonrpc": "2.0", "id": m.ID, "error": map[string]any{"code": -32603, "message": "private RPC detail"}})
 		case m.Method == "tools/call" && m.Params.Name == "ask":
 			asked = m.ID
 			say(map[string]any{"jsonrpc": "2.0", "id": 77, "method": "roots/list"})
@@ -153,6 +158,67 @@ func call(t *testing.T, srv *httptest.Server, sid, body string) (string, string)
 }
 
 const runInit = `{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"%s","version":"1"}}}`
+
+// The HTTP and event-stream branches see the same final reply. A notification
+// mid-call (change), or a failed call's HTTP 200, is not another success.
+func TestRunRecordsToolUse(t *testing.T) {
+	sandbox(t)
+	_, _, spec := runFixture(t)
+	post := func(method, params, accept, sid string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest("POST", RunPath+"fake", strings.NewReader(fmt.Sprintf(`{"jsonrpc":"2.0","id":12,"method":%q,"params":%s}`, method, params)))
+		req.Header.Set("Accept", accept)
+		req.Header.Set("Mcp-Session-Id", sid)
+		w := httptest.NewRecorder()
+		ServeRun(w, req, "fake")
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", method, w.Code, w.Body.String())
+		}
+		return w
+	}
+	w := post("initialize", `{"protocolVersion":"2025-06-18","clientInfo":{"name":"private-client-name"}}`, "application/json", "")
+	sid := w.Header().Get("Mcp-Session-Id")
+	post("tools/list", `{}`, "application/json", sid)
+	post("ping", `{}`, "application/json", sid)
+	checkMCPCount(t, "fake", 0, 0)
+	// Only echo and pid were actually advertised. Preserve totals for other
+	// calls without persisting arbitrary names submitted by the client.
+	post("tools/call", `{"name":"echo"}`, "application/json", sid)
+	count, failed := int64(1), int64(0)
+	for _, accept := range []string{"application/json", "text/event-stream"} {
+		for _, tool := range []string{"change", "tool-error", "rpc-error"} {
+			post("tools/call", fmt.Sprintf(`{"name":%q,"arguments":{"text":"private request"}}`, tool), accept, sid)
+			count++
+			if tool != "change" {
+				failed++
+			}
+			checkMCPCount(t, "fake", count, failed)
+		}
+	}
+	// A valid call whose command can't start never reaches the reply reader.
+	spec.Command = filepath.Join(t.TempDir(), "missing-program")
+	runGiven(map[string]runSpec{"fake": spec})
+	post("tools/call", `{"name":"change"}`, "application/json", sid)
+	use := checkMCPCount(t, "fake", count+1, failed+1)
+	if len(use.Tools) != 2 || use.Tools["echo"].Days30.Count != 1 || use.Tools["(other)"].Days30.Count != 7 || use.Tools["(other)"].Days30.Failed != 5 {
+		t.Fatalf("run tools: %+v", use.Tools)
+	}
+	if len(use.ByClient) != 1 || use.ByClient["codex"].Days30.Count != 8 {
+		t.Fatalf("run clients: %+v", use.ByClient)
+	}
+}
+
+func checkMCPCount(t *testing.T, server string, calls, failed int64) libraryuse.Summary {
+	t.Helper()
+	s, err := libraryuse.Report("mcp", server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := s.Days30; w.Count != calls || w.Failed != failed {
+		t.Fatalf("%s: got %d calls, %d failures; want %d, %d", server, w.Count, w.Failed, calls, failed)
+	}
+	return s
+}
 
 // A second thread's session is initialized and listed from what the first
 // one's server said, with no server of its own; its server starts on its

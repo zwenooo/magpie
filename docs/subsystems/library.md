@@ -55,6 +55,12 @@ Pi's extensions and packages.
 
 ## Runtime path
 
+### Observed use on this computer (fork)
+
+The Skill and MCP pages show local evidence, not an audit of every agent. `magpie library usage` lists the same rows as JSON; `--candidates` only filters and never changes an item. An MCP tool call counts once, including an observed failure. Initializing, listing, probing, and distributing servers are not tool calls. For a Skill, an explicit invocation and a read of its `SKILL.md` are different signals. The page does not infer usage from a directory timestamp, a mention in text, or a Library sync.
+
+Counts are local; they are not retrospective and are not sent with the Library to another computer. Client-direct MCP and Skill use outside observable requests may leave no evidence. In particular a Skill with no recorded calls is not automatically a cleanup candidate. A candidate requires a full 90-day observation window with zero activity and sufficient coverage of the configured local routes. Missing observations, unreadable statistics, project/direct routes and partial Skill coverage do not qualify. Low observed counts may still warrant manual review; turning an item off is reversible, while removing it is a separate user action.
+
 ### Updating an MCP program from a repository (fork)
 
 Public GitHub repositories need no sign-in. When GitHub refuses anonymous access,

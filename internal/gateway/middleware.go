@@ -22,6 +22,7 @@ import (
 // search and vision stand-ins) go without them, as their replies are
 // magpie's to read.
 func (s *Server) serveAgent(w http.ResponseWriter, r *http.Request, from provider.Protocol, body []byte) {
+	observeSkillUse(r, from, body)
 	withGatewaySession(w, r)
 	// the agent's own turn, which the user's model for requests masking
 	// would change is for (maskRouteFor)

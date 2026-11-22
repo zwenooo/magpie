@@ -381,6 +381,9 @@ func set(list []string, id string, on bool) []string {
 // after, with the lock let go (mcp_reap.go).
 func change(f func(l *Library) error) (*Result, error) {
 	res, err := changeLocked(f)
+	if err == nil {
+		reconcileUseInventory()
+	}
 	if res != nil && len(res.dropped) > 0 {
 		ending(res.dropped)
 	}

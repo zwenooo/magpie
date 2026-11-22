@@ -566,7 +566,7 @@ func run(args []string) error {
 	gateway.WhileServing = append(gateway.WhileServing, claudecode.KeepCurrent)
 	// and the library's skills from GitHub and git repositories, fetched
 	// again by themselves when that is switched on (0xYaCo on X)
-	gateway.WhileServing = append(gateway.WhileServing, library.KeepSkillsCurrent)
+	gateway.WhileServing = append(gateway.WhileServing, library.KeepSkillsCurrent, library.KeepUseStats)
 	// and the request archive, when it is on, goes to the bucket sync is to
 	gateway.ArchiveBucket = func() (gateway.Putter, bool) {
 		if b, ok := davsync.S3Bucket(); ok {

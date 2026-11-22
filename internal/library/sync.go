@@ -481,6 +481,7 @@ type AgentView struct {
 
 // ServerView is a library server, and what each agent it's on made of it.
 type ServerView struct {
+	UseStats UseStats `json:"useStats"`
 	*Server
 	Icon string `json:"icon,omitempty"`
 	// Problems are the agents it couldn't be given to, and why
@@ -492,6 +493,7 @@ type ServerView struct {
 
 // SkillView is a library skill as the page shows it.
 type SkillView struct {
+	UseStats    UseStats          `json:"useStats"`
 	Name        string            `json:"name"`
 	Bundle      string            `json:"bundle,omitempty"` // the plugin it came with
 	Description string            `json:"description"`
@@ -884,7 +886,12 @@ func readView(problems []Problem, glance bool) (*View, error) {
 	}
 	v.SkillGroups = l.skillGroups()
 	v.CheckDue = checkDue(l)
+	inventory := useInventory(l)
 	if glance {
+		forget()
+		mu.Unlock()
+		locked = false
+		attachUseStats(v, inventory)
 		return v, nil
 	}
 	// the agents' skill folders are read through without the lock, so a
@@ -898,6 +905,7 @@ func readView(problems []Problem, glance bool) (*View, error) {
 		v.Skills[i].Behind = behind[v.Skills[i].Name]
 	}
 	v.FoundSkills = foundSkills(l)
+	attachUseStats(v, inventory)
 	return v, nil
 }
 

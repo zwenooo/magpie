@@ -40,6 +40,7 @@ import (
 
 	"github.com/yetone/magpie/internal/agent"
 	"github.com/yetone/magpie/internal/gateway"
+	"github.com/yetone/magpie/internal/libraryuse"
 	"github.com/yetone/magpie/internal/proc"
 )
 
@@ -197,14 +198,16 @@ type runSession struct {
 	id, name string
 	start    sync.Mutex // held while the server starts
 
-	mu      sync.Mutex
-	spec    runSpec
-	gone    bool            // the server is given no longer
-	init    json.RawMessage // the session's initialize params
-	child   *runChild
-	last    time.Time
-	busy    int
-	streams []chan []byte // the event streams open, newest last
+	mu        sync.Mutex
+	spec      runSpec
+	gone      bool            // the server is given no longer
+	init      json.RawMessage // the session's initialize params
+	child     *runChild
+	last      time.Time
+	busy      int
+	streams   []chan []byte       // the event streams open, newest last
+	tools     map[string]struct{} // names declared in tools/list replies to this session
+	toolEpoch uint64              // a changed list or replaced server invalidates an outstanding page
 }
 
 func newSessionID() string {
@@ -264,6 +267,8 @@ func (s *runSession) stop() {
 	s.mu.Lock()
 	c := s.child
 	s.child = nil
+	s.tools = nil
+	s.toolEpoch++
 	s.mu.Unlock()
 	if c != nil {
 		c.end()
@@ -310,7 +315,12 @@ func (s *runSession) ensure() (*runChild, json.RawMessage, error) {
 func (s *runSession) deliver(c *runChild, line []byte, id json.RawMessage, method string) {
 	switch method {
 	case "notifications/tools/list_changed":
-		forget(s.spec, "tools/list")
+		s.mu.Lock()
+		s.tools = nil
+		s.toolEpoch++
+		spec := s.spec
+		s.mu.Unlock()
+		forget(spec, "tools/list")
 	case "notifications/prompts/list_changed":
 		forget(s.spec, "prompts/list")
 	case "notifications/resources/list_changed":
@@ -574,6 +584,51 @@ type rpcIn struct {
 	Error  json.RawMessage `json:"error"`
 }
 
+// A request may put any string in params.name. Only server-declared names
+// get a tool breakdown; an unlisted tool still counts toward its server.
+func (s *runSession) listedTool(params json.RawMessage) string {
+	var p struct {
+		Name string `json:"name"`
+	}
+	if json.Unmarshal(params, &p) != nil {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.tools[p.Name]; ok {
+		return p.Name
+	}
+	return ""
+}
+
+func (s *runSession) noteTools(epoch uint64, result json.RawMessage) {
+	var page struct {
+		Tools []struct {
+			Name string `json:"name"`
+		} `json:"tools"`
+	}
+	if json.Unmarshal(result, &page) != nil || len(page.Tools) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.toolEpoch != epoch {
+		return
+	}
+	if s.tools == nil {
+		s.tools = make(map[string]struct{})
+	}
+	for _, t := range page.Tools {
+		// Bound per-session memory even for an endless series of pages.
+		if len(s.tools) >= 1024 {
+			break
+		}
+		if len(t.Name) > 0 && len(t.Name) <= 128 {
+			s.tools[t.Name] = struct{}{}
+		}
+	}
+}
+
 // ServeRun is the gateway's RunPath<name>: the server called name, run by
 // magpie, over streamable HTTP. The gateway lets only this machine's
 // agents here.
@@ -639,7 +694,8 @@ func ServeRun(w http.ResponseWriter, r *http.Request, name string) {
 	// a session magpie didn't see start (Codex kept it across a restart)
 	// has no initialize to tell its server who the client is: the
 	// request does (#6392)
-	s := session(sid, name, spec, namedInit(defaultInit(), gateway.RunClient(r)))
+	client := gateway.RunClient(r)
+	s := session(sid, name, spec, namedInit(defaultInit(), client))
 	w.Header().Set("Mcp-Session-Id", sid)
 	s.mu.Lock()
 	s.last = time.Now()
@@ -659,8 +715,21 @@ func ServeRun(w http.ResponseWriter, r *http.Request, name string) {
 		return
 	}
 	first := slices.Contains(runLists, m.Method) && !hasCursor(m.Params)
+	var epoch uint64
+	if m.Method == "tools/list" {
+		s.mu.Lock()
+		if first {
+			s.tools = nil
+			s.toolEpoch++
+		}
+		epoch = s.toolEpoch
+		s.mu.Unlock()
+	}
 	if first {
 		if v := said(spec, m.Method); v != nil {
+			if m.Method == "tools/list" {
+				s.noteTools(epoch, v)
+			}
 			runReply(w, rpcResult(m.ID, v))
 			return
 		}
@@ -674,6 +743,12 @@ func ServeRun(w http.ResponseWriter, r *http.Request, name string) {
 		s.last = time.Now()
 		s.mu.Unlock()
 	}()
+	isCall := m.Method == "tools/call"
+	success := false
+	if isCall {
+		tool := s.listedTool(m.Params)
+		defer func() { libraryuse.RecordMCP(name, tool, client, success) }()
+	}
 	c, _, err := s.ensure()
 	if err != nil {
 		runReply(w, rpcError(m.ID, -32603, err.Error()))
@@ -691,14 +766,27 @@ func ServeRun(w http.ResponseWriter, r *http.Request, name string) {
 		return
 	}
 	got := func(b json.RawMessage) {
-		if !first {
+		if isCall {
+			var r struct {
+				Result *mcpToolOutcome `json:"result"`
+				Error  *struct{}       `json:"error"`
+			}
+			success = json.Unmarshal(b, &r) == nil && r.Error == nil && r.Result != nil && !r.Result.IsError
+			return
+		}
+		if !first && m.Method != "tools/list" {
 			return
 		}
 		var r struct {
 			Result json.RawMessage `json:"result"`
 		}
 		if json.Unmarshal(b, &r) == nil && len(r.Result) > 0 {
-			remember(spec, m.Method, r.Result)
+			if m.Method == "tools/list" {
+				s.noteTools(epoch, r.Result)
+			}
+			if first {
+				remember(spec, m.Method, r.Result)
+			}
 		}
 	}
 	if events == nil {

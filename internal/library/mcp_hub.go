@@ -50,6 +50,7 @@ import (
 
 	"github.com/yetone/magpie/internal/agent"
 	"github.com/yetone/magpie/internal/gateway"
+	"github.com/yetone/magpie/internal/libraryuse"
 	"github.com/yetone/magpie/internal/mcpauth"
 )
 
@@ -364,10 +365,26 @@ func (theHub) Call(ctx context.Context, agentID, server, tool string, args json.
 		}
 		meta[gateway.HubSessionMeta] = c.Session
 	}
+	var result json.RawMessage
+	var err error
 	if s.Plugin != "" {
-		return pluginHubCall(ctx, gateway.HubAgentOf(agentID), s, tool, args)
+		result, err = pluginHubCall(ctx, gateway.HubAgentOf(agentID), s, tool, args)
+	} else {
+		result, err = backendOf(s).call(ctx, tool, args, meta)
 	}
-	return backendOf(s).call(ctx, tool, args, meta)
+	var outcome *mcpToolOutcome
+	success := err == nil && json.Unmarshal(result, &outcome) == nil && outcome != nil && !outcome.IsError
+	// The path names the agent, sometimes qualified by a project or distro.
+	// RecordMCP buckets unknown products; never give it either qualifier.
+	client, _, _ := strings.Cut(gateway.HubAgentOf(agentID), "@wsl:")
+	libraryuse.RecordMCP(s.Name, tool, client, success)
+	return result, err
+}
+
+// mcpToolOutcome deliberately leaves the content and metadata unread.
+// A missing or null result isn't a successful reply.
+type mcpToolOutcome struct {
+	IsError bool `json:"isError"`
 }
 
 // keepsSession is whether s is told which of the hub's callers a call is

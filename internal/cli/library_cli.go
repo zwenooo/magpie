@@ -18,6 +18,7 @@ import (
 const libraryUsage = `magpie library                     what the library gives each agent: instructions, MCP servers, skills
   magpie library where <skill|mcp> <name> [write-path]   resolve the registered source and check a file, as JSON
   magpie library maintain <skill|mcp> <name> <library|checkout> [path]   register the maintenance directory on this computer
+  magpie library usage [--candidates]   list local usage evidence for skills and MCP servers as JSON (read only)
   magpie library sync                write it into the agents again (after one is installed, or edited by hand)
   magpie library instructions        print the shared instructions
   magpie library instructions set <file|->   replace them with a file's text (- for stdin)
@@ -116,6 +117,32 @@ func libraryCmd(args []string) error {
 		unused string // a server just added that no agent is given
 	)
 	switch sub, rest := args[1], args[2:]; sub {
+	case "usage":
+		if len(rest) > 1 || len(rest) == 1 && rest[0] != "--candidates" {
+			return fmt.Errorf("usage: magpie library usage [--candidates]")
+		}
+		v, err := library.Glance(nil)
+		if err != nil {
+			return err
+		}
+		type row struct {
+			Kind string `json:"kind"`
+			Name string `json:"name"`
+			library.UseStats
+		}
+		rows := []row{}
+		add := func(kind, name string, stats library.UseStats) {
+			if len(rest) == 0 || stats.Candidate {
+				rows = append(rows, row{kind, name, stats})
+			}
+		}
+		for _, s := range v.Servers {
+			add("mcp", s.Name, s.UseStats)
+		}
+		for _, s := range v.Skills {
+			add("skill", s.Name, s.UseStats)
+		}
+		return json.NewEncoder(os.Stdout).Encode(rows)
 	case "where", "maintain":
 		return libraryLocationCmd(sub, rest)
 	case "sync":

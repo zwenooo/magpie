@@ -751,12 +751,16 @@ input.lib-setname:focus { border-color: var(--accent); box-shadow: 0 0 0 3px col
 .lib-vl > .row { border-top: 1px solid var(--line-2); overflow: hidden; flex-wrap: nowrap; contain: layout paint style; }
 .lib-vl.scrolling > .row .lib-rowacts { transition: none; }
 .lib-vl.bare > .row.first { border-top: 0; }
-.lib-vl > .row.lib-skill { height: 51px; min-height: 0; padding: 7px 10px 7px 12px; gap: 11px; }
-.lib-vl > .row.lib-skill.src { height: 67px; }
-/* the "Off on this computer" tag's line (.lib-hereline: 20px and 3px
-   above it) is room the list counts too (library.js, HERE_H) */
-.lib-vl > .row.lib-skill.offhere { height: 74px; }
-.lib-vl > .row.lib-skill.src.offhere { height: 90px; }
+/* skillH sets both the virtual height and the row's height. Reserve the
+   last lines across the row, independent of the room taken by agent chips. */
+.lib-vl > .row.lib-skill { position: relative; min-height: 0; padding: 7px 10px 23px 12px; gap: 11px; }
+.lib-vl > .row.lib-skill.lib-hasstats { padding-bottom: 55px; }
+.lib-usestats { min-width: 0; font-size: 11px; line-height: 16px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.lib-skill > .lib-usestats { position: absolute; bottom: 7px; left: 12px; right: 10px; }
+.lib-skill > .lib-usestats > div { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.lib-usefilters { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 4px 0 8px; }
+.lib-usefilters .lib-usefilter { height: auto; max-width: 100%; white-space: normal; }
+.lib-usefilter[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
 .lib-vl > .lib-skill .sub { display: block; white-space: nowrap; -webkit-line-clamp: none; }
 .lib-vl > .lib-skill .lib-src { margin-top: 2px; }
 /* a part of a group: the folder its skills sit in, or the start of their names */

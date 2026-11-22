@@ -17,7 +17,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
-const { chromium, webkit } = require("playwright");
+const { chromium, webkit } = require("playwright-core");
 const { strings } = require("./strings.cjs");
 
 const assets = path.resolve(__dirname, "../assets");
@@ -50,7 +50,8 @@ function server(lang, st) {
     if (url.pathname === "/boot.js") return route.fulfill({ contentType: "text/javascript", body: `window.bootPrefs = {lang:"${lang}",theme:"light",web:${st.web}${st.gateway ? ",gateway:true" : ""}};` });
     if (url.pathname === "/wails/runtime.js") return route.fulfill({ contentType: "text/javascript", body: "export const Window = {};" });
     if (url.pathname === "/api/state") return json({ agents: [], profiles: [], settings: { lang, theme: "light", gateway: "http://127.0.0.1:3425", publicURL: "https://mcp.example.net" } });
-    if (url.pathname === "/api/library") return json(fixture(st));
+    if (url.pathname === "/api/library") return json(st.library || fixture(st));
+    if (st.library && url.pathname.startsWith("/api/library/") && req.method() !== "GET") st.sent.push(url.pathname);
     if (url.pathname === "/api/library/servers/hub") {
       const body = req.postDataJSON();
       st.sent.push(body);
@@ -86,6 +87,70 @@ const sideways = (page) => page.evaluate(() => {
 });
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
+  test(engine + ": local usage on MCP and Skill rows is a passive filter", async (t) => {
+    I18N = strings().I18N;
+    const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || "chromium" }));
+    t.after(() => browser.close());
+    const stats = { calls30: 0, failed30: 0, reads30: 0, lastUsed: 0, coverage: "observed", complete30: true, observedDays: 95, candidate: false };
+    const cases = {
+      active: { ...stats, calls30: 7, failed30: 2, reads30: 3, lastUsed: 1720000000 },
+      quiet: { ...stats, calls30: 1, reads30: 1 }, idle: stats, review: { ...stats, candidate: true },
+      reader: { ...stats, reads30: 3 }, recent: { ...stats, observedDays: 29, complete30: false }, partialQuiet: { ...stats, coverage: "partial", calls30: 1, complete30: false },
+      partial: { ...stats, coverage: "partial", reads30: 4 }, unknown: { ...stats, coverage: "unknown" }, missing: undefined,
+    };
+    for (const lang of ["en", "zh", "zh-TW", "ja", "de"]) for (const tab of ["mcp", "skills"]) {
+      await t.test(`${lang} ${tab}`, async () => {
+        const st = { web: true, sent: [] }, library = fixture(st);
+        const rows = Object.entries(cases).map(([name, useStats]) => ({ name, useStats, agents: [] }));
+        library.skills = rows.map((r) => ({ ...r, kind: "folder" }));
+        library.servers = rows.map((r) => ({ ...r, hidden: r.name === "review", transport: "stdio", command: "example" }));
+        st.library = library;
+        const page = await browser.newPage({ viewport: { width: 420, height: 950 }, timezoneId: "UTC", reducedMotion: "reduce" });
+        try {
+          page.setDefaultTimeout(5000);
+          page.setDefaultNavigationTimeout(60000);
+          await page.addInitScript((tab) => localStorage.setItem("magpie.libTab", tab), tab);
+          await page.route("**/*", server(lang, st));
+          await page.goto("http://magpie.test/");
+          await page.locator('button[data-view="library"]').click();
+          const v = page.locator("#view-library"), list = v.locator(tab === "skills" ? ".lib-skill" : ".lib-server");
+          const summary = (name) => list.filter({ has: page.locator(".name", { hasText: new RegExp("^" + name + "$") }) }).locator(".lib-usestats");
+          const count = (ok, failed, reads) => tr(lang, "30 days: {ok} succeeded · {failed} failed · {reads} reads", { ok, failed, reads });
+          await summary("active").waitFor();
+          assert.match(await summary("active").innerText(), /2024/);
+          assert.equal(await summary("active").locator("div").first().textContent(), count(5, 2, 3));
+          assert.equal(await summary("partial").locator("div").first().textContent(), count("—", "—", "≥4"));
+          assert.ok((await summary("partial").innerText()).includes(tr(lang, "Partial coverage")));
+          assert.equal(await summary("unknown").locator("div").first().textContent(), count("—", "—", "—"));
+          assert.equal(await summary("idle").locator("div").first().textContent(), count(0, 0, 0));
+          assert.equal(await summary("missing").textContent(), tr(lang, "No local usage data yet"));
+          assert.ok(await summary("active").evaluate((box) => {
+            const row = box.closest(".lib-row").getBoundingClientRect(), b = box.getBoundingClientRect();
+            return b.left >= row.left && b.right <= row.right && b.bottom <= row.bottom && row.right <= window.innerWidth;
+          }));
+          const names = () => list.locator(".name").allTextContents();
+          const filter = (f) => v.locator(`.lib-usefilter[data-filter="${f}"]`).click();
+          await filter("low");
+          assert.deepEqual((await names()).sort(), ["idle", "partialQuiet", "quiet", "review"]);
+          await filter("candidate");
+          assert.deepEqual(await names(), ["review"]);
+          assert.ok(await summary("review").isVisible());
+          assert.ok((await summary("review").innerText()).includes(tr(lang, "Cleanup candidate")));
+          if (tab === "skills") {
+            await v.locator(".lib-skillq").fill("quiet");
+            await v.getByText(tr(lang, "No items match this filter."), { exact: true }).waitFor();
+            assert.deepEqual(await names(), []);
+            await v.locator(".lib-skillq").fill("");
+            await summary("review").waitFor();
+          }
+          await filter("all");
+          assert.equal((await names()).length, rows.length);
+          assert.deepEqual(st.sent, []);
+        } finally { await page.close(); }
+      });
+    }
+  });
+
   test(engine + ": the MCP router with no agent", async (t) => {
     assert(["chromium", "webkit"].includes(engine), "BROWSER must be chromium or webkit");
     I18N = strings().I18N;
