@@ -16,6 +16,8 @@ import (
 )
 
 const libraryUsage = `magpie library                     what the library gives each agent: instructions, MCP servers, skills
+  magpie library where <skill|mcp> <name> [write-path]   resolve the registered source and check a file, as JSON
+  magpie library maintain <skill|mcp> <name> <library|checkout> [path]   register the maintenance directory on this computer
   magpie library sync                write it into the agents again (after one is installed, or edited by hand)
   magpie library instructions        print the shared instructions
   magpie library instructions set <file|->   replace them with a file's text (- for stdin)
@@ -72,6 +74,36 @@ const libraryUsage = `magpie library                     what the library gives 
   magpie library rtk path            put RTK on the PATH the agents get, when it isn't (their hooks run it by name)
 `
 
+// libraryLocationCmd emits exactly one JSON result, including on refusal.
+func libraryLocationCmd(sub string, args []string) error {
+	var v *library.MaintenanceLocation
+	var err error
+	n := 2
+	if sub == "maintain" {
+		n++
+	}
+	if len(args) < n || len(args) > n+1 || slices.ContainsFunc(args, func(s string) bool { return s == "" || strings.HasPrefix(s, "-") }) {
+		err = fmt.Errorf("invalid arguments for library %s (see magpie library help)", sub)
+	} else {
+		var path string
+		if len(args) > n {
+			path = args[n]
+		}
+		if sub == "where" {
+			v, err = library.Where(args[0], args[1], path)
+		} else {
+			v, err = library.Maintain(args[0], args[1], args[2], path)
+		}
+	}
+	if err != nil {
+		if e := json.NewEncoder(os.Stdout).Encode(map[string]string{"error": err.Error()}); e != nil {
+			return e
+		}
+		return err
+	}
+	return json.NewEncoder(os.Stdout).Encode(v)
+}
+
 // libraryCmd is magpie library …: the instructions, MCP servers and skills
 // magpie keeps once and writes into every agent.
 func libraryCmd(args []string) error {
@@ -84,6 +116,8 @@ func libraryCmd(args []string) error {
 		unused string // a server just added that no agent is given
 	)
 	switch sub, rest := args[1], args[2:]; sub {
+	case "where", "maintain":
+		return libraryLocationCmd(sub, rest)
 	case "sync":
 		res, err = library.Sync()
 	case "instructions":

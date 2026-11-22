@@ -8,6 +8,39 @@ import (
 	"testing"
 )
 
+func TestMaintenanceJunctionTargets(t *testing.T) {
+	root := t.TempDir()
+	outer := t.TempDir()
+	alias := filepath.Join(outer, "agent")
+	if err := junction(root, alias); err != nil {
+		t.Fatal(err)
+	}
+	real, err := maintenanceDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := maintenanceWritePath(real, filepath.Join(alias, "new"))
+	if err != nil || v != filepath.Join(real, "new") {
+		t.Fatalf("linked new file: %s %v", v, err)
+	}
+	target := t.TempDir()
+	link := filepath.Join(root, "out")
+	if err := junction(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := maintenanceWritePath(real, filepath.Join(link, "new")); err == nil {
+		t.Fatal("escaped via junction")
+	}
+	if err := os.Remove(target); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{link, filepath.Join(link, "new")} {
+		if _, err := maintenanceWritePath(real, p); err == nil {
+			t.Fatalf("accepted dangling junction: %s", p)
+		}
+	}
+}
+
 // #973: a junction, what Windows links with when symlinks aren't allowed,
 // is a link to the library's skill: magpie's own, and taking it away
 // leaves the skill where it is.

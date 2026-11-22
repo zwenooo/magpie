@@ -104,6 +104,38 @@ A gateway startup configuration can be compared only in a process holding its
 registry; an absent registry is unknown. Neither opening the page nor receiving
 a Library sync runs the probe.
 
+### Locating a maintenance source (local CLI)
+
+`magpie library maintain <skill|mcp> NAME library [PATH]` explicitly registers
+an existing Library-owned skill directory or an unmanaged `{{program}}` directory.
+PATH, if given, must identify that directory. A skill imported from a source or
+a repository-managed MCP program is not a library-owned maintenance source. Use `maintain <skill|mcp> NAME
+checkout PATH` for an independently maintained Git working tree: PATH is the
+actual source directory (possibly a subtree), not a repository URL. The CLI
+validates the working tree with `git rev-parse`; it does not fetch, start the
+MCP, run hooks or evaluate source files. `repoSource` describes updates only;
+it neither grants a checkout nor establishes that two repositories correspond.
+
+`magpie library where <skill|mcp> NAME [WRITE-PATH]` rechecks that computer's
+explicit registration (`library-maintainers.json` beside, not in, `library.json`).
+Neither sync nor backup carries this record. A missing record, root, or changed
+repository source is an error. Registration never changes or syncs the Library.
+Both commands print a JSON object: `kind`, `name`, `mode`, `maintenancePath`
+(canonical absolute directory), `repoSource` (object or null) and, if requested,
+`writePath` (canonical absolute file). On refusal they print `{"error":"…"}`
+and exit nonzero, without returning a usable target. Remove a registration by
+removing its `kind/name` entry from the local file while the CLI is not writing.
+
+A relative write path starts at the registered root. An absolute one may come
+through an agent's link to it. Existing parents and links (including Windows
+junctions) must resolve; only the final regular file may be new. The CLI refuses
+`..`, `.git` components, dangling or escaping links and multiply linked files.
+This is a point-in-time path check, not a lock on a future write. Use the returned
+`writePath`, not the unchecked spelling; a writer sharing a tree with untrusted
+concurrent processes needs its own handle-relative checks at write time.
+See [maintenance.go](../../internal/library/maintenance.go) and
+[maintenance_path.go](../../internal/library/maintenance_path.go).
+
 ### Applying Library changes locally
 
 1. **Edit.** The Library page or `magpie library` calls an exported function such as `SaveServer`, `ServerAgents`, `InstallSkills`, `SkillAgents` or `SetSkillHow`. The skills and servers pages each have Select, Turn all on, Turn all off and Remove all; the heading shows Select (and a busy Checking…, Grouping… or Updating…) and keeps the rest under its ⋯, the app's row menu (`barMore` in plugins/library/client.js). Select's bar calls `SomeSkillsAgents` or `SomeServersAgents` (`/api/library/{skills,servers}/agents-some`), Turn all on or off calls `EverySkillAgents` or `EveryServerAgents` for the agents shown, and Remove all calls `RemoveSkills` or `RemoveServers`. The hooks page has Select and Remove all too (`SomeHooksAgents`, `RemoveHooks`). Each of these is one change that takes every item out as a single removal would (#1027). Select's bar also has Remove… (#1852), which asks first, naming the count, and sends only the picked names to `RemoveSkills`, `RemoveServers` or `RemoveHooks`; ticking a group's or part's header picks all of it. A name that wasn't removed stays picked, with its error in its row's place (`pickErrs`), and the status names it; when every name fails the endpoint answers 400 and the sheet stays open. A row's agent chips start with All (`allChip` in `plugins/library/client.js`), which gives the item to every agent shown that can take it, or takes it from them all; the pickers that choose the agents before an item is added (installing skills from a repository or the market, adding, bringing in or installing a server) have the same All: most start with every agent lit, and one agent alone took a click on each of the others (#1531).

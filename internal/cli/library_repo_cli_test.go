@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,39 @@ import (
 
 	"github.com/yetone/magpie/internal/library"
 )
+
+func TestMaintenanceCLIContract(t *testing.T) {
+	h := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", h)
+	t.Setenv("HOME", h)
+	t.Setenv("USERPROFILE", h)
+	root := filepath.Join(library.Dir(), "skills", "notes")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(library.Dir()), "library.json"), []byte(`{"skills":[{"name":"notes"}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	run := func(pass bool, args ...string) map[string]any {
+		t.Helper()
+		b, err := stdoutOf(t, func() error { return libraryCmd(append([]string{"library"}, args...)) })
+		var v map[string]any
+		if e := json.Unmarshal([]byte(b), &v); e != nil || (err == nil) != pass || (!pass && (v["error"] == nil || v["writePath"] != nil)) {
+			t.Fatalf("%v: %q %v", args, b, err)
+		}
+		return v
+	}
+	run(false, "where", "skill", "notes")
+	run(false, "maintain", "skill", "notes", "checkout")
+	run(false, "maintain", "skill", "notes", "unknown")
+	run(true, "maintain", "skill", "notes", "library")
+	run(false, "where", "skill", "notes", "")
+	run(false, "where", "skill", "notes", ".git/config")
+	v := run(true, "where", "skill", "notes", "new.md")
+	if v["mode"] != "library" || v["kind"] != "skill" || v["repoSource"] != nil || v["writePath"] != filepath.Join(v["maintenancePath"].(string), "new.md") {
+		t.Fatal(v)
+	}
+}
 
 func TestMCPRepoCommandsLeavePlainServerAlone(t *testing.T) {
 	home := t.TempDir()

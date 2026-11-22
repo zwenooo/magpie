@@ -10,12 +10,20 @@ import (
 // hardLinked reports whether the file at path has other names too. Where
 // the system gives no link count it is taken to have none.
 func hardLinked(path string) bool {
-	fi, err := os.Stat(path)
-	if err != nil || !fi.Mode().IsRegular() {
-		return false
+	n, err := LinkCount(path)
+	return err == nil && n > 1
+}
+
+// LinkCount returns the number of names for an existing regular file.
+func LinkCount(path string) (uint64, error) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return 0, err
 	}
-	st, ok := fi.Sys().(*syscall.Stat_t)
-	return ok && st.Nlink > 1
+	if !st.Mode().IsRegular() {
+		return 0, os.ErrInvalid
+	}
+	return uint64(st.Sys().(*syscall.Stat_t).Nlink), nil
 }
 
 // keepGroup gives the temp file that replaces the file at st the group
