@@ -3633,6 +3633,7 @@ magpie.plugin("library", (ctx) => {
   // not while it is being checked
   function recheck(name) {
     const s = lib.servers.find((x) => x.name === name), e = health.get(name);
+    if (s?.repoSource) return editServer(s); // show the source and execution warning before offering a fresh probe
     if (s && (!e || e.h)) checkHealth([s], true);
   }
   function healthEl(name) {
@@ -4287,11 +4288,89 @@ magpie.plugin("library", (ctx) => {
     });
   }
 
+  function witnessedSource(server) {
+    const local = server.repoLocalSource, bound = server.repoSource;
+    return !!(local && bound && ["repo", "ref", "path"].every((key) => (local[key] || "") === (bound[key] || "")));
+  }
+  function confirmedCommit(server) {
+    return witnessedSource(server) && !!server.repoLocalHash && server.repoLocalHash === server.repoHash
+      && /^[a-f0-9]{40}$/.test(server.repoLocalCommit || "") && server.repoLocalCommit === server.repoCommit;
+  }
+
+  function managedReadiness(server) {
+    const src = server.repoSource, name = server.name;
+    const ops = src.repo?.replace(/\/$/, "").replace(/\.git$/, "") === "https://github.com/zwenooo/magpie-agent-toolkit" && src.path === "mcp/ops-mcp";
+    const box = el("div", "lib-managed-readiness"), result = el("div", "lib-repo-preview"), actions = el("div");
+    const unknown = t("Not yet confirmed");
+    const hasCommit = /^[a-f0-9]{40}$/.test(server.repoLocalCommit || "");
+    const installed = hasCommit && !!server.repoLocalHash && witnessedSource(server);
+    box.append(el("div", "", t("Bound source: {source}", { source: `${src.repo} @ ${src.ref || "HEAD"}${src.path ? " · " + src.path : ""}` })),
+      el("div", "", t("Local program commit: {sha}", { sha: hasCommit ? server.repoLocalCommit : unknown })));
+    if (!confirmedCommit(server)) box.append(el("p", "hint", t("No confirmed local installation from this source. To confirm it, preview the intended commit and explicitly apply it.")));
+    if (ops) box.append(el("p", "hint", t("Checking decrypts the credential bundle for comparison only. Restore writes missing credentials to this computer’s default folder: {path}.", { path: "~/.config/ops-mcp" })));
+    box.append(el("p", "hint", t("The probe runs the installed code with your user permissions in a new stdio process and asks it to initialize and list tools. It does not switch or test the running gateway.")), result, actions);
+    result.setAttribute("aria-live", "polite");
+    let state, expected, probe = unknown, gateway = unknown;
+    function credentials() {
+      switch (state) {
+        case "ready": return t("Credentials match");
+        case "missing": return t("Credentials missing");
+        case "conflict": return t("Credential conflict — no overwrite");
+        case "locked": return t("Credential bundle locked");
+        case "unsupported": return t("Credential bundle unsupported");
+        default: return unknown;
+      }
+    }
+    function draw() {
+      result.replaceChildren();
+      if (ops) result.append(el("div", "", t("Local credentials: {status}", { status: credentials() })));
+      result.append(el("div", "", t("New local process: {status}", { status: probe })),
+        el("div", "", t("Gateway launch record: {status}", { status: gateway })));
+      actions.replaceChildren();
+      const verify = button(t("Probe a new local process"), "action", () => run("managed-verify"));
+      const check = button(t("Check credentials"), "action", () => run("bundle-preview"));
+      if (ops && expected) actions.append(button(t("Confirm credential restore"), "action", () => run("bundle-restore")));
+      else if (ops && (state !== "ready" || !installed)) actions.append(check);
+      else if (installed) actions.append(verify);
+      if (ops && installed) {
+        const other = actions.contains(verify) ? check : verify;
+        other.classList.remove("action"); actions.append(other);
+      }
+    }
+    async function run(action) {
+      const payload = action === "bundle-restore" ? { name, expected } : { name };
+      expected = null; // a preview authorizes one confirmation, never an automatic retry
+      if (action !== "bundle-preview") probe = gateway = unknown;
+      for (const btn of actions.children) btn.disabled = true;
+      result.textContent = t("Checking…");
+      try {
+        const reply = await api("library/servers/" + action, payload);
+        if (action === "managed-verify") {
+          if (reply?.ok === true) {
+            probe = t("Initialized and listed tools");
+            if (reply.gateway === "stale") gateway = t("Still records an older command or version");
+            if (reply.gateway === "matching") gateway = t("Matches this installation; active processes may still differ");
+          }
+        } else {
+          state = reply?.state;
+          if (action === "bundle-preview" && state === "missing" && typeof reply.token === "string" && reply.token) expected = reply.token;
+        }
+      } catch {
+        if (action === "managed-verify") probe = unknown;
+        else state = null;
+      }
+      draw();
+    }
+    draw();
+    return box;
+  }
+
   function programSource(server) {
     const box = el("div", "lib-program-source");
     const saved = server.repoSource;
     const open = button(saved ? t("Check for updates") : t("Choose a program repository…"), "lib-addpair", form);
     box.append(open);
+    if (saved) box.append(managedReadiness(server));
     function form() {
       const inputs = {};
       const result = el("div", "lib-repo-preview");
@@ -4323,7 +4402,7 @@ magpie.plugin("library", (ctx) => {
           const { current, latest } = await api("library/servers/repo-check", query);
           if (!/^[0-9a-f]{40}$/.test(latest)) throw Error(t("The repository did not return a full commit ID."));
           result.replaceChildren(el("div", "", current ? t("Current commit: {sha}", { sha: current }) : t("No repository commit installed")), el("div", "", t("Latest commit: {sha}", { sha: latest })));
-          if (!repoSource && current === latest) { result.append(el("div", "", t("Up to date"))); return; }
+          if (!repoSource && current === latest && confirmedCommit(server)) { result.append(el("div", "", t("Up to date"))); return; }
           const apply = button(t("Apply this commit"), "action", async () => {
             for (const input of Object.values(inputs)) input.disabled = true;
             result.replaceChildren();

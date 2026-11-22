@@ -24,6 +24,9 @@ const libraryUsage = `magpie library                     what the library gives 
                                      header= is for a URL, env= for a command; the program's own words go after --
   magpie library mcp set <name> header=K=V | header-=K | env=K=V | env-=K | timeout=SECS   change one setting of a server
   magpie library mcp show <name>     print the server as the library keeps it, as JSON
+  magpie library mcp bundle-preview <name>            compare the supported ops-mcp credential bundle locally (no writes)
+  magpie library mcp bundle-restore <name> <token>    restore the previewed bundle without replacing local credentials
+  magpie library mcp verify-local <name>              launch and probe the locally installed program, not the gateway
   magpie library mcp repo-check <name> [<repository-url> [<ref> [<subfolder>]]]   preview a managed program's commit
   magpie library mcp repo-update <name> <expected-commit> [<repository-url> [<ref> [<subfolder>]]]   apply the reviewed commit
   magpie library mcp agents <name> <a,b…|none>
@@ -118,6 +121,30 @@ func libraryCmd(args []string) error {
 		}
 	case "mcp":
 		switch {
+		case len(rest) == 2 && rest[0] == "verify-local":
+			if err := library.VerifyManagedMCP(rest[1]); err != nil {
+				return err
+			}
+			fmt.Println("Verified a new local MCP process; existing gateway sessions were not checked.")
+			return nil
+		case len(rest) == 2 && rest[0] == "bundle-preview":
+			v, err := library.PreviewMCPBundle(rest[1])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(os.Stdout).Encode(v)
+		case len(rest) == 3 && rest[0] == "bundle-restore":
+			v, err := library.RestoreMCPBundle(rest[1], rest[2])
+			if err != nil {
+				return err
+			}
+			if err := json.NewEncoder(os.Stdout).Encode(v); err != nil {
+				return err
+			}
+			if v.State != "ready" {
+				return fmt.Errorf("credentials not restored (%s)", v.State)
+			}
+			return nil
 		case len(rest) > 0 && (rest[0] == "repo-check" || rest[0] == "repo-update"):
 			return libraryRepoCmd(rest)
 		case len(rest) >= 3 && rest[0] == "add":

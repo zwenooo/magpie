@@ -29,6 +29,11 @@ func TestMCPRepoCommandsLeavePlainServerAlone(t *testing.T) {
 	if err := libraryCmd([]string{"library", "mcp", "repo-update", "notes"}); err == nil {
 		t.Fatal("updated without a reviewed commit")
 	}
+	for _, command := range [][]string{{"verify-local", "notes"}, {"bundle-restore", "notes", "bogus"}} {
+		if err := libraryCmd(append([]string{"library", "mcp"}, command...)); err == nil {
+			t.Fatalf("plain server accepted %s", command[0])
+		}
+	}
 	after, err := os.ReadFile(file)
 	if err != nil || !bytes.Equal(after, before) {
 		t.Fatalf("repository commands changed an unbound server: %v", err)

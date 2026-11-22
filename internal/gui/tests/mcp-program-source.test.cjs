@@ -25,7 +25,13 @@ for (const engine of process.env.BROWSER ? [process.env.BROWSER] : ["chromium", 
         instructions: {agents: [], sets: []}, foundServers: [], foundSkills: [], projects: [], skills: [], servers: [server,
           {...server, name: "ordinary", args: [], env: {DIR: "{{program}}"}}, {...server, name: "remote", transport: "http", url: "https://example.test"}]};
       const first = "a".repeat(40), second = "b".repeat(40);
-      let latest = first, current = "";
+      const toolkit = {repo: "https://github.com/zwenooo/magpie-agent-toolkit.git", ref: "main", path: "mcp/ops-mcp"};
+      const installed = {...server, command: "python", args: ["{{program}}/server.py"], repoSource: toolkit, repoLocalSource: toolkit, repoHash: "c".repeat(64), repoLocalHash: "c".repeat(64), repoLocalCommit: second, repoCommit: second};
+      lib.servers.push({...installed, name: "my-tools", agents: ["codex"]}, {...installed, name: "ops-mcp", repoSource: {...toolkit, path: "mcp/ops-mcp-extra"}},
+        {...installed, name: "other-owner", repoSource: {...toolkit, repo: "https://github.com/example/magpie-agent-toolkit"}},
+        {...installed, name: "legacy", repoLocalSource: undefined});
+      let latest = first, current = "", bundle, restored, gateway;
+      const managed = [];
       await page.route("**/*", async (route) => {
         const req = route.request(), url = new URL(req.url()), pathname = url.pathname;
         assert.equal(url.hostname, "magpie.test");
@@ -34,13 +40,20 @@ for (const engine of process.env.BROWSER ? [process.env.BROWSER] : ["chromium", 
         if (pathname === "/api/state") return route.fulfill({json: {agents: [], profiles: [], settings: {lang, theme: "light"}}});
         if (pathname === "/api/library") return route.fulfill({json: lib});
         if (pathname === "/api/library/mcp/check") starts.push(...req.postDataJSON().names);
+        if (/\/servers\/(bundle-preview|bundle-restore|managed-verify)$/.test(pathname)) {
+          managed.push([pathname.split("/").pop(), req.postDataJSON()]);
+          const json = pathname.endsWith("preview") ? bundle : pathname.endsWith("restore") ? restored : {ok: true, gateway};
+          return route.fulfill(json ? {json} : {status: 400, json: {error: "private diagnostic"}});
+        }
         if (pathname.startsWith("/api/library/servers/repo-")) {
           const body = req.postDataJSON();
           calls.push([pathname.split("/").pop(), body]);
           if (pathname.endsWith("check")) return route.fulfill({json: {current, latest}});
           if (body.expected !== latest) return route.fulfill({status: 400, json: {error: "ref moved"}});
           current = latest;
-          server.repoSource = body.repoSource || server.repoSource;
+          server.repoSource = server.repoLocalSource = body.repoSource || server.repoSource;
+          server.repoLocalCommit = server.repoCommit = current;
+          server.repoLocalHash = server.repoHash = "e".repeat(64);
           server.agents = ["codex"];
           return route.fulfill({json: {...lib, result: {}}});
         }
@@ -94,6 +107,52 @@ for (const engine of process.env.BROWSER ? [process.env.BROWSER] : ["chromium", 
       assert.ok((await box.innerText()).includes(second));
       await action("Apply this commit").click(); await action("Check for updates").waitFor();
       assert.deepEqual(calls.at(-1), ["repo-update", {name: "kept", repoSource: null, expected: first}]);
+      await close();
+      for (const name of ["ops-mcp", "other-owner", "kept"]) {
+        await open(name); await box.waitFor(); assert.equal(await action("Check credentials").count(), 0); await close();
+      }
+      await open("legacy");
+      assert.equal(await action("Probe a new local process").count(), 0);
+      await action("Check for updates").click(); await action("Apply this commit").waitFor(); await close();
+      assert.deepEqual(managed, []);
+      const repoCalls = calls.length;
+      await page.locator('.lib-health[data-server="my-tools"]').click();
+      const readiness = box.locator(".lib-managed-readiness");
+      await readiness.waitFor();
+      assert.ok((await readiness.innerText()).includes(toolkit.repo));
+      assert.ok((await readiness.innerText()).includes(second));
+      assert.ok((await readiness.innerText()).includes("~/.config/ops-mcp"));
+      assert.deepEqual(managed, []);
+      const shows = (key, status) => readiness.getByText(tr(key).replace("{status}", tr(status)), {exact: true}).waitFor();
+      const credentials = (key) => shows("Local credentials: {status}", key);
+      await credentials("Not yet confirmed");
+      for (const [state, shown] of [["conflict", "Credential conflict — no overwrite"], ["locked", "Credential bundle locked"], ["unsupported", "Credential bundle unsupported"], ["future", "Not yet confirmed"], ["missing", "Credentials missing"]]) {
+        bundle = state === "missing" ? {state} : {state, token: "must-not-restore"};
+        await action("Check credentials").click(); await credentials(shown);
+        assert.equal(await action("Confirm credential restore").count(), 0);
+      }
+      bundle = {state: "missing", token: "preview-only"};
+      await action("Check credentials").click(); await action("Confirm credential restore").waitFor();
+      assert.ok(managed.every(([act, body]) => act === "bundle-preview" && body.name === "my-tools"));
+      assert.ok(!(await readiness.innerText()).includes(bundle.token));
+      await close(); await open("my-tools");
+      assert.equal(await action("Confirm credential restore").count(), 0);
+      await action("Check credentials").click(); await action("Confirm credential restore").click();
+      await credentials("Not yet confirmed");
+      assert.ok(!(await readiness.innerText()).includes("private diagnostic"));
+      assert.deepEqual(managed.at(-1), ["bundle-restore", {name: "my-tools", expected: "preview-only"}]);
+      assert.equal(await action("Confirm credential restore").count(), 0);
+      restored = {state: "ready"};
+      await action("Check credentials").click(); await action("Confirm credential restore").click(); await credentials("Credentials match");
+      await shows("New local process: {status}", "Not yet confirmed");
+      assert.ok(!managed.some(([act]) => act === "managed-verify"));
+      for (const [reply, label] of [["stale", "Still records an older command or version"], ["matching", "Matches this installation; active processes may still differ"], ["future", "Not yet confirmed"]]) {
+        gateway = reply;
+        await action("Probe a new local process").click(); await shows("Gateway launch record: {status}", label);
+        await shows("New local process: {status}", "Initialized and listed tools");
+        assert.deepEqual(managed.at(-1), ["managed-verify", {name: "my-tools"}]);
+      }
+      assert.equal(calls.length, repoCalls);
       assert.deepEqual(starts, []); assert.deepEqual(errors, []);
     });
   });

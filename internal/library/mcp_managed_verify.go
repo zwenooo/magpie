@@ -19,6 +19,9 @@ func VerifyManagedMCP(name string) error {
 	if s.RepoLocalCommit == "" || s.RepoLocalHash == "" {
 		return errors.New("this repository program has not been installed on this computer")
 	}
+	if s.RepoLocalSource == nil || *s.RepoSource != *s.RepoLocalSource {
+		return errors.New("confirm this repository source locally before launching the managed program")
+	}
 	if err := verifyProgramFiles(s); err != nil {
 		return err
 	}

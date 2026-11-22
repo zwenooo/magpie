@@ -34,6 +34,13 @@ func TestVerifyManagedMCPRequiresLocalFilesAndFreshHandshake(t *testing.T) {
 	if err = l.save(); err != nil {
 		t.Fatal(err)
 	}
+	if err := VerifyManagedMCP(s.Name); err == nil {
+		t.Fatal("verified without a local source receipt")
+	}
+	target.RepoLocalSource = target.RepoSource
+	if err := l.save(); err != nil {
+		t.Fatal(err)
+	}
 	runs.Lock()
 	previous := runs.given
 	runs.given = nil

@@ -779,6 +779,30 @@ func libraryRoutes(mux *http.ServeMux, w Windows) {
 			}
 			writeJSON(rw, check)
 			return
+		case "servers/bundle-preview", "servers/bundle-restore":
+			// Use the library's saved source, never a source or target from the form.
+			var status *library.MCPBundleStatus
+			if r.PathValue("action") == "bundle-preview" {
+				status, err = library.PreviewMCPBundle(in.Name)
+			} else if in.Expected == "" {
+				err = errors.New("a preview token is required")
+			} else {
+				status, err = library.RestoreMCPBundle(in.Name, in.Expected)
+			}
+			if err != nil {
+				fail(rw, errors.New("credential status not confirmed"))
+				return
+			}
+			writeJSON(rw, status)
+			return
+		case "servers/managed-verify":
+			if err := library.VerifyManagedMCP(in.Name); err != nil {
+				// Process output can contain credentials; it does not belong in the page.
+				fail(rw, errors.New("local process probe not confirmed"))
+				return
+			}
+			writeJSON(rw, map[string]any{"ok": true, "gateway": library.ManagedGatewayState(in.Name)})
+			return
 		case "servers/repo-update":
 			res, err = library.ApplyMCPRepo(in.Name, in.RepoSource, in.Expected)
 		case "servers/save":

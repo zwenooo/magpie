@@ -85,6 +85,25 @@ not its program files. On another computer, review the source and install the
 program explicitly; syncing metadata does not fetch code. A server without a
 repository keeps its existing folder-sync behavior.
 
+**Credentials and runtime are separate checks.** The ops-mcp bundle adapter is
+opt-in and pinned to the toolkit repository's `mcp/ops-mcp` subtree. It reads
+only on an explicit preview. `magpie library mcp bundle-preview NAME` compares
+its age-encrypted `secrets.tar.age` with the default local ops-mcp credentials;
+`bundle-restore NAME TOKEN` confirms that preview. The age identity stays on the
+computer. A conflicting or partially present destination is not overwritten.
+An installation from before local source receipts existed must explicitly
+reapply its reviewed commit before using this adapter. A synced receipt cannot
+grant permission on this computer. There is no implicit upload or repacking of
+local credentials, and no rule for unbound servers or skills.
+
+`magpie library mcp verify-local NAME` explicitly executes the installed server
+in a new local stdio process and asks for initialize and tools/list, without
+calling any of its tools. This proves the local handshake, not that an existing
+agent session switched versions or that downstream service credentials work.
+A gateway startup configuration can be compared only in a process holding its
+registry; an absent registry is unknown. Neither opening the page nor receiving
+a Library sync runs the probe.
+
 ### Applying Library changes locally
 
 1. **Edit.** The Library page or `magpie library` calls an exported function such as `SaveServer`, `ServerAgents`, `InstallSkills`, `SkillAgents` or `SetSkillHow`. The skills and servers pages each have Select, Turn all on, Turn all off and Remove all; the heading shows Select (and a busy Checking…, Grouping… or Updating…) and keeps the rest under its ⋯, the app's row menu (`barMore` in plugins/library/client.js). Select's bar calls `SomeSkillsAgents` or `SomeServersAgents` (`/api/library/{skills,servers}/agents-some`), Turn all on or off calls `EverySkillAgents` or `EveryServerAgents` for the agents shown, and Remove all calls `RemoveSkills` or `RemoveServers`. The hooks page has Select and Remove all too (`SomeHooksAgents`, `RemoveHooks`). Each of these is one change that takes every item out as a single removal would (#1027). Select's bar also has Remove… (#1852), which asks first, naming the count, and sends only the picked names to `RemoveSkills`, `RemoveServers` or `RemoveHooks`; ticking a group's or part's header picks all of it. A name that wasn't removed stays picked, with its error in its row's place (`pickErrs`), and the status names it; when every name fails the endpoint answers 400 and the sheet stays open. A row's agent chips start with All (`allChip` in `plugins/library/client.js`), which gives the item to every agent shown that can take it, or takes it from them all; the pickers that choose the agents before an item is added (installing skills from a repository or the market, adding, bringing in or installing a server) have the same All: most start with every agent lit, and one agent alone took a click on each of the others (#1531).
