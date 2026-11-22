@@ -139,7 +139,9 @@ func (l *Library) syncProjectMCP(p *Project, hubs map[string]*Server, fail func(
 				continue
 			}
 			if !slices.ContainsFunc(want[rel], func(x *Server) bool { return x.Name == s.Name }) {
-				want[rel] = append(want[rel], through(here(s), gateway.URL()))
+				base := gateway.URL()
+				f := &mcpFile{Path: filepath.Join(p.Dir, filepath.FromSlash(rel)), Format: format}
+				want[rel] = append(want[rel], nativeDirectUse(s, through(here(s), base), base, f))
 			}
 		}
 	}

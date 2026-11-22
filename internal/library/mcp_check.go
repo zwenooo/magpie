@@ -641,6 +641,7 @@ func startServer(ctx context.Context, s *Server, distro, dir string) (tree *proc
 		slices.Sort(names)
 		cmd.Env = t.Env(cmd.Env, names...)
 	}
+	cmd.Env = mcpChildEnv(cmd.Env)
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		stop()

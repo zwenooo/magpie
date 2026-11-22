@@ -234,6 +234,7 @@ func load() (*Library, error) {
 	if l.Applied == nil {
 		l.Applied = map[string]*Applied{}
 	}
+	l.stripDirectUse()
 	l.heal()           // magpie's own servers run this computer's magpie (self_here.go)
 	l.carryTwin()      // Claude Magpie keeps what it was given as Claude Desktop (desktop_twin.go)
 	l.healPluginRefs() // a plugin's parts that still name its variables (plugin_env.go)
@@ -241,6 +242,7 @@ func load() (*Library, error) {
 }
 
 func (l *Library) save() error {
+	l.stripDirectUse()
 	sort.Slice(l.MCP, func(i, j int) bool { return l.MCP[i].Name < l.MCP[j].Name })
 	// a paused server given an agent, however, is on again
 	for _, s := range l.MCP {
