@@ -1,6 +1,6 @@
-"""Claude Code PreToolUse adapter for explicitly enrolled local maintenance paths.
+"""Claude Code and Codex PreToolUse adapter for explicitly enrolled local maintenance paths.
 
-Input: Claude's Edit / Write / NotebookEdit event on stdin. The adjacent JSON
+Input: an Edit / Write / NotebookEdit / apply_patch event on stdin. The adjacent JSON
 contains watched locations, not the authoritative maintenance destination. Ask
 Magpie's `library where` for that on each guarded edit. Never log tool content.
 """
@@ -23,12 +23,27 @@ def forms(p):
 
 
 def check(event, config, run=subprocess.run):
-    if event.get('tool_name') not in {'Edit', 'Write', 'NotebookEdit'}:
+    tool = event.get('tool_name')
+    if tool not in {'Edit', 'Write', 'NotebookEdit', 'apply_patch'}:
         return
     data = event['tool_input']
-    filename = data.get('file_path') or data.get('notebook_path')
-    if not filename:
-        raise ValueError('未提供目标路径')
+    if tool == 'apply_patch':
+        patch = data if isinstance(data, str) else data.get('patch') or data.get('input') or data.get('command')
+        if not isinstance(patch, str):
+            raise ValueError('未提供目标路径')
+        paths = [line[len(prefix):] for line in patch.splitlines() for prefix in
+                 ('*** Add File: ', '*** Delete File: ', '*** Update File: ', '*** Move to: ') if line.startswith(prefix)]
+        if not paths:
+            raise ValueError('未提供目标路径')
+    else:
+        paths = [data.get('file_path') or data.get('notebook_path')]
+    for filename in paths:
+        if not filename:
+            raise ValueError('未提供目标路径')
+        check_path(event, config, run, filename)
+
+
+def check_path(event, config, run, filename):
     if not os.path.isabs(filename):
         filename = os.path.join(event['cwd'], filename)
     seen = set()

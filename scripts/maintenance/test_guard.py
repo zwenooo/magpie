@@ -24,6 +24,10 @@ class GuardTest(unittest.TestCase):
             cfg['watch']=[{'root':str(watched),'blocked':True}]
             with self.assertRaises(ValueError):edit(str(watched/'new'))
             self.assertEqual(len(calls),1)
+            event = {'tool_name':'apply_patch','cwd':t,'tool_input':{'input':
+                '*** Begin Patch\n*** Update File: unrelated.txt\n*** Move to: tools/sample/new\n*** End Patch'}}
+            with self.assertRaises(ValueError):check(event,cfg,run)
+
 
 
 if __name__ == '__main__': unittest.main()
