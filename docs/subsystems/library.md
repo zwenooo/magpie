@@ -61,6 +61,8 @@ The Skill and MCP pages show local evidence, not an audit of every agent. `magpi
 
 Counts are local; they are not retrospective and are not sent with the Library to another computer. Client-direct MCP and Skill use outside observable requests may leave no evidence. In particular a Skill with no recorded calls is not automatically a cleanup candidate. A candidate requires a full 90-day observation window with zero activity and sufficient coverage of the configured local routes. Missing observations, unreadable statistics, project/direct routes and partial Skill coverage do not qualify. Low observed counts may still warrant manual review; turning an item off is reversible, while removing it is a separate user action.
 
+For compatible versions of the standalone `ops-mcp` server, Magpie can also collect native tool calls without routing the session through the gateway. The reporting build reads per-day counters from a local sidecar database, never the ops audit log. Magpie-generated native entries and gateway-launched entries must not both mark a call as native. `calls30` includes both sources; `directCalls30` is the native portion. Older programs or client configurations and WSL sessions can remain invisible, so lack of a direct record is not proof of nonuse. Reload client MCP configuration after updating both programs. No changes to the upstream routing defaults are needed.
+
 ### Updating an MCP program from a repository (fork)
 
 Public GitHub repositories need no sign-in. When GitHub refuses anonymous access,

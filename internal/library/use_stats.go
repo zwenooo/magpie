@@ -11,14 +11,15 @@ import (
 // UseStats is local evidence. A partial count is a lower bound, not evidence
 // that an item was unused on other clients or computers.
 type UseStats struct {
-	Calls30      int64  `json:"calls30"`
-	Failed30     int64  `json:"failed30"`
-	Reads30      int64  `json:"reads30"`
-	LastUsed     int64  `json:"lastUsed"`
-	Coverage     string `json:"coverage"`
-	Complete30   bool   `json:"complete30"`
-	Candidate    bool   `json:"candidate"`
-	ObservedDays int    `json:"observedDays"`
+	DirectCalls30 int64  `json:"directCalls30,omitempty"`
+	Calls30       int64  `json:"calls30"`
+	Failed30      int64  `json:"failed30"`
+	Reads30       int64  `json:"reads30"`
+	LastUsed      int64  `json:"lastUsed"`
+	Coverage      string `json:"coverage"`
+	Complete30    bool   `json:"complete30"`
+	Candidate     bool   `json:"candidate"`
+	ObservedDays  int    `json:"observedDays"`
 }
 
 func useInventory(l *Library) []libraryuse.Item {
@@ -106,6 +107,23 @@ func rowUse(s libraryuse.Summary, coverage string, now time.Time) UseStats {
 	u.Candidate = u.Coverage == "observed" && s.Days90.Complete && s.Days90.Count == 0 && u.ObservedDays >= 90 && (s.LastUsed.IsZero() || !s.LastUsed.After(now.Add(-90*24*time.Hour)))
 	return u
 }
+func withDirectUse(u UseStats, d libraryuse.DirectUsage, err error) UseStats {
+	// Other native clients may still run an older snapshot or environment.
+	// No native observations is never evidence for removing this server.
+	u.Candidate, u.Complete30 = false, false
+	if u.Coverage == "observed" || d.LastUsed > 0 {
+		u.Coverage = "partial"
+	}
+	if err != nil {
+		return u
+	}
+	u.DirectCalls30 = d.Calls30
+	u.Calls30 += d.Calls30
+	u.Failed30 += d.Failed30
+	u.LastUsed = max(u.LastUsed, d.LastUsed)
+	return u
+}
+
 func attachUseStats(v *View, items []libraryuse.Item) {
 	snap, err := libraryuse.Snapshot()
 	now := time.Now()
@@ -127,18 +145,28 @@ func attachUseStats(v *View, items []libraryuse.Item) {
 		}
 		s.UseStats = rowUse(snap.Report("skill", s.Name), coverage, now)
 	}
+	var direct map[string]libraryuse.DirectUsage
+	var directErr error
+	for _, s := range v.Servers {
+		if supportsDirectUse(s.Server) {
+			direct, directErr = libraryuse.DirectSnapshot(now)
+			break
+		}
+	}
 	for i := range v.Servers {
 		s := &v.Servers[i]
 		s.UseStats.Coverage = "unknown"
-		if err != nil {
-			continue
+		if err == nil {
+			coverage := "unknown"
+			if eligible[s.Name] && len(s.Problems) == 0 {
+				coverage = "observed"
+			} else if v.MCPHub && s.Hub != HubDirect || slices.Contains(s.Agents, "codex") && s.Transport == "stdio" && !s.Hidden && s.Hub != HubDirect {
+				coverage = "partial"
+			}
+			s.UseStats = rowUse(snap.Report("mcp", s.Name), coverage, now)
 		}
-		coverage := "unknown"
-		if eligible[s.Name] && len(s.Problems) == 0 {
-			coverage = "observed"
-		} else if v.MCPHub && s.Hub != HubDirect || slices.Contains(s.Agents, "codex") && s.Transport == "stdio" && !s.Hidden && s.Hub != HubDirect {
-			coverage = "partial"
+		if supportsDirectUse(s.Server) {
+			s.UseStats = withDirectUse(s.UseStats, direct[s.Name], directErr)
 		}
-		s.UseStats = rowUse(snap.Report("mcp", s.Name), coverage, now)
 	}
 }

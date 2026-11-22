@@ -34,6 +34,17 @@ func TestLibraryUseCandidateRequiresObservedIdleWindow(t *testing.T) {
 		t.Fatal("gap accepted")
 	}
 }
+func TestDirectUseIsAddedOnceAndCannotProveInactivity(t *testing.T) {
+	gateway := UseStats{Calls30: 3, Failed30: 1, Coverage: "observed", Candidate: true, Complete30: true, LastUsed: 10}
+	d := libraryuse.DirectUsage{Calls30: 4, Failed30: 2, LastUsed: 20}
+	for range 2 { // a view refresh reuses the snapshot, not a cumulative import
+		u := withDirectUse(gateway, d, nil)
+		if u.Calls30 != 7 || u.Failed30 != 3 || u.DirectCalls30 != 4 || u.LastUsed != 20 || u.Coverage != "partial" || u.Candidate || u.Complete30 {
+			t.Fatalf("misleading combined report: %+v", u)
+		}
+	}
+}
+
 func TestLibraryUseScopeExcludesDirectAndProjectRoutes(t *testing.T) {
 	l := &Library{MCPHub: true, MCP: []*Server{{Name: "weather", Agents: []string{"claude"}}}, Applied: map[string]*Applied{"claude": {MCP: []string{HubEntry}}}}
 	eligible := func() bool { return useInventory(l)[0].Eligible }
