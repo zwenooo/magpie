@@ -1,7 +1,11 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
-// Each server can bypass both the shared MCP router and local Codex stdio
-// startup. Both switches are off by default and saved by separate routes.
-// Every language, Chromium and
+// #4382 (cuipengcx90; nifengfanpan on Discord): with the MCP hub on, a
+// server can stay each agent's own entry. Its editor has a switch,
+// "Through the MCP router", on for a server shared as before; off saves it
+// with hub "direct", the row says so with a tag, and the hub's line
+// counts it as given directly. magpie's own image server is behind the hub
+// as the others are, and can be kept direct the same way. With the
+// hub off there is neither switch nor tag. Every language, Chromium and
 // WebKit, 1100 and 390 wide; nothing scrolls sideways. No backend: the
 // API is faked here.
 const assert = require("node:assert/strict");
@@ -15,10 +19,8 @@ const { I18N } = require("./strings.cjs").strings(); // i18n.js's and the plugin
 const tr = (lang, s, vars = {}) => ((lang === "en" ? s : I18N[lang][s]) || s).replace(/\{(\w+)\}/g, (_, k) => vars[k]);
 const HOME = "/Users/xv";
 const agents = [{ id: "claude", name: "Claude Code", icon: "", skills: `${HOME}/.claude/skills`, mcp: `${HOME}/.claude.json`, hub: "on" }];
-const DIRECT = "Always connect this server directly", TAG = "Direct connection";
-const HINT = "Each client gets this server’s own entry. Command servers are started by the client, bypassing both the MCP router and Codex on-demand startup.";
-const START = "Start Codex stdio servers on demand", SAVED = "Saved — reload Codex to read its MCP configuration";
-const WORDS = [DIRECT, TAG, HINT, START, SAVED];
+const WORDS = ["Through the MCP router", "Not through the router", "Each agent is given its own entry for it, as with the MCP router off",
+  "Off gives each agent its own entry for it, as with the router off: for a server that reads its project from the folder it starts in, or keeps a session's state"];
 
 function server(lang, calls, hubOn) {
   const lib = {
@@ -37,16 +39,8 @@ function server(lang, calls, hubOn) {
     if (url.pathname === "/wails/runtime.js") return route.fulfill({ contentType: "text/javascript", body: "export const Window = {};" });
     if (url.pathname === "/api/state") return route.fulfill({ json: { agents: [], profiles: [], settings: { lang, theme: "light", gateway: "http://127.0.0.1:3425" } } });
     if (url.pathname === "/api/plugins") return route.fulfill({ json: { plugins: [] } });
-    if (url.pathname === "/api/library/native") return route.fulfill({ json: [] });
     if (url.pathname === "/api/library") return route.fulfill({ json: lib });
     if (url.pathname === "/api/library/mcp/check") return route.fulfill({ json: { servers: {} } });
-    if (url.pathname === "/api/library/servers/codex-on-demand") {
-      assert.equal(req.method(), "POST");
-      const data = req.postDataJSON();
-      calls.push(data);
-      lib.codexMCPOnDemand = data.on;
-      return route.fulfill({ json: { ...lib, result: {} } });
-    }
     if (url.pathname === "/api/library/servers/save") {
       const { old, server: s } = req.postDataJSON();
       calls.push(`${s.name} ${JSON.stringify(s.hub)}`);
@@ -81,7 +75,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           if (lang !== "en") for (const s of WORDS) assert.ok(I18N[lang][s], `${lang}: ${s}`);
           for (const hubOn of [true, false]) {
             const calls = [];
-            const ctx = await browser.newContext({ viewport: { width, height: 800 }, reducedMotion: "reduce" });
+            const ctx = await browser.newContext({ viewport: { width, height: 800 } });
             await ctx.addInitScript(() => { try { localStorage.setItem("magpie.libTab", "mcp"); } catch {} });
             const page = await ctx.newPage();
             page.setDefaultTimeout(5000);
@@ -93,61 +87,57 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
             const rowOf = (name) => page.locator("#view-library .lib-server", { has: page.locator(`.lib-health[data-server="${name}"]`) });
             const row = rowOf("index");
             const ed = page.locator("#modal .lib-editor");
-            const sw = ed.getByRole("switch", { name: w(DIRECT), exact: true });
-            const start = page.getByRole("switch", { name: w(START), exact: true });
-            const router = page.getByRole("switch", { name: w("MCP router"), exact: true });
+            const sw = ed.getByRole("switch", { name: w("Through the MCP router"), exact: true });
             const tag = row.locator(".lib-tag.lib-direct");
             const open = async (r = row) => { await r.locator(".name").click(); await ed.waitFor(); };
             const save = async () => { await ed.locator(":scope > .bar button.primary").click(); await ed.waitFor({ state: "detached" }); };
             const stats = () => page.locator("#view-library .lib-hubstats").textContent();
             await row.waitFor();
 
-            assert.equal(await start.getAttribute("aria-checked"), "false");
-            assert.equal(await router.getAttribute("aria-checked"), String(hubOn));
             if (!hubOn) {
+              // the hub off: nothing to choose, nothing said; a save sends shared
               await open();
-              assert.equal(await sw.count(), 0);
-              await ed.getByRole("button", { name: w("Cancel"), exact: true }).click();
+              assert.equal(await sw.count(), 0, "a switch with the hub off");
+              await save();
+              assert.deepEqual(calls, ['index ""']);
+              assert.equal(await tag.count(), 0);
+              await ctx.close();
+              continue;
             }
-            await start.click();
-            await page.waitForFunction((msg) => document.querySelector("#status")?.textContent === msg, w(SAVED));
-            assert.deepEqual(calls.splice(0), [{ on: true }]);
-            assert.equal(await start.getAttribute("aria-checked"), "true");
-            assert.equal(await router.getAttribute("aria-checked"), String(hubOn));
             assert.equal(await tag.count(), 0, "a shared server has no tag");
-            if (hubOn) assert.ok((await stats()).startsWith(w("{n} servers", { n: 3 })), await stats());
+            assert.ok((await stats()).startsWith(w("{n} servers", { n: 3 })), await stats());
+            // on for a server shared as before; the hint says what off does
             await open();
-            assert.equal(await sw.getAttribute("aria-checked"), "false");
-            assert.equal(await ed.getByText(w(HINT), { exact: true }).count(), 1);
-            await sw.click();
             assert.equal(await sw.getAttribute("aria-checked"), "true");
+            await ed.locator(".hint", { hasText: w(WORDS[3]) }).waitFor();
+            await sw.click();
+            assert.equal(await sw.getAttribute("aria-checked"), "false");
             await save();
             assert.deepEqual(calls, ['index "direct"']);
             // the row says so, the hub counts it given directly, and the editor shows it off again
             await tag.waitFor();
-            assert.equal((await tag.textContent()).trim(), w(TAG));
-            assert.equal(await tag.getAttribute("title"), w(HINT));
-            if (hubOn) await page.waitForFunction((x) => document.querySelector("#view-library .lib-hubstats")?.textContent.startsWith(x[0]) &&
+            assert.equal((await tag.textContent()).trim(), w("Not through the router"));
+            assert.equal(await tag.getAttribute("title"), w(WORDS[2]));
+            await page.waitForFunction((x) => document.querySelector("#view-library .lib-hubstats")?.textContent.startsWith(x[0]) &&
               document.querySelector("#view-library .lib-hubstats")?.textContent.endsWith(x[1]),
             [w("{n} servers", { n: 2 }), w("{name} is given to each agent directly", { name: "index" })]);
-            await start.click();
-            await page.locator(".lib-codex-on-demand [aria-checked=false]").waitFor();
-            assert.equal(await router.getAttribute("aria-checked"), String(hubOn));
-            assert.deepEqual(calls.splice(0), ['index "direct"', { on: false }]);
             await open();
-            assert.equal(await sw.getAttribute("aria-checked"), "true", "a saved direct override survives both switches");
+            assert.equal(await sw.getAttribute("aria-checked"), "false");
+            // on again, saved as shared
             await sw.click();
-            assert.equal(await sw.getAttribute("aria-checked"), "false", "the override can still be changed back before saving");
             await save();
-            assert.deepEqual(calls, ['index ""']);
+            assert.deepEqual(calls, ['index "direct"', 'index ""']);
             await tag.waitFor({ state: "detached" });
-            if (hubOn) {
-              await open(rowOf("magpie-image"));
-              assert.equal(await sw.getAttribute("aria-checked"), "false");
-              await sw.click();
-              await ed.locator(":scope > .bar button", { hasText: w("Cancel") }).click();
-              assert.deepEqual(calls, ['index ""']);
-            }
+            // magpie's own image server is behind the hub too, on like the others
+            await open(rowOf("magpie-image"));
+            assert.equal(await sw.getAttribute("aria-checked"), "true", "magpie's own image server's switch");
+            await ed.locator(":scope > .bar button", { hasText: w("Cancel") }).click();
+            await ed.waitFor({ state: "detached" });
+            // Cancel keeps it as it was
+            await open();
+            await sw.click();
+            await ed.locator(":scope > .bar button", { hasText: w("Cancel") }).click();
+            assert.deepEqual(calls, ['index "direct"', 'index ""']);
             assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "no sideways scroll");
             await ctx.close();
           }

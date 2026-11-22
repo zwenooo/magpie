@@ -65,7 +65,6 @@ func TestCodexOffKeepsAppsOwnConfig(t *testing.T) {
 			was := runWired
 			runWired = func(a *agent.Agent) bool { return wired }
 			t.Cleanup(func() { runOn, runWired = false, was })
-			ok(t)(SetCodexMCPOnDemand(true))
 			path := filepath.Join(h, ".codex", "config.toml")
 			write(t, path, codexAppOwnConfig)
 			if _, err := SaveServer("", Server{Name: "mem", Transport: "stdio", Command: "node", Args: []string{"server.js"}, Agents: []string{"codex"}}); err != nil {

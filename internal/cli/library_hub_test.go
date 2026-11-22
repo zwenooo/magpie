@@ -49,18 +49,6 @@ func TestLibraryMCPHub(t *testing.T) {
 	if got := names(); !slices.Equal(got, []string{"fs"}) {
 		t.Fatalf("before: %v", got)
 	}
-	if err := libraryCmd([]string{"library", "mcp", "codex-on-demand", "on"}); err != nil {
-		t.Fatal(err)
-	}
-	if got := names(); !slices.Equal(got, []string{"fs"}) {
-		t.Fatalf("Codex preference affected Claude: %v", got)
-	}
-	if err := libraryCmd([]string{"library", "mcp", "codex-on-demand", "yes"}); err == nil {
-		t.Fatal("accepted an invalid Codex preference")
-	}
-	if err := libraryCmd([]string{"library", "mcp", "codex-on-demand", "off"}); err != nil {
-		t.Fatal(err)
-	}
 	if err := libraryCmd([]string{"library", "mcp", "router", "on"}); err != nil {
 		t.Fatal(err)
 	}

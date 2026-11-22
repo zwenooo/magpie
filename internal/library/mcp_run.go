@@ -1,6 +1,6 @@
 package library
 
-// With CodexMCPOnDemand on and the hub off, a command server can be given to Codex
+// A server run by a command is given to Codex, while Codex is on magpie,
 // as the gateway's /mcp/run/<name>, which magpie serves over streamable
 // HTTP by running the command itself. Codex starts every server of its
 // config once for each thread it has loaded, and keeps them for as long
@@ -29,7 +29,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -40,8 +39,6 @@ import (
 	"time"
 
 	"github.com/yetone/magpie/internal/agent"
-	"github.com/yetone/magpie/internal/edit"
-	"github.com/yetone/magpie/internal/filememo"
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/libraryuse"
 	"github.com/yetone/magpie/internal/proc"
@@ -83,30 +80,20 @@ var runs struct {
 	sessions map[string]*runSession
 	// given are the servers the last sync gave Codex this way, by name
 	given map[string]runSpec
+	// wired is, by agent, whether the last sync gave it servers this way
+	wired map[string]bool
 	// said is what servers said, by their spec: initialize's result for
 	// each protocol version asked, and the first page of each list
 	said    map[string]map[string]json.RawMessage
 	janitor sync.Once
 }
 
-// SetCodexMCPOnDemand changes how this computer gives command servers to Codex.
-func SetCodexMCPOnDemand(on bool) (*Result, error) {
-	return change(func(l *Library) error {
-		l.CodexMCPOnDemand = on
-		return nil
-	})
-}
-
-func (l *Library) codexRunEnabled() bool { return l.CodexMCPOnDemand && !l.MCPHub }
-
-func (l *Library) runsFor(t *Target, base string) bool {
-	if !l.codexRunEnabled() || !runOn || t.MCP == nil || t.MCP.Format != fmtCodex || t.MCP.WSL || t.Gone || t.Agent == nil || t.Agent.ID != "codex" || t.Agent.WSL != "" {
-		return false
-	}
-	// KeyAt alone isn't proof of locality: with LAN sharing off it also
-	// returns the placeholder token for a remote address.
-	u, err := url.Parse(base)
-	return err == nil && (base == gateway.URL() || strings.EqualFold(u.Hostname(), "localhost") || net.ParseIP(u.Hostname()).IsLoopback()) && agent.KeyAt(base) == gateway.Token && runWired(t.Agent)
+// runsFor says whether t's agent is given servers through the gateway at
+// base: Codex on this machine, on magpie, reaching the gateway as this
+// machine does.
+func runsFor(t *Target, base string) bool {
+	return runOn && t.MCP != nil && t.MCP.Format == fmtCodex && !t.MCP.WSL && t.Agent != nil &&
+		t.Agent.WSL == "" && agent.KeyAt(base) == gateway.Token && runWired(t.Agent)
 }
 
 // runWired says the agent is on magpie, which it is given servers through
@@ -121,42 +108,39 @@ func init() {
 	// a Codex connected or disconnected is given its servers the other
 	// way: through the gateway on magpie, by their commands off it
 	agent.Rewired = func(id string) {
-		if runWiringChanged(id) {
-			go func() {
-				if _, err := Sync(); err != nil {
-					log.Printf("library: syncing %s's MCP servers: %v", id, err)
-				}
-			}()
+		if !runOn {
+			return
+		}
+		for _, t := range Targets() {
+			if t.Agent == nil || t.Agent.ID != id || t.MCP == nil || t.MCP.Format != fmtCodex {
+				continue
+			}
+			runs.Lock()
+			was, seen := runs.wired[id]
+			runs.Unlock()
+			if !seen || was != runsFor(t, gatewayOf(t)) {
+				go func() {
+					if _, err := Sync(); err != nil {
+						log.Printf("library: syncing %s's MCP servers: %v", id, err)
+					}
+				}()
+			}
+			return
 		}
 	}
 }
 
-func runWiringChanged(id string) bool {
-	if !runOn || id != "codex" {
-		return false
-	}
-	l, err := runLibrary()
-	if err != nil || !l.codexRunEnabled() || !slices.ContainsFunc(l.MCP, func(s *Server) bool {
-		return s.Transport == "stdio" && s.Hub != HubDirect && slices.Contains(s.Agents, id)
-	}) {
-		return false
-	}
-	t := targetByID(id)
-	a := l.Applied[id]
-	return t != nil && (a != nil && a.CodexRunWired) != l.runsFor(t, gatewayOf(t))
-}
-
 // runVia is s as an agent that runsFor is given it, and the spec it is
-// run with; the original entry and an empty spec for one magpie doesn't run.
-func runVia(s *Server, base string) (*Server, runSpec) {
+// run with; false for one magpie doesn't run.
+func runVia(s *Server, base string) (*Server, runSpec, bool) {
 	spec, ok := specOf(s)
 	if !ok {
-		return s, runSpec{}
+		return s, runSpec{}, false
 	}
 	c := *s
 	c.Transport, c.Command, c.Args, c.Env = "http", "", nil, nil
 	c.URL = strings.TrimRight(base, "/") + RunPath + url.PathEscape(s.Name)
-	return &c, spec
+	return &c, spec, true
 }
 
 // runGiven records the servers a sync gave through the gateway, and ends
@@ -175,51 +159,39 @@ func runGiven(given map[string]runSpec) {
 	runs.Unlock()
 	for _, s := range stop {
 		spec, ok := given[s.name]
-		s.updateSpec(spec, ok)
+		s.mu.Lock()
+		changed := !ok || spec.key() != s.spec.key()
+		if changed {
+			s.spec, s.gone = spec, !ok
+		}
+		s.mu.Unlock()
+		if changed {
+			s.stop()
+		}
 	}
 }
 
-// A sync can also happen in another process. An old session asked again
-// uses the same transition as one notified by a sync in this process.
-func (s *runSession) updateSpec(spec runSpec, ok bool) {
-	s.start.Lock()
-	defer s.start.Unlock()
-	s.mu.Lock()
-	changed := s.gone != !ok || s.spec.key() != spec.key()
-	if changed {
-		s.spec, s.gone = spec, !ok
-	}
-	s.mu.Unlock()
-	if changed {
-		s.stop()
-	}
-}
-
-// A CLI and a serving gateway have different runs.given maps. Only the
-// library on disk says what is still allowed; share its read-only parse
-// across requests, refreshing it even inside a filememo.Hold.
-func runLibrary() (*Library, error) {
-	return filememo.ReadNow("library MCP run", path(), func(b []byte) (*Library, error) {
-		return parseLibrary(edit.TrimBOM(b))
-	})
-}
-
-func (l *Library) runsServer(s *Server) bool {
-	a := l.Applied["codex"]
-	return l.codexRunEnabled() && s != nil && !s.Hidden && s.Transport == "stdio" && s.Hub != HubDirect &&
-		slices.Contains(s.Agents, "codex") && a != nil && slices.Contains(a.MCPRun, s.Name)
-}
-
+// runSpecOf is the spec of the server called name: as the last sync gave
+// it, or, before a sync has, as the library has it.
 func runSpecOf(name string) (runSpec, bool) {
-	l, err := runLibrary()
+	runs.Lock()
+	given := runs.given
+	runs.Unlock()
+	if given != nil {
+		spec, ok := given[name]
+		return spec, ok
+	}
+	mu.Lock()
+	l, err := load()
+	mu.Unlock()
 	if err != nil {
 		return runSpec{}, false
 	}
 	s := l.server(name)
-	if !l.runsServer(s) {
+	if s == nil || !slices.Contains(s.Agents, "codex") || s.Hub == HubDirect {
 		return runSpec{}, false
 	}
-	return specOf(npxDirect(here(s)))
+	return specOf(npxDirect(s))
 }
 
 type runSession struct {
@@ -248,12 +220,10 @@ func newSessionID() string {
 // one magpie was restarted under is taken up as it is.
 func session(sid, name string, spec runSpec, init json.RawMessage) *runSession {
 	runs.Lock()
+	defer runs.Unlock()
 	if s := runs.sessions[sid]; s != nil && s.name == name {
-		runs.Unlock()
-		s.updateSpec(spec, true)
 		return s
 	}
-	defer runs.Unlock()
 	if runs.sessions == nil {
 		runs.sessions = map[string]*runSession{}
 	}
@@ -343,20 +313,18 @@ func (s *runSession) ensure() (*runChild, json.RawMessage, error) {
 // newest stream open; a request with none open is refused, as it would
 // wait for an answer that never comes.
 func (s *runSession) deliver(c *runChild, line []byte, id json.RawMessage, method string) {
-	s.mu.Lock()
-	spec := s.spec
-	s.mu.Unlock()
 	switch method {
 	case "notifications/tools/list_changed":
 		s.mu.Lock()
 		s.tools = nil
 		s.toolEpoch++
+		spec := s.spec
 		s.mu.Unlock()
 		forget(spec, "tools/list")
 	case "notifications/prompts/list_changed":
-		forget(spec, "prompts/list")
+		forget(s.spec, "prompts/list")
 	case "notifications/resources/list_changed":
-		forget(spec, "resources/list", "resources/templates/list")
+		forget(s.spec, "resources/list", "resources/templates/list")
 	}
 	s.mu.Lock()
 	var to chan []byte

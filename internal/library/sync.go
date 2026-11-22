@@ -229,10 +229,16 @@ func (l *Library) syncMCP(t *Target, b *backups, res *Result) {
 	}
 	id := t.Agent.ID
 	base := gatewayOf(t)
-	run := l.runsFor(t, base)
+	run := runsFor(t, base)
+	if t.MCP.Format == fmtCodex && t.Agent != nil {
+		runs.Lock()
+		if runs.wired == nil {
+			runs.wired = map[string]bool{}
+		}
+		runs.wired[id] = run
+		runs.Unlock()
+	}
 	a := l.applied(id)
-	a.MCPRun = nil
-	a.CodexRunWired = run
 	// an agent given no server, with none of magpie's in it, isn't read:
 	// a file of its that can't be read is nothing the library did
 	if len(a.MCP) == 0 && len(a.ToolRules) == 0 && (t.Gone || !slices.ContainsFunc(l.MCP, func(s *Server) bool { return slices.Contains(s.Agents, id) })) {
@@ -330,9 +336,13 @@ func (l *Library) syncMCP(t *Target, b *backups, res *Result) {
 		}
 		// a server the user keeps direct is started by Codex itself, in
 		// the thread's folder (#4382): magpie would start it from home
-		var runWith runSpec
 		if run && s.Hub != HubDirect {
-			s, runWith = runVia(s, base)
+			if via, spec, ok := runVia(s, base); ok {
+				if res.run == nil {
+					res.run = map[string]runSpec{}
+				}
+				s, res.run[s.Name] = via, spec
+			}
 		}
 		s = t.MCP.withCmdVars(s)
 		s = wroteStartup(s, a.Startup[s.Name])
@@ -352,19 +362,15 @@ func (l *Library) syncMCP(t *Target, b *backups, res *Result) {
 			}
 			off, offMine = e, m
 		}
-		unchanged := false
 		if old != nil && off == nil {
-			cur, ok := t.MCP.current(s.Name, old, s)
-			unchanged = ok && cur.same(s) && t.MCP.has(s) && !t.MCP.behind(s, old)
-		}
-		if unchanged || write("mcp:"+s.Name, func() error { return t.MCP.putEntry(s, off.apply(t.MCP.merged(s, old))) }) {
-			if runWith.Command != "" {
-				a.MCPRun = append(a.MCPRun, s.Name)
-				if res.run == nil {
-					res.run = map[string]runSpec{}
-				}
-				res.run[s.Name] = runWith
+			if cur, ok := t.MCP.current(s.Name, old, s); ok && cur.same(s) && t.MCP.has(s) && !t.MCP.behind(s, old) {
+				mine = append(mine, s.Name)
+				toolsOff[s.Name] = offMine
+				startup[s.Name] = t.MCP.startupWritten(s, old)
+				continue
 			}
+		}
+		if write("mcp:"+s.Name, func() error { return t.MCP.putEntry(s, off.apply(t.MCP.merged(s, old))) }) {
 			mine = append(mine, s.Name)
 			toolsOff[s.Name] = offMine
 			startup[s.Name] = t.MCP.startupWritten(s, old)
@@ -476,7 +482,6 @@ type AgentView struct {
 // ServerView is a library server, and what each agent it's on made of it.
 type ServerView struct {
 	UseStats UseStats `json:"useStats"`
-	run      bool     // a /mcp/run entry was actually given to Codex on this computer
 	*Server
 	Icon string `json:"icon,omitempty"`
 	// Problems are the agents it couldn't be given to, and why
@@ -591,9 +596,8 @@ type View struct {
 	AutoUpdateSkills bool `json:"autoUpdateSkills"`
 	// MCPHub: the agents are given magpie's one MCP server in place of
 	// the library's (#2679), at HubPath<agent> on the gateway
-	MCPHub           bool   `json:"mcpHub"`
-	HubPath          string `json:"hubPath"`
-	CodexMCPOnDemand bool   `json:"codexMCPOnDemand"`
+	MCPHub  bool   `json:"mcpHub"`
+	HubPath string `json:"hubPath"`
 	// SkillRouter: the agents are given magpie's one skill, magpie-skills,
 	// listing their skills in place of a link of each (skill_router.go)
 	SkillRouter bool `json:"skillRouter"`
@@ -695,7 +699,7 @@ func readView(problems []Problem, glance bool) (*View, error) {
 	// the agents are found once for the whole read: finding them looks
 	// through every agent's folders, in WSL too (#1624)
 	targets, asleep := targetsAsleep(false)
-	v := &View{Agents: []AgentView{}, Servers: []ServerView{}, Skills: []SkillView{}, FoundSkills: []FoundSkill{}, Instructions: l.instructionsView(targets, asleep), Dir: Dir(), Backups: BackupDir(), CopySkills: l.CopySkills, SharedSkills: l.SharedSkills, SharedDir: sharedSkillsDir(), AutoUpdateSkills: l.AutoUpdateSkills, MCPHub: l.MCPHub, CodexMCPOnDemand: l.CodexMCPOnDemand, SkillRouter: l.SkillRouter, HubPath: gateway.HubMCPPath, HubNote: settings.Shared().RouterNote, HubName: gateway.HostName(), HubAllTools: settings.Shared().RouterAllTools, HubFindsItself: hubFindsItself(), HubOnDemandOver: gateway.HubOnDemandOver, Partial: glance}
+	v := &View{Agents: []AgentView{}, Servers: []ServerView{}, Skills: []SkillView{}, FoundSkills: []FoundSkill{}, Instructions: l.instructionsView(targets, asleep), Dir: Dir(), Backups: BackupDir(), CopySkills: l.CopySkills, SharedSkills: l.SharedSkills, SharedDir: sharedSkillsDir(), AutoUpdateSkills: l.AutoUpdateSkills, MCPHub: l.MCPHub, SkillRouter: l.SkillRouter, HubPath: gateway.HubMCPPath, HubNote: settings.Shared().RouterNote, HubName: gateway.HostName(), HubAllTools: settings.Shared().RouterAllTools, HubFindsItself: hubFindsItself(), HubOnDemandOver: gateway.HubOnDemandOver, Partial: glance}
 	// each agent's skills folder as it really is, links followed: the
 	// agents reading the same one get copies together (copyWhy)
 	skillsAt := map[*Target]string{}
@@ -792,7 +796,7 @@ func readView(problems []Problem, glance bool) (*View, error) {
 			c.Agents = []string{}
 			s = &c
 		}
-		sv := ServerView{Server: s, run: l.runsServer(s), Icon: serverIcon(l, s), Problems: of("mcp:" + s.Name)}
+		sv := ServerView{Server: s, Icon: serverIcon(l, s), Problems: of("mcp:" + s.Name)}
 		if s.Transport == "http" {
 			st := mcpauth.StatusOf(s.Name, s.URL)
 			sv.SignIn = &st

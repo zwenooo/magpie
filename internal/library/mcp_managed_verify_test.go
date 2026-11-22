@@ -38,10 +38,6 @@ func TestVerifyManagedMCPRequiresLocalFilesAndFreshHandshake(t *testing.T) {
 		t.Fatal("verified without a local source receipt")
 	}
 	target.RepoLocalSource = target.RepoSource
-	l.CodexMCPOnDemand = true
-	target.Agents = []string{"codex"}
-	l.applied("codex").MCPRun = []string{s.Name}
-	l.applied("codex").MCP = []string{s.Name}
 	if err := l.save(); err != nil {
 		t.Fatal(err)
 	}

@@ -136,7 +136,7 @@ func attachUseStats(v *View, items []libraryuse.Item) {
 		coverage := "unknown"
 		if eligible[s.Name] && len(s.Problems) == 0 {
 			coverage = "observed"
-		} else if v.MCPHub && s.Hub != HubDirect || s.run {
+		} else if v.MCPHub && s.Hub != HubDirect || slices.Contains(s.Agents, "codex") && s.Transport == "stdio" && !s.Hidden && s.Hub != HubDirect {
 			coverage = "partial"
 		}
 		s.UseStats = rowUse(snap.Report("mcp", s.Name), coverage, now)

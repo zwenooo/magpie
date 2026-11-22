@@ -55,10 +55,6 @@ Pi's extensions and packages.
 
 ## Runtime path
 
-### Command MCP servers: who launches them? (fork)
-
-With the MCP router off, Library writes each agent's normal entry, including native `command`/`args` for local Codex. The separate `magpie library mcp codex-on-demand on|off` switch defaults to off. Enable it only if you want the gateway to start eligible local Codex command servers on demand: this saves idle processes but starts them from home rather than Codex's project directory. A server explicitly set to direct always stays native; a shared server routed by the global hub uses the hub instead. WSL and remote Codex do not opt in through this setting. After a change, reload the client configuration before testing. The usage counters do not change how a server is launched, and cannot count native direct calls.
-
 ### Observed use on this computer (fork)
 
 The Skill and MCP pages show local evidence, not an audit of every agent. `magpie library usage` lists the same rows as JSON; `--candidates` only filters and never changes an item. An MCP tool call counts once, including an observed failure. Initializing, listing, probing, and distributing servers are not tool calls. For a Skill, an explicit invocation and a read of its `SKILL.md` are different signals. The page does not infer usage from a directory timestamp, a mention in text, or a Library sync.
