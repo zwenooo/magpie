@@ -31,6 +31,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -343,6 +344,16 @@ func (l *Library) giveClaudeDir(d string, servers map[string]map[string]any, ski
 	if have, err := f.entries(); err != nil {
 		fail("mcp", err)
 	} else {
+		if !directUseLocalPath(f.Path) {
+			servers = maps.Clone(servers)
+			for name, entry := range servers {
+				if env, ok := entry["env"].(map[string]any); ok {
+					c := maps.Clone(entry)
+					c["env"] = withoutDirectUse(env)
+					servers[name] = c
+				}
+			}
+		}
 		var put, del []string
 		for name, e := range servers {
 			if !reflect.DeepEqual(have[name], e) {

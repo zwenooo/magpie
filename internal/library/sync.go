@@ -323,6 +323,7 @@ func (l *Library) syncMCP(t *Target, b *backups, res *Result) {
 			res.fail(id, "mcp:"+s.Name, errKeptInWSL)
 			continue
 		}
+		raw := s
 		if s != hub {
 			s = through(here(s), base)
 		}
@@ -343,6 +344,9 @@ func (l *Library) syncMCP(t *Target, b *backups, res *Result) {
 				}
 				s, res.run[s.Name] = via, spec
 			}
+		}
+		if t.Agent.WSL == "" {
+			s = nativeDirectUse(raw, s, base, t.MCP)
 		}
 		s = t.MCP.withCmdVars(s)
 		s = wroteStartup(s, a.Startup[s.Name])

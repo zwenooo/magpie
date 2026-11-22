@@ -31,7 +31,9 @@ var errBundleTarget = errors.New("cannot safely access the local ops-mcp directo
 const opsBundleFile = "secrets.tar.age"
 const bundleLimit = 8 << 20
 
-func bundleStart(s *Server, home string) bool {
+// opsProgram identifies the standalone repository and its native entry point,
+// independently of the credential bundle's stricter environment requirements.
+func opsProgram(s *Server) bool {
 	if s == nil || s.RepoSource == nil || s.Transport != "stdio" || s.Bundle != "" || s.Plugin != "" || s.Bridge != "" {
 		return false
 	}
@@ -46,6 +48,13 @@ func bundleStart(s *Server, home string) bool {
 		return false
 	}
 	if len(s.Args) != 1 || filepath.ToSlash(s.Args[0]) != programRef+"/server.py" {
+		return false
+	}
+	return true
+}
+
+func bundleStart(s *Server, home string) bool {
+	if !opsProgram(s) {
 		return false
 	}
 	// Don't expand a synced variable or follow a custom config, home or identity.

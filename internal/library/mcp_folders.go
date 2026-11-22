@@ -75,19 +75,23 @@ func (s *Server) keptHere() bool {
 // here is s as it runs on this computer: the folders it names written as
 // their paths here.
 func here(s *Server) *Server {
-	if s.Remote() || !s.keptHere() {
-		return s
+	c := *s
+	c.Env = withoutDirectUse(s.Env)
+	if c.Remote() || !c.keptHere() {
+		if len(c.Env) == len(s.Env) {
+			return s
+		}
+		return &c
 	}
 	r := strings.NewReplacer(programRef, programDir(s.Name), privateRef, privateDir(s.Name), stateRef, stateDir(s.Name))
-	c := *s
 	c.Command = r.Replace(s.Command)
 	c.Args = nil
 	for _, a := range s.Args {
 		c.Args = append(c.Args, r.Replace(a))
 	}
-	if s.Env != nil {
+	if env := c.Env; env != nil {
 		c.Env = map[string]string{}
-		for k, v := range s.Env {
+		for k, v := range env {
 			c.Env[k] = r.Replace(v)
 		}
 	}

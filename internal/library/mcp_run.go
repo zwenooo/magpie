@@ -438,6 +438,7 @@ func runStart(s *runSession, spec runSpec, init json.RawMessage) (*runChild, jso
 	for k, v := range spec.Env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
+	cmd.Env = mcpChildEnv(cmd.Env)
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, nil, err
