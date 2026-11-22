@@ -19,10 +19,10 @@ func TestLibraryRepoRequiresSourceAndCommit(t *testing.T) {
 	if rec := post("save", `{"server":{"name":"kept","transport":"stdio","command":"node","args":["{{program}}/main.js"],"agents":[]}}`); rec.Code != http.StatusOK {
 		t.Fatalf("save: %d %s", rec.Code, rec.Body)
 	}
-	// Even a client supplying a toolkit source cannot turn an unbound entry
+	// Even a client supplying the supported source cannot turn an unbound entry
 	// into a credential target. Neither operation should return any file data.
 	for _, action := range []string{"bundle-preview", "bundle-restore"} {
-		rec := post(action, `{"name":"kept","repoSource":{"repo":"https://github.com/zwenooo/magpie-agent-toolkit","path":"mcp/ops-mcp"},"expected":"invented"}`)
+		rec := post(action, `{"name":"kept","repoSource":{"repo":"https://github.com/zwenooo/ops-mcp","path":""},"expected":"invented"}`)
 		if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != `{"state":"unsupported"}` {
 			t.Errorf("%s: %d %s; want only unsupported status", action, rec.Code, rec.Body)
 		}

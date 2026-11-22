@@ -36,7 +36,7 @@ func bundleStart(s *Server, home string) bool {
 		return false
 	}
 	repo, _, err := s.RepoSource.coordinates()
-	if err != nil || repo != "zwenooo/magpie-agent-toolkit" || s.RepoSource.Path != "mcp/ops-mcp" {
+	if err != nil || repo != "zwenooo/ops-mcp" || s.RepoSource.Path != "" {
 		return false
 	}
 	command := strings.ToLower(filepath.Base(s.Command))

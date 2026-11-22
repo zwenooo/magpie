@@ -77,7 +77,7 @@ func TestMCPBundleTar(t *testing.T) {
 }
 
 func bundleServer() Server {
-	src := &MCPRepoSource{Repo: "https://github.com/zwenooo/magpie-agent-toolkit", Ref: "main", Path: "mcp/ops-mcp"}
+	src := &MCPRepoSource{Repo: "https://github.com/zwenooo/ops-mcp", Ref: "main"}
 	return Server{Name: "ops", RepoSource: src, RepoLocalSource: src, RepoCommit: repoTestSHA, RepoLocalCommit: repoTestSHA, Transport: "stdio", Command: "python3", Args: []string{programRef + "/server.py"}, Env: map[string]string{"OPS_MCP_STATE_DIR": stateRef, "PYTHONDONTWRITEBYTECODE": "1"}}
 }
 func TestMCPBundleScope(t *testing.T) {
@@ -86,7 +86,17 @@ func TestMCPBundleScope(t *testing.T) {
 	if !bundleStart(&s, home) {
 		t.Fatal("default managed launch not supported")
 	}
-	for _, mutate := range []func(*Server){func(s *Server) { s.RepoSource.Repo = "https://github.com/other/magpie-agent-toolkit" }, func(s *Server) { s.RepoSource.Path = "mcp/other" }, func(s *Server) { s.Command = "sh" }, func(s *Server) { s.Args = append(s.Args, "--config=x") }, func(s *Server) { s.Env["ops_mcp_bundle_key"] = "other" }, func(s *Server) { s.Env["OPS_MCP_CONFIG"] = "../other" }, func(s *Server) { s.Env["HOME"] = "other" }} {
+	for _, mutate := range []func(*Server){
+		func(s *Server) { s.RepoSource = nil },
+		func(s *Server) { s.RepoSource.Repo = "https://github.com/other/ops-mcp" },
+		func(s *Server) { s.RepoSource.Repo += "-extra" },
+		func(s *Server) { s.RepoSource.Path = "mcp/ops-mcp" },
+		func(s *Server) { s.Command = "sh" },
+		func(s *Server) { s.Args = append(s.Args, "--config=x") },
+		func(s *Server) { s.Env["ops_mcp_bundle_key"] = "other" },
+		func(s *Server) { s.Env["OPS_MCP_CONFIG"] = "../other" },
+		func(s *Server) { s.Env["HOME"] = "other" },
+	} {
 		s = bundleServer()
 		mutate(&s)
 		if bundleStart(&s, home) {
@@ -251,6 +261,47 @@ func TestMCPBundleLocalAge(t *testing.T) {
 	write(t, filepath.Join(programDir(s.Name), "server.py"), "edited")
 	if _, err = PreviewMCPBundle(s.Name); !errors.Is(err, errBundleChanged) {
 		t.Fatal("trusted edited installation")
+	}
+}
+
+func TestMCPBundleStandaloneNeedsNewReceipt(t *testing.T) {
+	home := sandbox(t)
+	s := bundleServer()
+	standalone := s.RepoSource
+	toolkit := &MCPRepoSource{Repo: "https://github.com/zwenooo/magpie-agent-toolkit", Ref: standalone.Ref, Path: "mcp/ops-mcp"}
+	if err := (&Library{MCP: []*Server{{Name: s.Name, Transport: s.Transport, Command: s.Command, Args: s.Args}}}).save(); err != nil {
+		t.Fatal(err)
+	}
+	// Same SHA and identical files in both snapshots; only the source changes.
+	apply := func(src *MCPRepoSource) {
+		t.Helper()
+		_, err := applyMCPRepo(s.Name, src, repoTestSHA, func(MCPRepoSource, string) (map[string][]byte, []string, error) {
+			return map[string][]byte{"server.py": []byte("fixture"), opsBundleFile: []byte("age-encryption.org/v1\nfixture")}, nil, nil
+		}, (*Library).save)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	apply(toolkit)
+	if st, err := PreviewMCPBundle(s.Name); err != nil || st.State != "unsupported" || st.Token != "" {
+		t.Fatalf("toolkit preview: %+v, %v", st, err)
+	}
+	lib, err := load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib.server(s.Name).RepoSource = standalone // a changed binding is not local approval
+	if err := lib.save(); err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []func(string) (*MCPBundleStatus, error){PreviewMCPBundle, func(name string) (*MCPBundleStatus, error) { return RestoreMCPBundle(name, "old-token") }} {
+		if st, err := action(s.Name); st != nil || err == nil || !strings.Contains(err.Error(), "repo-update") {
+			t.Fatalf("accepted toolkit receipt: %+v, %v", st, err)
+		}
+	}
+	apply(standalone)
+	if _, token, err := bundleInstall(s.Name, home); err != nil || token == "" {
+		t.Fatalf("explicit standalone install not recognized: %v", err)
 	}
 }
 

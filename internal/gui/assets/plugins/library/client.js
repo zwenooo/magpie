@@ -4299,7 +4299,7 @@ magpie.plugin("library", (ctx) => {
 
   function managedReadiness(server) {
     const src = server.repoSource, name = server.name;
-    const ops = src.repo?.replace(/\/$/, "").replace(/\.git$/, "") === "https://github.com/zwenooo/magpie-agent-toolkit" && src.path === "mcp/ops-mcp";
+    const ops = src.repo?.replace(/\/$/, "").replace(/\.git$/, "") === "https://github.com/zwenooo/ops-mcp" && src.path === "" && confirmedCommit(server);
     const box = el("div", "lib-managed-readiness"), result = el("div", "lib-repo-preview"), actions = el("div");
     const unknown = t("Not yet confirmed");
     const hasCommit = /^[a-f0-9]{40}$/.test(server.repoLocalCommit || "");

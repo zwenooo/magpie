@@ -86,8 +86,11 @@ program explicitly; syncing metadata does not fetch code. A server without a
 repository keeps its existing folder-sync behavior.
 
 **Credentials and runtime are separate checks.** The ops-mcp bundle adapter is
-opt-in and pinned to the toolkit repository's `mcp/ops-mcp` subtree. It reads
-only on an explicit preview. `magpie library mcp bundle-preview NAME` compares
+opt-in and accepts only the root of `https://github.com/zwenooo/ops-mcp`
+(leave Subfolder empty). A receipt for the old toolkit subtree does not
+transfer, even if the program bytes match. To switch, preview the standalone
+repository and explicitly apply its reviewed commit on this computer.
+Opening the page does not read the bundle. `magpie library mcp bundle-preview NAME` compares
 its age-encrypted `secrets.tar.age` with the default local ops-mcp credentials;
 `bundle-restore NAME TOKEN` confirms that preview. The age identity stays on the
 computer. A conflicting or partially present destination is not overwritten.

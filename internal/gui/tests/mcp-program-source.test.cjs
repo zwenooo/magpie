@@ -25,11 +25,14 @@ for (const engine of process.env.BROWSER ? [process.env.BROWSER] : ["chromium", 
         instructions: {agents: [], sets: []}, foundServers: [], foundSkills: [], projects: [], skills: [], servers: [server,
           {...server, name: "ordinary", args: [], env: {DIR: "{{program}}"}}, {...server, name: "remote", transport: "http", url: "https://example.test"}]};
       const first = "a".repeat(40), second = "b".repeat(40);
-      const toolkit = {repo: "https://github.com/zwenooo/magpie-agent-toolkit.git", ref: "main", path: "mcp/ops-mcp"};
-      const installed = {...server, command: "python", args: ["{{program}}/server.py"], repoSource: toolkit, repoLocalSource: toolkit, repoHash: "c".repeat(64), repoLocalHash: "c".repeat(64), repoLocalCommit: second, repoCommit: second};
-      lib.servers.push({...installed, name: "my-tools", agents: ["codex"]}, {...installed, name: "ops-mcp", repoSource: {...toolkit, path: "mcp/ops-mcp-extra"}},
-        {...installed, name: "other-owner", repoSource: {...toolkit, repo: "https://github.com/example/magpie-agent-toolkit"}},
+      const standalone = {repo: "https://github.com/zwenooo/ops-mcp.git", ref: "main", path: ""};
+      const toolkit = {repo: "https://github.com/zwenooo/magpie-agent-toolkit", ref: "main", path: "mcp/ops-mcp"};
+      const installed = {...server, command: "python", args: ["{{program}}/server.py"], repoSource: standalone, repoLocalSource: standalone, repoHash: "c".repeat(64), repoLocalHash: "c".repeat(64), repoLocalCommit: second, repoCommit: second};
+      lib.servers.push({...installed, name: "my-tools", agents: ["codex"]}, {...installed, name: "old-receipt", repoLocalSource: toolkit},
         {...installed, name: "legacy", repoLocalSource: undefined});
+      for (const [name, src] of [["ops-mcp", toolkit], ["subfolder", {...standalone, path: "mcp/ops-mcp"}], ["other-owner", {...standalone, repo: "https://github.com/example/ops-mcp"}]]) {
+        lib.servers.push({...installed, name, repoSource: src, repoLocalSource: src});
+      }
       let latest = first, current = "", bundle, restored, gateway;
       const managed = [];
       await page.route("**/*", async (route) => {
@@ -108,7 +111,7 @@ for (const engine of process.env.BROWSER ? [process.env.BROWSER] : ["chromium", 
       await action("Apply this commit").click(); await action("Check for updates").waitFor();
       assert.deepEqual(calls.at(-1), ["repo-update", {name: "kept", repoSource: null, expected: first}]);
       await close();
-      for (const name of ["ops-mcp", "other-owner", "kept"]) {
+      for (const name of ["ops-mcp", "other-owner", "subfolder", "old-receipt", "legacy", "kept"]) {
         await open(name); await box.waitFor(); assert.equal(await action("Check credentials").count(), 0); await close();
       }
       await open("legacy");
@@ -119,7 +122,7 @@ for (const engine of process.env.BROWSER ? [process.env.BROWSER] : ["chromium", 
       await page.locator('.lib-health[data-server="my-tools"]').click();
       const readiness = box.locator(".lib-managed-readiness");
       await readiness.waitFor();
-      assert.ok((await readiness.innerText()).includes(toolkit.repo));
+      assert.ok((await readiness.innerText()).includes(standalone.repo));
       assert.ok((await readiness.innerText()).includes(second));
       assert.ok((await readiness.innerText()).includes("~/.config/ops-mcp"));
       assert.deepEqual(managed, []);
