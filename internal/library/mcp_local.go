@@ -53,11 +53,13 @@ func (l *Library) putServers(in []*Server) {
 	for _, s := range in {
 		c := *s
 		c.RepoLocalCommit, c.RepoLocalHash = "", ""
+		c.RepoLocalSource = nil
 		if previous := here[c.Name]; !own[c.Name] && previous != nil {
 			if c.RepoSource == nil || previous.RepoSource == nil {
 				c.keepRepo(previous)
 			} else {
 				c.RepoLocalCommit, c.RepoLocalHash = previous.RepoLocalCommit, previous.RepoLocalHash
+				c.RepoLocalSource = previous.RepoLocalSource
 			}
 		}
 		c.Local = false // only this computer says what is its own

@@ -48,6 +48,7 @@ type Server struct {
 	RepoHash        string            `json:"repoHash,omitempty"`
 	RepoLocalHash   string            `json:"repoLocalHash,omitempty"`
 	RepoLocalCommit string            `json:"repoLocalCommit,omitempty"`
+	RepoLocalSource *MCPRepoSource    `json:"repoLocalSource,omitempty"` // receipt of a local installation, never imported
 	// DisabledTools are the server's tools its agents leave out, by the
 	// names the server gives them, written in each agent's own way where
 	// it has one (mcp_tools_off.go)

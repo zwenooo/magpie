@@ -21,9 +21,11 @@ type MCPRepoCheck struct {
 func (server *Server) keepRepo(previous *Server) {
 	server.RepoSource, server.RepoCommit, server.RepoHash = nil, "", ""
 	server.RepoLocalCommit, server.RepoLocalHash = "", ""
+	server.RepoLocalSource = nil
 	if previous != nil {
 		server.RepoSource, server.RepoCommit, server.RepoHash = previous.RepoSource, previous.RepoCommit, previous.RepoHash
 		server.RepoLocalCommit, server.RepoLocalHash = previous.RepoLocalCommit, previous.RepoLocalHash
+		server.RepoLocalSource = previous.RepoLocalSource
 	}
 }
 
@@ -185,6 +187,7 @@ func applyMCPRepo(name string, source *MCPRepoSource, expected string, fetch fun
 		if reflect.DeepEqual(server, current) {
 			current.RepoSource, current.RepoCommit, current.RepoHash = &src, expected, digest
 			current.RepoLocalCommit, current.RepoLocalHash = expected, digest
+			current.RepoLocalSource = &src
 			err = save(lib)
 		} else {
 			err = fmt.Errorf("%s changed while preparing the update; check again", name)

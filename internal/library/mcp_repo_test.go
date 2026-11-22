@@ -72,6 +72,10 @@ func TestMCPRepoInstallAndCarry(t *testing.T) {
 	}
 	bundle = carriedOver(t, bundle)
 	remote := bundle.MCP[0]
+	if remote.RepoLocalSource != nil {
+		t.Fatal("local repository receipt exported")
+	}
+	remote.RepoLocalSource = src // incoming claims do not grant local trust
 	if remote.RepoSource == nil || *remote.RepoSource != *src || remote.RepoCommit != repoTestSHA || remote.RepoHash == "" || remote.RepoLocalHash != "" || len(bundle.Folders) != 0 {
 		t.Fatalf("wrong carried metadata or program files: %+v", remote)
 	}
@@ -80,6 +84,9 @@ func TestMCPRepoInstallAndCarry(t *testing.T) {
 	bundle.Folders = []*CarriedFolders{{Name: server.Name, Program: map[string][]byte{"main.py": []byte("not confirmed")}}}
 	sandbox(t)
 	ok(t)(Put(bundle))
+	if server, _, err := repoTarget(server.Name, nil); err != nil || server.RepoLocalSource != nil {
+		t.Fatal("incoming bundle granted local trust", err)
+	}
 	if _, err := os.Lstat(programDir(server.Name)); !errors.Is(err, fs.ErrNotExist) || calls != recordedCalls {
 		t.Fatalf("restore installed the program: %v, calls %d", err, calls)
 	}

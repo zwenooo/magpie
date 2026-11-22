@@ -157,6 +157,7 @@ func Collect() (*Bundle, error) {
 		// started its own way here goes with the synced start (mcp_here.go)
 		c := *carried(carriedStart(s))
 		c.RepoLocalCommit, c.RepoLocalHash = "", ""
+		c.RepoLocalSource = nil
 		c.Agents = orNone(slices.Sorted(slices.Values(s.Agents)))
 		b.MCP = append(b.MCP, &c)
 	}

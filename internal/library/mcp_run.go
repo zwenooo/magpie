@@ -51,9 +51,10 @@ var runIdle = 15 * time.Minute
 
 // runSpec is the command a server is run with, its variables expanded.
 type runSpec struct {
-	Command string            `json:"command"`
-	Args    []string          `json:"args"`
-	Env     map[string]string `json:"env"`
+	Revision string            `json:"revision,omitempty"` // an in-place program update also invalidates cached handshakes
+	Command  string            `json:"command"`
+	Args     []string          `json:"args"`
+	Env      map[string]string `json:"env"`
 }
 
 func (r runSpec) key() string { b, _ := json.Marshal(r); return string(b) }
@@ -70,7 +71,7 @@ func specOf(s *Server) (runSpec, bool) {
 	if len(unset) > 0 {
 		return runSpec{}, false
 	}
-	return runSpec{Command: cmd, Args: slices.Clone(args), Env: env}, true
+	return runSpec{Command: cmd, Args: slices.Clone(args), Env: env, Revision: s.RepoLocalCommit}, true
 }
 
 var runs struct {
