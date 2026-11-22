@@ -121,27 +121,29 @@ func init() {
 	// a Codex connected or disconnected is given its servers the other
 	// way: through the gateway on magpie, by their commands off it
 	agent.Rewired = func(id string) {
-		if !runOn || id != "codex" {
-			return
-		}
-		l, err := runLibrary()
-		if err != nil || !l.codexRunEnabled() {
-			return
-		}
-		for _, t := range Targets() {
-			if t.Agent == nil || t.Agent.ID != id || t.MCP == nil || t.MCP.Format != fmtCodex {
-				continue
-			}
-			if a := l.Applied[id]; a == nil || a.CodexRunWired != l.runsFor(t, gatewayOf(t)) {
-				go func() {
-					if _, err := Sync(); err != nil {
-						log.Printf("library: syncing %s's MCP servers: %v", id, err)
-					}
-				}()
-			}
-			return
+		if runWiringChanged(id) {
+			go func() {
+				if _, err := Sync(); err != nil {
+					log.Printf("library: syncing %s's MCP servers: %v", id, err)
+				}
+			}()
 		}
 	}
+}
+
+func runWiringChanged(id string) bool {
+	if !runOn || id != "codex" {
+		return false
+	}
+	l, err := runLibrary()
+	if err != nil || !l.codexRunEnabled() || !slices.ContainsFunc(l.MCP, func(s *Server) bool {
+		return s.Transport == "stdio" && s.Hub != HubDirect && slices.Contains(s.Agents, id)
+	}) {
+		return false
+	}
+	t := targetByID(id)
+	a := l.Applied[id]
+	return t != nil && (a != nil && a.CodexRunWired) != l.runsFor(t, gatewayOf(t))
 }
 
 // runVia is s as an agent that runsFor is given it, and the spec it is

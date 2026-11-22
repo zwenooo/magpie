@@ -81,7 +81,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           if (lang !== "en") for (const s of WORDS) assert.ok(I18N[lang][s], `${lang}: ${s}`);
           for (const hubOn of [true, false]) {
             const calls = [];
-            const ctx = await browser.newContext({ viewport: { width, height: 800 } });
+            const ctx = await browser.newContext({ viewport: { width, height: 800 }, reducedMotion: "reduce" });
             await ctx.addInitScript(() => { try { localStorage.setItem("magpie.libTab", "mcp"); } catch {} });
             const page = await ctx.newPage();
             page.setDefaultTimeout(5000);

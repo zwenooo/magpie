@@ -46,7 +46,7 @@ func ManagedGatewayState(name string) string {
 		return "unknown"
 	}
 	l, err := runLibrary()
-	if err != nil || !l.runsServer(s) {
+	if err != nil || !l.runsServer(l.server(name)) {
 		return "unknown"
 	}
 	want, ok := specOf(npxDirect(here(s)))

@@ -459,7 +459,17 @@ func TestRunCodexEntry(t *testing.T) {
 	if codex := read(t, filepath.Join(h, ".codex/config.toml")); strings.Contains(codex, RunPath) || !strings.Contains(codex, `"server.js"`) {
 		t.Fatalf("wired with no opt-in:\n%s", codex)
 	}
+	if runWiringChanged("codex") {
+		t.Fatal("a rewire would sync with the option off")
+	}
 	ok(t)(SetCodexMCPOnDemand(true))
+	if runWiringChanged("codex") {
+		t.Fatal("a sync didn't remember its wiring")
+	}
+	local := targetByID("codex")
+	if l, err := load(); err != nil || l.runsFor(local, "http://192.0.2.10:3425") {
+		t.Fatalf("remote gateway eligible: %v", err)
+	}
 	if _, err := SaveServer("", Server{Name: "keyed", Transport: "stdio", Command: "node", Env: map[string]string{"MAGPIE_TEST_UNSET_VAR": "${MAGPIE_TEST_UNSET_VAR}"}, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -490,8 +500,17 @@ func TestRunCodexEntry(t *testing.T) {
 		}
 	}
 	wired = false
+	if !runWiringChanged("codex") {
+		t.Fatal("a disconnect wouldn't resync the opted-in route")
+	}
 	if _, err := Sync(); err != nil {
 		t.Fatal(err)
+	}
+	if runWiringChanged("codex") {
+		t.Fatal("a sync didn't remember the disconnect")
+	}
+	if got := inHome(&Server{Name: "mem", Transport: "stdio", Agents: []string{"codex"}}); got {
+		t.Fatal("disconnected command still runs in home")
 	}
 	codex = read(t, filepath.Join(h, ".codex/config.toml"))
 	if strings.Contains(codex, RunPath) || !strings.Contains(codex, `"server.js"`) {
