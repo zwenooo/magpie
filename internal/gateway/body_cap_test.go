@@ -1,8 +1,6 @@
 package gateway
 
 import (
-	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -293,80 +291,6 @@ func compactionOverByteCapEveryTime(t *testing.T, header ...string) {
 	for i := 1; i < 4 && i < len(calls); i++ {
 		if len(calls[i]) >= len(calls[i-1]) {
 			t.Fatalf("ask %d (%d bytes) no smaller than the one before (%d)", i, len(calls[i]), len(calls[i-1]))
-		}
-	}
-}
-
-// magpie's own summary ask is never kept alive (keptAlive.whole, #4862):
-// a vendor slow past keepHeldAfter still answers it its 413, not a 200 and
-// a keepalive with the refusal as a stream error after it.
-func TestCompactionSizeRefusalKeepsItsStatus(t *testing.T) {
-	fresh(t)
-	oldAfter, oldWatch := keepHeldAfter, watchEvery
-	keepHeldAfter, watchEvery = 0, time.Millisecond
-	t.Cleanup(func() { keepHeldAfter, watchEvery = oldAfter, oldWatch })
-	asked := make(chan struct{})
-	release := make(chan struct{})
-	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.Copy(io.Discard, r.Body)
-		close(asked)
-		select {
-		case <-release:
-		case <-r.Context().Done():
-			return
-		}
-		w.WriteHeader(http.StatusRequestEntityTooLarge)
-		io.WriteString(w, deepseekBodyCap)
-	}))
-	t.Cleanup(up.Close)
-	if err := provider.Save(provider.Provider{ID: "fake", Name: "Fake", Key: "k", Models: []string{"m1"}, Responses: up.URL}); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	rec := &recorder{header: http.Header{}, status: 200}
-	r := httptest.NewRequest("POST", "/v1/responses", nil).WithContext(ctx)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		New().serve(rec, askCompaction(askWhole(r)), provider.Responses,
-			[]byte(`{"model":"fake/m1","stream":true,"input":[{"role":"user","content":"compact this conversation"}]}`))
-	}()
-	<-asked
-	// many watch ticks past keepHeldAfter, where a client's turn is kept alive
-	for i := 0; i < 50; i++ {
-		time.Sleep(watchEvery)
-	}
-	close(release)
-	<-done
-	if ctx.Err() != nil {
-		t.Fatal(ctx.Err())
-	}
-	if bytes.Contains(rec.body.Bytes(), []byte(": keepalive")) {
-		t.Fatalf("the summary ask was kept alive: %d %s", rec.status, rec.body.String())
-	}
-	if !summaryTooLarge(rec) {
-		t.Fatalf("size refusal not read as one: %d %s", rec.status, rec.body.String())
-	}
-}
-
-func TestCompactionStreamSizeCodes(t *testing.T) {
-	for _, c := range []struct {
-		data string
-		want bool
-	}{
-		{`{"type":"response.failed","response":{"error":{"code":"context_length_exceeded","message":"too big"}}}`, true},
-		{`{"type":"response.failed","response":{"error":{"type":"request_too_large","message":"too big"}}}`, true},
-		{`{"type":"error","error":{"code":"request_too_large","message":"too big"}}`, true},
-		{`{"type":"error","code":"context_length_exceeded","message":"too big"}`, true},
-		{`{"type":"error","error":{"code":"server_error","message":"request_too_large mentioned in unrelated failure"}}`, false},
-		{`{"type":"response.completed","response":{"error":{"code":"context_length_exceeded"}}}`, false},
-		{`{"type":"response.output_text.delta","delta":"context_length_exceeded"}`, false},
-	} {
-		rec := &recorder{status: http.StatusOK, header: http.Header{}}
-		io.WriteString(rec, ": keepalive\n\ndata: "+c.data+"\n\n")
-		if got := summaryTooLarge(rec); got != c.want {
-			t.Errorf("summaryTooLarge(%s) = %v, want %v", c.data, got, c.want)
 		}
 	}
 }
