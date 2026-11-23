@@ -121,6 +121,9 @@ func TestWebEntriesHTTP(t *testing.T) {
 		case "notifications/initialized":
 		case "tools/list":
 			body = `{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"read_page","description":"private check description"}]}}`
+			if mode == "empty" {
+				body = `{"jsonrpc":"2.0","id":2,"result":{"tools":[]}}`
+			}
 			if mode == "failed" {
 				body = `{"jsonrpc":"2.0","id":2,"error":{"code":-1,"message":"unavailable"}}`
 			}
@@ -161,6 +164,14 @@ func TestWebEntriesHTTP(t *testing.T) {
 	}
 	if !slices.Equal(methods, []string{"initialize", "notifications/initialized", "tools/list"}) {
 		t.Fatalf("requests: %v", methods)
+	}
+	mode = "empty"
+	if h := check(t.Context(), true); h.State != "ok" || h.Tools != 0 {
+		t.Fatalf("empty check: %+v", h)
+	}
+	view, err = Glance(nil)
+	if err != nil || view.Servers[0].RememberedTools == nil || len(view.Servers[0].RememberedTools) != 0 || view.Servers[0].RememberedToolCount != 0 {
+		t.Fatal("successful empty list was not remembered", err)
 	}
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()
