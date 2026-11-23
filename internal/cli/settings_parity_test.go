@@ -281,6 +281,7 @@ var notYet = map[string]string{
 	"POST /api/gateway/held/reveal":              W,  // api.go
 	"POST /api/profile/{action}":                 A,  // api.go
 	"POST /api/proxy/check":                      S2, // api.go
+	"POST /api/egress/check":                     P,  // proxycheck.go: the Providers list's Check again, where the Claude accounts' way out is
 	"POST /api/pipelines/check":                  S2, // pipecheck.go: Settings › Models' Quick check, one real call a pipeline
 	"POST /api/relay-check":                      S2, // pipecheck.go: the Usage speed card by provider, its check button: a few small real calls to one model on one provider
 	"POST /api/proxies/save":                     S2, // proxies.go: Settings › Network's saved proxies
@@ -400,6 +401,7 @@ var notYet = map[string]string{
 	"GET /api/library/market/servers":            L,  // library.go
 	"GET /api/library/market/skills":             L,  // library.go
 	"GET /api/library/market/pi":                 L,  // library.go
+	"GET /api/library/market/claude":             L,  // library.go
 	"GET /api/library/mcp-signin/{id}":           L,  // library.go
 	"GET /api/library/pi":                        L,  // library.go
 	"GET /api/library/rtk":                       L,  // library.go
@@ -488,6 +490,7 @@ var notYet = map[string]string{
 	"POST /api/keys/{action}":                    P,  // providers.go
 	"POST /api/login/{action}":                   P,  // providers.go
 	"POST /api/open":                             W,  // providers.go
+	"POST /api/page":                             W,  // providers.go
 	"POST /api/partner":                          P,  // providers.go
 	"POST /api/providers/arrange":                W,  // providers.go
 	"POST /api/signin":                           P,  // providers.go
@@ -502,6 +505,9 @@ var notYet = map[string]string{
 	"POST /api/qianwen/{id}/signin":              P,  // providers.go
 	"POST /api/qianwen/{id}/signin/cancel":       P,  // providers.go
 	"POST /api/qianwen/{id}/signout":             P,  // providers.go
+	"POST /api/mistral/signin":                   P,  // providers.go
+	"GET /api/mistral/signin/{id}":               P,  // providers.go
+	"POST /api/mistral/signin/{id}/cancel":       P,  // providers.go
 	"POST /api/qianfan/{id}/session":             P,  // providers.go
 	"POST /api/qianfan/{id}/signout":             P,  // providers.go
 	"GET /api/speeds":                            U,  // sessions_manage.go: the Sessions row's speed curve
@@ -523,6 +529,7 @@ var notYet = map[string]string{
 	"GET /api/sessions/progress":                 U,  // sessions.go
 	"GET /api/sessions/stats":                    U,  // sessions.go
 	"POST /api/agents/open":                      W,  // sessions.go
+	"POST /api/agents/reveal":                    W,  // sessions.go
 	"POST /api/sessions/carry":                   U,  // sessions.go
 	"POST /api/sessions/export":                  U,  // sessions.go
 	"POST /api/sessions/terminal":                W,  // sessions.go

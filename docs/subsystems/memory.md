@@ -244,9 +244,31 @@ further (`State.Since`), unless a range is picked.
 - `Keep` runs 5 minutes after the GUI backend starts, then hourly
   (`keepDistilling` in `internal/gui/memory_distill.go`). `Run` takes at
   most 30 conversations (`PerRun`, more than a busy hour brings) quiet for 30 minutes (`Quiet`) with at
-  least two turns, and skips the gateway's own records, read-only
-  agents, subagent sessions and its own agent (`memory`). One run at a
-  time, in this process and across processes (`.run` lock).
+  least two turns, and skips subagent sessions and its own agent
+  (`memory`). One run at a time, in this process and across processes
+  (`.run` lock).
+- The conversations are those the Sessions page lists (`listed`): the
+  agents' own files, read-only ones included (the Antigravity app's,
+  Cursor's editor's), and the sessions only the gateway recorded
+  (`usage.ListedGateway`, as the page lists them), each read where it is
+  kept (`transcriptOf`, `sessions.GatewayTranscript` for a gateway-only
+  one). Before, only the files were read, and an agent seen only through
+  the gateway was never learnt from (bxgz233 on X: 1000+ WorkBuddy
+  sessions; `TestGatewayOnlySessionsRead`, `TestReadOnlySessionsRead`). A
+  gateway session with nothing recorded has no turns and is passed over.
+- A turn counts by what the user said, a user `text` part. WorkBuddy
+  (and WorkBuddy AI, CodeBuddy Code) writes each turn as one block, its
+  `<system-reminder>` context and then the words in `<user_query>`, in
+  its files and in what it sends the gateway. Read whole, the block began
+  with `<` and was context, so every WorkBuddy session had no turns and
+  was passed over, even after the gateway listing above (bxgz233 on X,
+  v0.1.4720). `wbTyped` splits it: the query is said, the rest context,
+  in `wbTranscript`, `GatewayTranscript`, `wbPrompt` and the gateway
+  title (`TestWorkBuddySessionsRead`, `TestGatewayWorkBuddyTurnsRead`,
+  `TestWorkBuddyOneBlockTurnsAreSaid`, `TestGatewayOneBlockTurnSaid`;
+  the fixture is a real session's lines). The marks a run made of them
+  before are dropped once (`State.Reads`, `reread`), so the sessions an
+  older magpie passed over are read now.
 - What is sent: the conversation's user and assistant text only (no
   tools, no reasoning), cut to 24k characters keeping the head and the
   tail, plus the memories already kept for that project, under neutral

@@ -64,8 +64,13 @@ const WaitHeader = "X-Magpie-Wait"
 
 // SessionToPluginHeader and SubagentToPluginHeader tell a plugin's fetch
 // the session the agent named (sessionOf: Claude Code's
-// x-claude-code-session-id and the rest) and the Claude Code subagent the
-// request is of (x-claude-code-agent-id). The agent's own headers never
+// x-claude-code-session-id and the rest; for an OpenCode 1 subagent that
+// names no separate root session, its x-opencode-parent-session-id unless
+// the caller set X-Magpie-Session) and the subagent the request is of:
+// Claude Code's x-claude-code-agent-id, Codex's spawn thread id
+// (collab_spawn / thread_spawn / agent_job), or OpenCode's
+// x-opencode-session-id when x-opencode-parent-session-id is set. The
+// agent's own headers never
 // reach a plugin, so a plugin that keeps state per conversation (Devin's
 // cache keepalive) had only the request's text to go by, and Claude Code
 // Auto's permission check, whose history grows in its one merged user
@@ -76,6 +81,23 @@ const WaitHeader = "X-Magpie-Wait"
 const (
 	SessionToPluginHeader  = "X-Magpie-Session"
 	SubagentToPluginHeader = "X-Magpie-Subagent"
+)
+
+// CallerAgentHeader, CallerNameHeader and CallerViaHeader tell a plugin's
+// fetch the agent the request came from, as the gateway records it: its
+// id (claude), the name people know it by (Claude Code), and, for a
+// request another magpie passed on (a Remote magpie provider there), the
+// computers it came through, the agent's first, comma-separated. Each
+// value, and each computer, is percent-encoded UTF-8 (decodeURIComponent
+// reads it). A request from this computer has no via. A plugin on the
+// receiving magpie had only the request's text to go by, as the original
+// agent stayed in the gateway (@febsincos on X). The plugin host gives
+// them to chat.headers as input.caller too, and takes them off whatever
+// the plugin sends on, as it does the ones above.
+const (
+	CallerAgentHeader = "X-Magpie-Caller-Agent"
+	CallerNameHeader  = "X-Magpie-Caller-Name"
+	CallerViaHeader   = "X-Magpie-Caller-Via"
 )
 
 // warmPlugin starts p's plugin host and runs its account's loader, which
@@ -473,11 +495,25 @@ func pluginPrice(m plugin.Model) (catalog.Price, bool) {
 func pluginAccountCatalog(pp plugin.Provider, key string) []catalog.Model {
 	all := pluginCatalog(pp)
 	for _, a := range pp.Accounts {
-		if a.Key == key && a.Models != nil {
+		if a.Key == key && toldList(a) != nil {
 			return slices.DeleteFunc(all, func(m catalog.Model) bool { return !slices.Contains(a.Models, m.ID) })
 		}
 	}
 	return all
+}
+
+// toldList is the models account a has as its plugin told them, nil when
+// it told none: a list that fell back (the plugin's own defaults, its
+// vendor's list for the account unread, with no list read before for
+// keepListed to keep) says nothing of the account's plan, as a built-in
+// account whose fetch failed is taken to have every model. bitssly on X
+// (商汤小浣熊): one of three accounts fell back, and Routing left it out
+// of every model the plugin's defaults lack.
+func toldList(a plugin.Account) []string {
+	if a.FellBack {
+		return nil
+	}
+	return a.Models
 }
 
 // PluginListError is why the plugin couldn't list the account at key's
@@ -516,7 +552,7 @@ func pluginServedCatalog(pp plugin.Provider, keys []string) []catalog.Model {
 	listed := map[string]bool{}
 	for _, k := range keys {
 		i := slices.IndexFunc(pp.Accounts, func(a plugin.Account) bool { return a.Key == k })
-		if i < 0 || pp.Accounts[i].Models == nil {
+		if i < 0 || toldList(pp.Accounts[i]) == nil {
 			return all
 		}
 		for _, m := range pp.Accounts[i].Models {
@@ -534,7 +570,7 @@ func (a *Account) pluginLists(model string) bool {
 		pp = cur
 	}
 	for _, ac := range pp.Accounts {
-		if ac.Key == a.pluginKey && ac.Models != nil {
+		if ac.Key == a.pluginKey && toldList(ac) != nil {
 			return slices.Contains(ac.Models, model)
 		}
 	}
