@@ -55,6 +55,16 @@ Pi's extensions and packages.
 
 ## Runtime path
 
+### Discovering an MCP's web pages (fork)
+
+The MCP endpoint, OAuth sign-in, and the server's own website or control panel are different links. Library can learn optional links from a successful `initialize` response during its normal health check, without scanning ports, opening a browser, or calling tools. `result.serverInfo.websiteUrl` is a **website**, not evidence of a control panel. Servers that know their actual console or logs URL may advertise this optional Magpie extension:
+
+```json
+{"serverInfo":{"name":"example","version":"1.2","websiteUrl":"https://example.org"},"_meta":{"io.github.zwenooo.magpie/web-entries":{"console":"http://127.0.0.1:8123/","logs":"http://127.0.0.1:8123/logs"}}}
+```
+
+This excerpt is a local stdio example, not an entire initialize result. Remote consoles/logs must use the MCP server's HTTPS origin; an arbitrary remote server cannot advertise a viewer's localhost as its admin panel. Links carrying credentials or query strings are not shortcuts. A health result is a hint from a specific server, not an authorization grant. No website/console metadata means no **generic** link; Magpie also retains the desktop-only, verified loopback adapter for older managed `ops-mcp` installations. Clicking opens a web page, not an OAuth flow; it does not restore credentials or change settings.
+
 ### Observed use on this computer (fork)
 
 The Skill and MCP pages show local evidence, not an audit of every agent. `magpie library usage` lists the same rows as JSON; `--candidates` only filters and never changes an item. An MCP tool call counts once, including an observed failure. Initializing, listing, probing, and distributing servers are not tool calls. For a Skill, an explicit invocation and a read of its `SKILL.md` are different signals. The page does not infer usage from a directory timestamp, a mention in text, or a Library sync.

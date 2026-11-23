@@ -3561,14 +3561,10 @@ magpie.plugin("library", (ctx) => {
     // its status beside the name, not in it: the name is still the name
     who.classList.add("lib-srvwho");
     who.append(nm, healthEl(s.name));
-    if (s.localConsole && !web && !picking) {
-      const links = el("div", "bar");
-      for (const [action, label] of [["open-console", t("Manage targets")], ["open-logs", t("View server logs")]]) {
-        const b = button(label, "", () => api("library/servers/" + action, { name: s.name }).catch(() => status(t("Could not open the local ops-mcp console. Check that it is running."), "err")));
-        links.append(b);
-      }
-      links.onclick = (event) => event.stopPropagation();
-      who.append(links);
+    if (!picking) {
+      const entries = el("div", "lib-webentries");
+      paintWebEntries(entries, s);
+      who.append(entries);
     }
     const sub = el("div", "sub mono", serverLine(s));
     sub.title = serverLine(s);
@@ -3583,6 +3579,56 @@ magpie.plugin("library", (ctx) => {
     row.onclick = () => editServer(s);
     row.title = t("Edit {name}", { name: s.name });
     return row;
+  }
+
+  // Metadata isn't a navigation instruction. Re-parse it at the browser
+  // boundary, and show exactly the serialized URL that browse() will open.
+  function entryURL(kind, raw, s, h) {
+    if (typeof raw !== "string" || !/^https?:\/\//i.test(raw) || /[\s\\?#\x00-\x1f\x7f]/.test(raw)) return "";
+    try {
+      const u = new URL(raw), host = u.hostname.replace(/\.$/, "");
+      const authority = raw.split("/")[2];
+      if (!authority || authority.includes("@") || authority.endsWith(":") || u.port === "0" || /[\x00-\x1f\x7f]/.test(decodeURIComponent(u.pathname))) return "";
+      // Reject host spellings that browsers silently reinterpret (e.g. 127.1).
+      if (!authority.startsWith("[") && authority.split(":")[0].toLowerCase() !== u.hostname) return "";
+      const loopback = host === "localhost" || /^127(?:\.\d+){3}$/.test(host) || host === "[::1]" || /^\[::ffff:7f[0-9a-f]{2}:/.test(host);
+      if (host.endsWith(".localhost") || host === "0.0.0.0" || host === "[::]" || host === "[::ffff:0:0]") return "";
+      const local = s.transport === "stdio" && !h.checked?.some((place) => place !== "")
+        && !/(?:^|[\\/])(?:wsl|ssh|docker|podman|kubectl)(?:\.exe)?$/i.test(s.command);
+      if (loopback) {
+        if (web || !local) return "";
+      } else {
+        if (u.protocol !== "https:") return "";
+        if (kind !== "website" && !local && (s.transport === "stdio" || u.origin !== new URL(s.url).origin)) return "";
+      }
+      return u.href;
+    } catch { return ""; }
+  }
+
+  function paintWebEntries(box, s) {
+    const buttons = new Map();
+    if (s.localConsole && !web) {
+      // This route verifies the local service on click, including for old
+      // ops-mcp versions that don't advertise any web entries.
+      for (const [kind, label] of [["console", t("Manage targets")], ["logs", t("View server logs")]]) {
+        buttons.set(kind, button(label, "", () => api("library/servers/open-" + kind, { name: s.name }).catch(() => status(t("Could not open the local ops-mcp console. Check that it is running."), "err"))));
+      }
+    }
+    const e = health.get(s.name), h = e?.h;
+    if (h?.state === "ok" && e.key === healthKey(s) && Array.isArray(h.webEntries)) {
+      for (const entry of h.webEntries) {
+        const kind = entry?.kind;
+        if (!["website", "console", "logs"].includes(kind) || buttons.has(kind)) continue;
+        const url = entryURL(kind, entry.url, s, h);
+        if (!url) continue;
+        const label = kind === "website" ? t("Website") : kind === "console" ? t("Open console") : t("View server logs");
+        const b = button(label + " · " + url, "", () => browse(url));
+        b.title = url;
+        buttons.set(kind, b);
+      }
+    }
+    box.replaceChildren(...buttons.values());
+    box.hidden = !buttons.size;
   }
 
   // A server off for everyone, or on again as it was (swang20201 on X:
@@ -3968,6 +4014,10 @@ magpie.plugin("library", (ctx) => {
       } else b.title = tip + "\n" + (canSignIn(lib.servers.find((s) => s.name === b.dataset.server)) ? t("Click to sign in") : t("Click to check again"));
     }
     const name = typeof x === "string" ? x : x.dataset.server;
+    if (typeof x === "string") {
+      const s = lib.servers.find((s) => s.name === name);
+      if (s) for (const box of page.querySelectorAll(`.lib-server[data-server="${CSS.escape(name)}"] .lib-webentries`)) paintWebEntries(box, s);
+    }
     for (const box of page.querySelectorAll(`.lib-tools[data-server="${CSS.escape(name)}"]`)) paintTools(box);
   }
 

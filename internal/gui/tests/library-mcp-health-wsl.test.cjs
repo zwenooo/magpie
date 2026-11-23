@@ -41,17 +41,24 @@ const found = {
   unsigned: { state: "auth", code: 401, oauth: true },
 };
 
-function server(lang) {
+function server(lang, { web = true, library = fixture(), check = () => found, opened = [], external = [] } = {}) {
   return async (route) => {
     const req = route.request(), url = new URL(req.url());
-    if (url.pathname === "/boot.js") return route.fulfill({ contentType: "text/javascript", body: `window.bootPrefs = {lang:"${lang}",theme:"light",web:true};` });
+    if (url.origin !== "http://magpie.test") { external.push(url.href); return route.abort(); }
+    if (url.pathname === "/boot.js") return route.fulfill({ contentType: "text/javascript", body: `window.bootPrefs = {lang:"${lang}",theme:"light",web:${web}};` });
     if (url.pathname === "/wails/runtime.js") return route.fulfill({ contentType: "text/javascript", body: "export const Window = {};" });
     if (url.pathname === "/api/state") return route.fulfill({ json: { agents: [], profiles: [], settings: { lang } } });
     if (url.pathname === "/api/plugins") return route.fulfill({ json: { plugins: [] } });
-    if (url.pathname === "/api/library") return route.fulfill({ json: fixture() });
+    if (url.pathname === "/api/library/native") return route.fulfill({ json: [] });
+    if (url.pathname === "/api/library") return route.fulfill({ json: library });
     if (url.pathname === "/api/library/mcp/check") {
-      const names = req.postDataJSON().names || Object.keys(found);
-      return route.fulfill({ json: { servers: Object.fromEntries(names.map((n) => [n, found[n]])) } });
+      const body = req.postDataJSON(), replies = await check(body);
+      const names = body.names || Object.keys(replies);
+      return route.fulfill({ json: { servers: Object.fromEntries(names.map((n) => [n, replies[n]])) } });
+    }
+    if (url.pathname === "/api/open" || url.pathname.startsWith("/api/library/servers/open-")) {
+      opened.push([url.pathname, req.postDataJSON()]);
+      return route.fulfill({ json: {} });
     }
     if (url.pathname === "/api/usage/quotas") return route.fulfill({ json: [] });
     if (url.pathname === "/api/groups") return route.fulfill({ json: { groups: [] } });
@@ -127,6 +134,81 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await ctx.close();
       });
     }
+    for (const web of [false, true]) await t.test(web ? "remote viewer entries" : "desktop entries", async (t) => {
+      const library = fixture(), opened = [], external = [], checks = [];
+      const ctx = await browser.newContext({ viewport: { width: 780, height: 800 }, reducedMotion: "reduce" });
+      t.after(() => ctx.close());
+      await ctx.addInitScript(() => {
+        localStorage.setItem("magpie.libTab", "mcp");
+        window.openedLinks = [];
+        window.open = (...args) => { window.openedLinks.push(args); return null; };
+      });
+      const site = "https://docs.example.org/start", next = "https://docs.example.org/new", loop = "http://127.0.0.1:8123/";
+      const panel = "https://mcp.linear.app/panel", entry = (kind, url) => ({ kind, url });
+      const ok = (...webEntries) => ({ state: "ok", tools: 1, webEntries });
+      library.servers.push({ ...library.servers.find(s => s.name === "here"), localConsole: true, name: "managed" });
+      const replies = { ...found,
+        here: ok(entry("website", site), entry("website", next), entry("console", loop), entry("logs", "javascript:void(0)")),
+        inwsl: { ...ok(entry("website", site), entry("console", loop)), checked: ["Ubuntu"] },
+        managed: ok(entry("console", loop), entry("logs", loop + "logs"), entry("website", site)),
+        signed: ok(entry("console", "https://wrong.example.org/panel"), entry("console", panel), entry("logs", panel + "?token=x")),
+        unsigned: { ...found.unsigned, webEntries: [entry("website", site)] },
+      };
+      let refresh = 0;
+      const check = body => {
+        checks.push(body);
+        if (!body.fresh) return replies;
+        return { here: ++refresh === 1 ? ok(entry("logs", next)) : { state: "error", why: "protocol", webEntries: [entry("website", site)] } };
+      };
+      await ctx.route("**/*", server("en", { web, library, opened, external, check }));
+      const page = await ctx.newPage();
+      page.setDefaultTimeout(5000);
+      page.setDefaultNavigationTimeout(60000);
+      await page.goto("http://magpie.test/");
+      await page.locator('#nav button[data-view="library"]').click();
+      const row = name => page.locator(`.lib-server[data-server="${name}"]`);
+      const buttons = name => row(name).locator(".lib-webentries button");
+      const labels = name => buttons(name).allTextContents();
+      await row("here").locator(".lib-health.ok").waitFor();
+      assert.deepEqual(await labels("here"), ["Website · " + site, ...(web ? [] : ["Open console · " + loop])]);
+      assert.deepEqual(await labels("inwsl"), ["Website · " + site]);
+      assert.deepEqual(await labels("signed"), ["Open console · " + panel]);
+      assert.deepEqual(await labels("unsigned"), []);
+      assert.equal(await row("unsigned").locator(".lib-health.auth").textContent(), words.en.needs);
+      assert.deepEqual(await labels("managed"), [...(web ? [] : ["Manage targets", "View server logs"]), "Website · " + site]);
+      assert.deepEqual(opened, []);
+      assert.deepEqual(await page.evaluate(() => window.openedLinks), []);
+      assert.equal(checks.length, 1);
+      if (!web) for (const [label, kind] of [["Manage targets", "console"], ["View server logs", "logs"]]) {
+        await Promise.all([page.waitForResponse(r => r.url().endsWith("/servers/open-" + kind)), row("managed").getByRole("button", { name: label, exact: true }).click()]);
+        assert.deepEqual(opened.at(-1), ["/api/library/servers/open-" + kind, { name: "managed" }]);
+      }
+      const health = row("here").locator(".lib-health");
+      await health.click();
+      await buttons("here").filter({ hasText: next }).waitFor();
+      assert.deepEqual(await labels("here"), ["View server logs · " + next]);
+      const click = () => buttons("here").click();
+      if (web) {
+        await click();
+        assert.deepEqual(await page.evaluate(() => window.openedLinks), [[next, "_blank", "noopener"]]);
+      } else {
+        await Promise.all([page.waitForResponse(r => r.url().endsWith("/api/open")), click()]);
+        assert.deepEqual(opened.at(-1), ["/api/open", { url: next }]);
+      }
+      assert.equal(await page.locator("#modal.lib:visible").count(), 0);
+      await page.locator("#view-library .lib-select").click();
+      assert.equal(await page.locator(".lib-webentries button").count(), 0);
+      await row("here").locator(".name").click();
+      assert.ok(await row("here").locator(".lib-pickbox").isChecked());
+      await page.locator("#view-library .lib-pickdone").click();
+      await health.click();
+      await row("here").locator(".lib-health.err").waitFor();
+      assert.deepEqual(await labels("here"), []);
+      assert.deepEqual(checks.slice(1), [{ names: ["here"], fresh: true }, { names: ["here"], fresh: true }]);
+      assert.equal(opened.length, web ? 0 : 3);
+      assert.equal(await page.evaluate(() => window.openedLinks.length), web ? 1 : 0);
+      assert.deepEqual(external, []);
+    });
     assert.deepEqual(errors, []);
   });
 }

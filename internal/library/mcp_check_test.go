@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -117,6 +118,10 @@ func TestFakeMCPServer(t *testing.T) {
 			text, _ := json.Marshal(said)
 			fmt.Printf(`{"jsonrpc":"2.0","id":%d,"result":{"content":[{"type":"text","text":%s}]}}`+"\n", *m.ID, text)
 		case "initialize":
+			if mode == "web" {
+				fmt.Printf(`{"jsonrpc":"2.0","id":%d,"result":%s}`+"\n", *m.ID, webInitFixture)
+				continue
+			}
 			fmt.Printf(`{"jsonrpc":"2.0","id":%d,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"1"}}}`+"\n", *m.ID)
 		case "notifications/initialized":
 			os.WriteFile(os.Getenv("MAGPIE_FAKE_MCP_INIT"), []byte("yes"), 0o644)
@@ -422,7 +427,7 @@ func TestCheckSSE(t *testing.T) {
 		json.NewDecoder(r.Body).Decode(&m)
 		switch m.Method {
 		case "initialize":
-			ch <- fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":{"protocolVersion":"2024-11-05"}}`, *m.ID)
+			ch <- fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":%s}`, *m.ID, webInitFixture)
 		case "tools/list":
 			ch <- fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":{"tools":[{"name":"only"}]}}`, *m.ID)
 		}
@@ -431,8 +436,8 @@ func TestCheckSSE(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	h := CheckServer(context.Background(), &Server{Name: "s", Transport: "sse", URL: srv.URL + "/sse"})
-	if h.State != "ok" || h.Tools != 1 {
-		t.Fatalf("got %+v, want ok with 1 tool", h)
+	if h.State != "ok" || h.Tools != 1 || !slices.Equal(h.WebEntries, []MCPWebEntry{{"website", webSite}}) {
+		t.Fatalf("SSE check: got %+v, want 1 tool and the advertised website only", h)
 	}
 }
 

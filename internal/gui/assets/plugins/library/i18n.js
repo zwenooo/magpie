@@ -2,6 +2,7 @@
 // kernel adds them to i18n.js's (magpie.strings).
 magpie.strings({
   zh: {
+    "Open console": "打开控制台",
     "Manage targets": "管理服务器",
     "View server logs": "查看服务日志",
     "Could not open the local ops-mcp console. Check that it is running.": "无法打开本机 ops-mcp 控制台，请确认它正在运行。",
@@ -1200,6 +1201,7 @@ magpie.strings({
     "{agents} reads no project instructions file magpie knows of.": "{agents} 没有 magpie 已知的项目指令文件。",
   },
   "zh-TW": {
+    "Open console": "開啟控制台",
     "Manage targets": "管理伺服器",
     "View server logs": "檢視服務日誌",
     "Could not open the local ops-mcp console. Check that it is running.": "無法開啟本機 ops-mcp 控制台，請確認它正在執行。",
@@ -2398,6 +2400,7 @@ magpie.strings({
     "{agents} reads no project instructions file magpie knows of.": "{agents} 沒有 magpie 已知的專案指令檔案。",
   },
   ja: {
+    "Open console": "コンソールを開く",
     "Manage targets": "サーバー管理",
     "View server logs": "サーバーログを表示",
     "Could not open the local ops-mcp console. Check that it is running.": "ローカルの ops-mcp コンソールを開けません。起動状況を確認してください。",
@@ -3596,6 +3599,7 @@ magpie.strings({
     "{agents} reads no project instructions file magpie knows of.": "{agents} は magpie が把握しているプロジェクトの指示ファイルを読みません。",
   },
   de: {
+    "Open console": "Konsole öffnen",
     "Manage targets": "Server verwalten",
     "View server logs": "Serverprotokolle anzeigen",
     "Could not open the local ops-mcp console. Check that it is running.": "Die lokale ops-mcp-Konsole konnte nicht geöffnet werden. Prüfe, ob sie läuft.",

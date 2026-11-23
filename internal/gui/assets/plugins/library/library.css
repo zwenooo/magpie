@@ -656,6 +656,8 @@ input.lib-setname:focus { border-color: var(--accent); box-shadow: 0 0 0 3px col
    whole reason in the tooltip; a click checks it again */
 .lib-srvwho { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); align-items: center; }
 .lib-srvwho > .name { min-width: 0; }
+.lib-webentries:not([hidden]) { display: flex; flex-wrap: wrap; gap: 4px; }
+.lib-webentries > button { max-width: 100%; height: auto; white-space: normal; overflow-wrap: anywhere; text-align: start; }
 .lib-srvwho > .lib-health { justify-self: start; max-width: min(220px, 100%); }
 .lib-srvwho > :not(.name):not(.lib-health) { grid-column: 1 / -1; }
 .lib-health { display: inline-flex; flex: 0 1 auto; min-width: 0; align-items: center; gap: 5px; max-width: 220px; height: 17px; margin-left: 7px; padding: 0 6px; border-radius: 6px;

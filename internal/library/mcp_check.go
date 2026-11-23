@@ -44,6 +44,8 @@ type ServerHealth struct {
 	// gave them, for the page to list (nf1qaz2w on Discord); at most
 	// maxToolList, while Tools counts every one
 	ToolList []Tool `json:"toolList,omitempty"`
+	// WebEntries are advertised by this check's initialize reply, never probed or saved.
+	WebEntries []MCPWebEntry `json:"webEntries,omitempty"`
 	// Why is the kind of error, for the page to put in its own words:
 	// notfound, start, exited, timeout, http, refused, unreachable,
 	// protocol, home (exits in home, works in a project: Project),
@@ -204,16 +206,13 @@ func CheckServers(ctx context.Context, names []string, fresh bool) (map[string]S
 			// a check cut short by the page going away isn't one, and a
 			// server that didn't answer in time is asked again next time:
 			// a slow server may answer then (#1467)
-			if ctx.Err() == nil {
-				checked.Lock()
-				if h.Why == "timeout" {
-					// nor is an answer from before kept in its place
-					delete(checked.m, s.Name)
-				} else {
-					checked.m[s.Name] = checkedServer{key, h}
-				}
-				checked.Unlock()
+			checked.Lock()
+			if ctx.Err() != nil || h.Why == "timeout" {
+				delete(checked.m, s.Name)
+			} else {
+				checked.m[s.Name] = checkedServer{key, h}
 			}
+			checked.Unlock()
 			outMu.Lock()
 			out[s.Name] = h
 			outMu.Unlock()
@@ -254,6 +253,7 @@ func checkServer(ctx context.Context, s *Server, own ownSignIns) ServerHealth {
 		// it lists its tools, and every one fails for want of a Chrome
 		if opt := noBrowser(s); opt != "" {
 			h.State, h.Why, h.Detail = "error", "nobrowser", opt
+			h.WebEntries = nil
 		}
 	}
 	h.At = time.Now().UnixMilli()
@@ -322,7 +322,9 @@ type rpcMsg struct {
 	} `json:"error"`
 }
 
-func (m *rpcMsg) is(id int) bool { return string(bytes.TrimSpace(m.ID)) == fmt.Sprint(id) }
+func (m *rpcMsg) is(id int) bool {
+	return m.Method == "" && string(bytes.TrimSpace(m.ID)) == fmt.Sprint(id)
+}
 
 func request(id int, method string, params any) []byte {
 	m := map[string]any{"jsonrpc": "2.0", "id": id, "method": method}
@@ -816,7 +818,7 @@ func checkStdioIn(ctx context.Context, s *Server, distro, dir string) ServerHeal
 	return listTools(ctx, func(id int, req []byte) (*rpcMsg, *ServerHealth) {
 		_ = send(req)
 		return await(id)
-	})
+	}).withWebEntries(m.Result, s, distro)
 }
 
 func exitHealth(err error, errs *tail) ServerHealth {
@@ -1042,7 +1044,9 @@ func checkHTTP(ctx context.Context, s *Server) ServerHealth {
 		return *h
 	}
 	defer c.end()
-	return listTools(ctx, func(id int, body []byte) (*rpcMsg, *ServerHealth) { return c.call(ctx, id, body) })
+	return listTools(ctx, func(id int, body []byte) (*rpcMsg, *ServerHealth) {
+		return c.call(ctx, id, body)
+	}).withWebEntries(c.init, s, "")
 }
 
 // endSession tells the server the check is done with its session, as a
@@ -1088,6 +1092,9 @@ func replyOf(res *http.Response, id int) (*rpcMsg, error) {
 	var m rpcMsg
 	if err := json.Unmarshal(b, &m); err != nil {
 		return nil, fmt.Errorf("not an MCP reply (%s): %s", ct, snippet(b))
+	}
+	if !m.is(id) {
+		return nil, errors.New("not a reply to the MCP request")
 	}
 	return &m, nil
 }
@@ -1252,5 +1259,5 @@ func checkSSE(ctx context.Context, s *Server) ServerHealth {
 			return nil, h
 		}
 		return await(id)
-	})
+	}).withWebEntries(m.Result, s, "")
 }
