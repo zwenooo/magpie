@@ -14,6 +14,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Fetching upstream failed' }
     git merge --no-edit upstream/main
     if ($LASTEXITCODE -ne 0) { throw 'Resolve the reported conflicts, or use git merge --abort; nothing was pushed' }
+    & (Join-Path $PSScriptRoot 'check-upstream-edits.ps1')
+    if ($LASTEXITCODE -ne 0) { throw "Merged upstream/main into $branch, but build/fork/upstream-edits.txt is out of date (above); nothing was pushed" }
     Write-Output "Merged upstream/main into $branch. Run the checks in FORK.md before pushing to origin."
 } finally {
     Pop-Location

@@ -2,8 +2,23 @@
 
 This repository is an independently maintained fork of
 [yetone/magpie](https://github.com/yetone/magpie). The upstream license and
-attribution remain intact. Our main branch includes Cursor BYOK integration;
-upstream's installation links and releases do not include it.
+attribution remain intact. Our main branch adds these to upstream, and
+upstream's installation links and releases include none of them:
+
+- Cursor BYOK: Cursor uses magpie's models through a backend bundled in
+  magpie.
+- Our own releases and in-app updates (`va.<official>-vb.<fork>` tags).
+- The CodeZ preset, and partner promotions off by default.
+- Sessions: Claude history folders of any account imported read-only,
+  Claude Desktop histories resumed and carried into Claude Code or Codex,
+  and any conversation handed to any agent with a prompt.
+- Library: MCP servers' program and key folders carried by sync, and the
+  library given to Claude Code's other config folders.
+
+It also carries a few fixes to upstream code that upstream doesn't have
+([Fixes inside upstream code](#fixes-inside-upstream-code)). Every upstream
+file the fork changes is listed, by reason, in
+[`build/fork/upstream-edits.txt`](build/fork/upstream-edits.txt).
 
 ## Local features and boundaries
 
@@ -24,6 +39,7 @@ internal/library/claude_dirs.go  The library given to Claude Code's other config
 internal/sessions/handoff.go     A conversation condensed for any agent to carry on
 docs/cursor-byok.md              Setup and synchronization contract
 build/fork/                     Fork build and upstream merge commands
+build/fork/upstream-edits.txt   Every upstream file the fork changes, by reason
 .github/workflows/fork.yml       Fork integration checks on three platforms
 .github/workflows/release.yml    Full native packaging and gated own releases
 .github/workflows/fork-apt-cache.yml  Ubuntu archives for Linux builds, saved on main
@@ -81,8 +97,9 @@ is never copied into the backups, and is written 0700/0600. The state folder
 is never carried. The upstream hooks are small: `Bundle.Folders` and its
 calls in `carry.go`, `here` where a server is written or run (`sync.go`,
 `mcp_run.go`, `mcp_check.go`, `mcp_copy.go`, `project_mcp.go`), the folders
-following a rename or removal in `sync.go`, and `holdsSkills` keeping a
-program set aside in `backup.go`.
+following a rename or removal in `sync.go`, `holdsSkills` keeping a
+program set aside in `backup.go`, and `side` in `mcp_wsl.go` refusing a
+server whose program is kept in the library to an agent in WSL.
 
 Claude Code run in config folders of its own (`CLAUDE_CONFIG_DIR`: an account
 switcher's, such as ReClaude's `~/.rec/claude/accounts/<id>/config`, or
@@ -101,9 +118,31 @@ folder is recorded in `claude-dirs.json` in magpie's folder, on this
 computer only and never carried, so what the library stops giving is taken
 out again and the user's own entries are never touched. Hooks, subagents
 and tool deny rules stay Claude Code here's. The upstream hooks are one step
-at the end of `syncSteps` (`sync.go`) and one after `changeInstructions`
-(`instructions.go`); `magpie library claude-dirs` lists the folders and what
+at the end of `syncSteps` (`sync.go`), one after `changeInstructions`
+(`instructions.go`), `writeClaudeLocal` split out of `syncClaudeLocal` so
+each folder's project records are written the same way (`project_scope.go`),
+and `RemoveProject` forgetting what each folder was given for the project
+(`projects.go`); `magpie library claude-dirs` lists the folders and what
 each holds of magpie's.
+
+A Claude history folder magpie doesn't read on its own (another account's
+`CLAUDE_CONFIG_DIR`, a copy from another computer, Claude Desktop's) can be
+added as a read-only source on the Sessions page
+(`internal/sessions/sources.go`, `internal/gui/sessions_sources.go`): a
+scan, after the user allows it, previews up to fifty sessions and imports
+the whole folder, and sessions added there later show up too. magpie never
+writes a source: an imported session can't be deleted or moved, and a
+project move through a source or into one is refused, through links too.
+An imported session, and a Claude Desktop one, is resumed where it is
+(`claude --resume <id>` in its working folder, `CLAUDE_CONFIG_DIR` naming
+its config folder unless that is Claude Code's own, compared by real path),
+and Continue in copies it into Claude Code or Codex as a new session. The
+upstream hooks are `sourcesForRead` in `Dirs` and `resumeOf` in `assemble`
+(`sessions.go`) and `manage.go`, the readers that walk a folder
+(`access.go`, `calls.go`, `subagents.go`, `traces.go`, `transcript.go`,
+`said_index.go`), `relocate_claude.go` refusing moves, `carry.go` and
+`carry_convert.go` for Claude Desktop's copy, and the Sessions plugin's
+import dialog (`client.js`, `i18n.js`, `sessions.css`).
 
 Any conversation magpie reads can be carried on in any installed agent
 with a prompt, nothing converted (`internal/sessions/handoff.go`). The
@@ -133,6 +172,31 @@ upstream hooks are `sessionHandoffRoutes` in `sessions_manage.go`, the
 `handoff` case in `sessions_cli.go`, and the menu and its words in the
 Sessions plugin (`client.js`, `i18n.js`).
 
+## Fixes inside upstream code
+
+These change upstream's own behaviour, not a fork feature. Each is checked
+against upstream's code on every merge; one upstream has fixed, in its own
+way or ours, comes out of the fork. Upstream state below is as of
+upstream `feb0d8d7f` (2026-11-24).
+
+| Fix | Where | Upstream |
+| --- | --- | --- |
+| A held empty text block's start goes out before the next Messages block's start, so later deltas and stops for its index refer to a block the client has seen (c9202b01a) | `gateway/textcalls_anthropic.go` | not fixed |
+| pf-serve's timeout cause is kept when the reader sees a closed pipe instead of EOF (92b1c5ef7) | `pii/serve.go` | not fixed |
+| JSON padding is skipped 1 KiB at a time, so a body padded past 64 MiB doesn't spend the pre-routing deadline under `-race` (ce01f86c0, bb7de239e) | `gateway/fastjson.go` | not fixed |
+| `httpServer` gives the serving loop and the handover tests one server, and the comments say an idle keep-alive connection to the old process may close (a8a349eed, 363e7b09d); the drain itself is upstream's | `gateway/gateway.go`, `gateway/handover.go` | test seam only |
+| `nextBeat` lets the keep-awake tests drive wakeups by events (e1f42fc0c) | `awake/awake.go` | test seam only |
+| The routing strategies row says "besides Quota first", the words i18n has (d2f7c3290) | `plugins/rotation/rotation.go` | the same in 4d92af050; gone with the next merge |
+
+Taken out because upstream fixed the cause: `summaryTooLarge` reading a size
+refusal from a 200 stream's error event (890c0803b). Upstream 5ee9a1874
+fixed #4862 by never keeping magpie's own summary ask alive, so its refusal
+keeps its 413.
+
+The last group in `build/fork/upstream-edits.txt` is upstream tests changed
+so they pass on Windows, in WSL or under `-race`; the code they test is
+upstream's.
+
 ## Remotes and branches
 
 - `origin`: `https://github.com/zwenooo/magpie.git` (our normal push target).
@@ -154,6 +218,13 @@ Fetches don't automatically import new upstream tags.
 
 On each merge, pay attention to:
 
+- `./build/fork/check-upstream-edits.ps1` passes: every upstream file the
+  fork changes is in `build/fork/upstream-edits.txt`, and nothing listed is
+  upstream's again. `sync-upstream.ps1` runs it after a merge without
+  conflicts; after resolving conflicts, run it once the merge is committed.
+  `fork.yml` runs it on every pull request and every release.
+- Each fix in [Fixes inside upstream code](#fixes-inside-upstream-code)
+  against upstream's new code: one upstream has fixed comes out.
 - Keep sponsor banners and promotional links out of both READMEs; retain
   upstream attribution, license notices and privacy disclosures.
 - Agent registration, catalog fields, protocol names, key generation and
@@ -241,6 +312,7 @@ Run tests in the repository's sandbox (`TestMain`/`testenv` isolates agent
 files). Pin `GOPATH`, `GOMODCACHE` and `GOCACHE` before changing HOME.
 
 ```text
+pwsh ./build/fork/check-upstream-edits.ps1
 go test -tags nogui ./internal/cursorbyok ./internal/agent ./internal/update -run 'TestCursorBYOK|TestPortMovesEveryAgent|TestDisconnectStaysThroughSync|TestGrokInstalled|TestFork' -count=1
 go test -tags nogui ./internal/provider ./internal/stats -run 'TestFork|TestPartners|TestPartner|TestCountPartner|TestNoticePartners|TestSendPartnerCounts' -count=1
 go test -tags nogui ./internal/update -run '^TestFork' -count=1

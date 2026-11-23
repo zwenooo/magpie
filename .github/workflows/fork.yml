@@ -14,6 +14,23 @@ permissions:
   contents: read
 
 jobs:
+  upstream-edits:
+    if: github.repository == 'zwenooo/magpie'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      - name: Fetch upstream's main
+        run: git fetch --no-tags --filter=blob:none https://github.com/yetone/magpie.git main
+      - name: Every upstream file the fork changes is listed
+        shell: pwsh
+        run: ./build/fork/check-upstream-edits.ps1 -Upstream FETCH_HEAD
+
   fork:
     if: github.repository == 'zwenooo/magpie'
     strategy:
