@@ -3748,7 +3748,7 @@ magpie.plugin("library", (ctx) => {
   // distro (mcp_check_wsl.go): agents moved between them is a check anew,
   // and so is the router taking it or leaving it to the agents, which
   // start it in their project and the router in home (inProject)
-  const healthKey = (s) => JSON.stringify([s.transport, s.command, s.args, s.env, s.url, s.headers, s.signIn,
+  const healthKey = (s) => JSON.stringify([s.transport, s.command, s.args, s.env, s.url, s.headers, s.signIn, s.repoLocalCommit, s.repoLocalHash,
     s.transport === "stdio" ? [...new Set((s.agents || []).map((a) => a.split("@wsl:")[1] || ""))].sort() : null,
     s.transport === "stdio" && !!lib.mcpHub && s.hub !== "direct"]);
   const toolList = (name) => { const h = health.get(name)?.h; return h?.state === "ok" ? h.toolList || [] : []; };
@@ -3769,8 +3769,34 @@ magpie.plugin("library", (ctx) => {
   // not while it is being checked
   function recheck(name) {
     const s = lib.servers.find((x) => x.name === name), e = health.get(name);
-    if (s?.repoSource) return editServer(s); // show the source and execution warning before offering a fresh probe
+    if (s?.repoSource) {
+      if (!confirmedCommit(s)) return editServer(s);
+      if (e && !e.h) return;
+      const ed = el("div", "editor lib-editor"), bar = el("div", "bar");
+      ed.append(el("b", "ehead", t("Probe a new local process")),
+        el("p", "hint", t("Bound source: {source}", { source: `${s.repoSource.repo} @ ${s.repoLocalCommit}` })),
+        el("p", "hint", t("The probe runs the installed code with your user permissions in a new stdio process and asks it to initialize and list tools. It does not switch or test the running gateway.")));
+      const go = button(t("Probe a new local process"), "primary", async () => {
+        closeLibModal();
+        try { await probeManaged(s); } catch { status(t("Not yet confirmed"), "err"); }
+      });
+      bar.append(el("span", "grow"), button(t("Cancel"), "", closeLibModal), go);
+      ed.append(bar); modal = { dirty: () => false }; openLib(ed); return;
+    }
     if (s && (!e || e.h)) checkHealth([s], true);
+  }
+  async function probeManaged(s) {
+    const key = healthKey(s), pending = { key, h: null };
+    health.set(s.name, pending); paintHealth(s.name);
+    try {
+      const reply = await api("library/servers/managed-verify", { name: s.name });
+      if (!reply?.ok || reply.health?.state !== "ok") throw Error("probe");
+      if (health.get(s.name) === pending) health.set(s.name, { key, h: reply.health });
+      return reply;
+    } catch (error) {
+      if (health.get(s.name) === pending) health.delete(s.name);
+      throw error;
+    } finally { paintHealth(s.name); }
   }
   function healthEl(name) {
     const b = el("button", "lib-health");
@@ -4484,7 +4510,7 @@ magpie.plugin("library", (ctx) => {
       for (const btn of actions.children) btn.disabled = true;
       result.textContent = t("Checking…");
       try {
-        const reply = await api("library/servers/" + action, payload);
+        const reply = action === "managed-verify" ? await probeManaged(server) : await api("library/servers/" + action, payload);
         if (action === "managed-verify") {
           if (reply?.ok === true) {
             probe = t("Initialized and listed tools");

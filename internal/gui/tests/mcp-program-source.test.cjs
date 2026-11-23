@@ -45,7 +45,7 @@ for (const engine of process.env.BROWSER ? [process.env.BROWSER] : ["chromium", 
         if (pathname === "/api/library/mcp/check") starts.push(...req.postDataJSON().names);
         if (/\/servers\/(bundle-preview|bundle-restore|managed-verify)$/.test(pathname)) {
           managed.push([pathname.split("/").pop(), req.postDataJSON()]);
-          const json = pathname.endsWith("preview") ? bundle : pathname.endsWith("restore") ? restored : {ok: true, gateway};
+          const json = pathname.endsWith("preview") ? bundle : pathname.endsWith("restore") ? restored : {ok: true, gateway, health:{state:"ok", tools:2, webEntries:[{kind:"console", url:"https://example.test/manage"},{kind:"logs", url:"https://example.test/logs"}]}};
           return route.fulfill(json ? {json} : {status: 400, json: {error: "private diagnostic"}});
         }
         if (pathname.startsWith("/api/library/servers/repo-")) {
@@ -120,6 +120,16 @@ for (const engine of process.env.BROWSER ? [process.env.BROWSER] : ["chromium", 
       assert.deepEqual(managed, []);
       const repoCalls = calls.length;
       await page.locator('.lib-health[data-server="my-tools"]').click();
+      const consent = page.locator("#modal .lib-editor");
+      assert.deepEqual(managed, []);
+      await consent.getByRole("button", {name: tr("Cancel"), exact: true}).click();
+      assert.deepEqual(managed, []);
+      await page.locator('.lib-health[data-server="my-tools"]').click();
+      await consent.getByRole("button", {name: tr("Probe a new local process"), exact: true}).click();
+      const link = page.locator('.lib-server[data-server="my-tools"] .lib-webentries button');
+      await link.waitFor(); assert.equal(await link.count(), 1); assert.equal(await link.getAttribute('title'), 'https://example.test/manage');
+      assert.deepEqual(managed.splice(0), [["managed-verify", {name:"my-tools"}]]);
+      await open('my-tools');
       const readiness = box.locator(".lib-managed-readiness");
       await readiness.waitFor();
       assert.ok((await readiness.innerText()).includes(standalone.repo));

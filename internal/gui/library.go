@@ -796,12 +796,13 @@ func libraryRoutes(mux *http.ServeMux, w Windows) {
 			writeJSON(rw, status)
 			return
 		case "servers/managed-verify":
-			if err := library.VerifyManagedMCP(in.Name); err != nil {
+			h, err := library.ProbeManagedMCP(r.Context(), in.Name)
+			if err != nil {
 				// Process output can contain credentials; it does not belong in the page.
 				fail(rw, errors.New("local process probe not confirmed"))
 				return
 			}
-			writeJSON(rw, map[string]any{"ok": true, "gateway": library.ManagedGatewayState(in.Name)})
+			writeJSON(rw, map[string]any{"ok": true, "gateway": library.ManagedGatewayState(in.Name), "health": h})
 			return
 		case "servers/repo-update":
 			res, err = library.ApplyMCPRepo(in.Name, in.RepoSource, in.Expected)
