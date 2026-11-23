@@ -100,6 +100,9 @@ func TestWebEntriesHTTP(t *testing.T) {
 	var methods []string
 	mode := "ok"
 	checkClient = &http.Client{Transport: webCheckTransport(func(r *http.Request) (*http.Response, error) {
+		if err := r.Context().Err(); err != nil {
+			return nil, err
+		}
 		if r.URL.String() != s.URL || r.Method != "POST" {
 			return nil, fmt.Errorf("unexpected request: %s %s", r.Method, r.URL)
 		}
@@ -146,8 +149,14 @@ func TestWebEntriesHTTP(t *testing.T) {
 	if !slices.Equal(methods, []string{"initialize", "notifications/initialized", "tools/list"}) {
 		t.Fatalf("requests: %v", methods)
 	}
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if h := check(canceled, true); h.State != "error" || len(h.WebEntries) != 0 {
+		t.Fatalf("canceled check: %+v", h)
+	}
 	mode = "failed"
-	for _, fresh := range []bool{true, false} {
+	// Even a non-fresh read must not resurrect the success from before cancellation.
+	for _, fresh := range []bool{false, true} {
 		if h := check(t.Context(), fresh); h.State != "error" || len(h.WebEntries) != 0 {
 			t.Fatalf("after tools/list failure: %+v", h)
 		}
