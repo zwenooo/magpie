@@ -495,6 +495,8 @@ type ServerView struct {
 	Icon                 string        `json:"icon,omitempty"`
 	WebEntryKey          string        `json:"webEntryKey"`
 	RememberedWebEntries []MCPWebEntry `json:"rememberedWebEntries,omitempty"`
+	RememberedTools      []string      `json:"rememberedTools"` // null: unknown; []: listed with no displayable names
+	RememberedToolCount  int           `json:"rememberedToolCount"`
 	// Problems are the agents it couldn't be given to, and why
 	Problems map[string]string `json:"problems,omitempty"`
 	// SignIn is magpie's sign-in to a streamable HTTP server, which the
@@ -809,7 +811,11 @@ func readView(problems []Problem, glance bool) (*View, error) {
 			s = &c
 		}
 		sv := ServerView{Server: s, Icon: serverIcon(l, s), Problems: of("mcp:" + s.Name), WebEntryKey: webEntryKey(s)}
-		sv.RememberedWebEntries = web.entries(sv.WebEntryKey, s)
+		r := web.record(sv.WebEntryKey, s)
+		sv.RememberedWebEntries = r.Entries
+		if r.Tools != nil {
+			sv.RememberedTools, sv.RememberedToolCount = r.Tools.Names, r.Tools.Count
+		}
 		if s.Transport == "http" {
 			st := mcpauth.StatusOf(s.Name, s.URL)
 			sv.SignIn = &st

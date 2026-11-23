@@ -35,6 +35,8 @@ for (const engine of process.env.BROWSER ? [process.env.BROWSER] : ["chromium", 
       }
       const saved = lib.servers.find(s => s.name === "my-tools");
       saved.webEntryKey = 'fixture-v1'; saved.rememberedWebEntries = [{kind:'console',url:'https://example.test/remembered'}, {kind:'logs',url:'https://example.test/logs'}];
+      const shelf = {...saved, name:'remembered-tools', rememberedTools:['alpha','beta'], rememberedToolCount:2};
+      lib.servers.push(shelf);
       let latest = first, current = "", bundle, restored, gateway;
       const managed = [];
       await page.route("**/*", async (route) => {
@@ -43,7 +45,10 @@ for (const engine of process.env.BROWSER ? [process.env.BROWSER] : ["chromium", 
         if (pathname === "/boot.js") return route.fulfill({contentType: "text/javascript", body: `window.bootPrefs={lang:"${lang}",theme:"light",web:true};`});
         if (pathname === "/wails/runtime.js") return route.fulfill({contentType: "text/javascript", body: "export const Window = {};"});
         if (pathname === "/api/state") return route.fulfill({json: {agents: [], profiles: [], settings: {lang, theme: "light"}}});
-        if (pathname === "/api/library") return route.fulfill({json: lib});
+        if (pathname === "/api/library") {
+          if (url.searchParams.has('glance')) return route.fulfill({json:{...lib, servers:lib.servers.map(s => ({...s, rememberedWebEntries:undefined, rememberedTools:undefined}))}});
+          return route.fulfill({json: lib});
+        }
         if (pathname === "/api/library/mcp/check") starts.push(...req.postDataJSON().names);
         if (/\/servers\/(bundle-preview|bundle-restore|managed-verify)$/.test(pathname)) {
           managed.push([pathname.split("/").pop(), req.postDataJSON()]);
@@ -76,6 +81,13 @@ for (const engine of process.env.BROWSER ? [process.env.BROWSER] : ["chromium", 
       await page.reload({waitUntil:'domcontentloaded'});
       await page.locator('button[data-view="library"]').click();
       await remembered.waitFor(); assert.equal(await remembered.count(), 1); assert.deepEqual(starts, []); assert.deepEqual(managed, []);
+      const cachedRow = page.locator('.lib-server[data-server="remembered-tools"]');
+      const badge = cachedRow.locator('.lib-health');
+      assert.equal(await badge.textContent(), tr('Last listed: {n} tools').replace('{n}','2'));
+      await badge.click();
+      assert.deepEqual(await cachedRow.locator('.lib-toolname').allTextContents(), ['alpha', 'beta']);
+      assert.equal(await cachedRow.locator('.lib-webentries button').count(), 1);
+      assert.deepEqual(starts, []); assert.deepEqual(managed, []);
       const modal = page.locator("#modal .lib-editor"), box = modal.locator(".lib-program-source");
       const action = (key) => box.getByRole("button", {name: tr(key), exact: true});
       const open = async (name) => {

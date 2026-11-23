@@ -30,7 +30,7 @@ func TestWebCacheListsOnlyAllowedAddresses(t *testing.T) {
 		t.Fatalf("persisted: %v", got)
 	}
 	// Even a locally altered cache is not an authority on the URL policy.
-	blob, err := json.Marshal(webRecords{{webEntryKey(s), append(bad, want...)}})
+	blob, err := json.Marshal(webRecords{{Key: webEntryKey(s), Entries: append(bad, want...)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,6 +67,92 @@ func TestWebCacheListsOnlyAllowedAddresses(t *testing.T) {
 	}
 }
 
+func TestRememberedToolsLatestObservationAndIsolation(t *testing.T) {
+	sandbox(t)
+	s := &Server{Name: "books", Transport: "stdio", Command: "node", RepoLocalCommit: "v1"}
+	l := &Library{MCP: []*Server{s}}
+	if err := l.save(); err != nil {
+		t.Fatal(err)
+	}
+	secret := "PRIVATE_DESCRIPTION_MUST_NOT_TRAVEL"
+	want := &listedTools{Names: []string{"private_tool_name", "payload: " + secret}, Count: maxToolList + 2}
+	first, later := beginToolList(s), beginToolList(s)
+	finishToolList(s, later, want, nil)
+	finishToolList(s, first, nil, nil)                       // old failure must not erase a success
+	rememberHandshake(s, s, json.RawMessage(webInitFixture)) // initialize does not list tools
+	for _, view := range []func([]Problem) (*View, error){Glance, Read} {
+		v, err := view(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		row := v.Servers[0]
+		if !slices.Equal(row.RememberedTools, []string{"private_tool_name"}) || row.RememberedToolCount != want.Count || len(row.RememberedWebEntries) == 0 {
+			t.Fatalf("wrong remembered metadata: %+v", row)
+		}
+	}
+	if strings.Contains(read(t, webCacheFile()), secret) {
+		t.Fatal("cached non-identifier body")
+	}
+	bundle, err := Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup, err := Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, out := range []any{bundle, setup, l} {
+		b, err := json.Marshal(out)
+		if err != nil || bytes.Contains(b, []byte("private_tool_name")) || bytes.Contains(b, []byte("rememberedTool")) {
+			t.Fatal("remembered metadata appeared in carried Library", err)
+		}
+	}
+	for _, empty := range []*listedTools{{}, nil} {
+		old, newer := beginToolList(s), beginToolList(s)
+		finishToolList(s, newer, empty, nil)
+		finishToolList(s, old, want, nil)
+		v, err := Glance(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		row := v.Servers[0]
+		if (row.RememberedTools == nil) != (empty == nil) || len(row.RememberedTools) != 0 || row.RememberedToolCount != 0 || len(row.RememberedWebEntries) == 0 {
+			t.Fatalf("stale or ambiguous list: %+v", row)
+		}
+		b, _ := json.Marshal(row)
+		wire := `"rememberedTools":[]`
+		if empty == nil {
+			wire = `"rememberedTools":null`
+		}
+		if !bytes.Contains(b, []byte(wire)) || !bytes.Contains(b, []byte(`"rememberedToolCount":0`)) {
+			t.Fatalf("missing %s or count", wire)
+		}
+	}
+	pending := beginToolList(s)
+	if _, err := RemoveServer(s.Name); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.save(); err != nil {
+		t.Fatal(err)
+	}
+	finishToolList(s, pending, want, nil)
+	r, err := readWebRecords()
+	if err != nil || r.record(webEntryKey(s), s).Tools != nil {
+		t.Fatal("old in-flight response revived identical re-created server", err)
+	}
+	old := *s
+	pending = beginToolList(&old)
+	s.RepoLocalCommit = "v2"
+	if err := l.save(); err != nil {
+		t.Fatal(err)
+	}
+	finishToolList(&old, pending, want, nil)
+	v, err := Read(nil)
+	if err != nil || v.Servers[0].RememberedTools != nil {
+		t.Fatal("old revision supplied tools", err)
+	}
+}
+
 func TestWebCacheRejectsOtherNamespaceLoopback(t *testing.T) {
 	w := fakeWSLCheck(t, "Debian")
 	for _, s := range []*Server{
@@ -82,7 +168,7 @@ func TestWebCacheRejectsOtherNamespaceLoopback(t *testing.T) {
 		if b := read(t, webCacheFile()); !strings.Contains(b, webSite) || strings.Contains(b, "localhost") {
 			t.Fatal("invalid namespace on write")
 		}
-		b, err := json.Marshal(webRecords{{webEntryKey(s), all}})
+		b, err := json.Marshal(webRecords{{Key: webEntryKey(s), Entries: all}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -160,7 +246,7 @@ func TestWebCacheBounds(t *testing.T) {
 		s := &Server{Name: fmt.Sprintf("server%d", i), Transport: "stdio", Command: "node"}
 		l.MCP = append(l.MCP, s)
 		if i < maxWebServers {
-			records = append(records, webRecord{webEntryKey(s), []MCPWebEntry{{"website", webSite}}})
+			records = append(records, webRecord{Key: webEntryKey(s), Entries: []MCPWebEntry{{"website", webSite}}})
 		}
 	}
 	first, last := l.MCP[0], l.MCP[maxWebServers]

@@ -42,6 +42,16 @@ func TestHubRemembersStdioInitialize(t *testing.T) {
 	if got := rememberedWebEntries(s); !slices.Equal(got, want) {
 		t.Fatalf("stdio handshake: %v", got)
 	}
+	r, err := readWebRecords()
+	if ts := r.record(webEntryKey(s), s).Tools; err != nil || ts == nil || ts.Count != 3 || !slices.Equal(ts.Names, []string{"a", "b", "c"}) {
+		t.Fatal("hub did not remember real tools/list", ts, err)
+	}
+	finishToolList(s, beginToolList(s), nil, nil)
+	_ = h.Tools(t.Context(), "")
+	r, err = readWebRecords()
+	if err != nil || r.record(webEntryKey(s), s).Tools != nil {
+		t.Fatal("cached Hub list revived tools", err)
+	}
 }
 
 func TestHubRemembersSSEInitialize(t *testing.T) {

@@ -127,6 +127,16 @@ func TestRunRemembersOnlyRealHandshakesOfOriginalServer(t *testing.T) {
 	check(nil, 1)
 	call(t, srv, sid, `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`)
 	check(want, 2)
+	r, err := readWebRecords()
+	if ts := r.record(webEntryKey(s), s).Tools; err != nil || ts == nil || ts.Count != 2 || !slices.Contains(ts.Names, "echo") {
+		t.Fatal("run did not remember real tools/list", ts, err)
+	}
+	finishToolList(s, beginToolList(s), nil, nil)
+	call(t, srv, sid, `{"jsonrpc":"2.0","id":9,"method":"tools/list"}`)
+	r, err = readWebRecords()
+	if err != nil || r.record(webEntryKey(s), s).Tools != nil {
+		t.Fatal("cached run list revived tools", err)
+	}
 	// Another process edits the definition. A gateway still using its old
 	// launch snapshot must not attribute a real later handshake to this edit.
 	s.Note = "new definition"

@@ -663,7 +663,7 @@ magpie.plugin("library", (ctx) => {
       if (taken !== at) return;
       const was = lib && seen(lib);
       take(v);
-      if (glanced && tab !== "skills") return;
+      if (glanced && tab !== "skills" && (tab !== "mcp" || seen(lib) === was)) return;
       if ((quiet === true || glanced) && seen(lib) === was) return;
       // opening the page (its nav clicked, while on it too) draws it again
       // only for a change, or for RTK's tab, which is asked again: a page
@@ -3611,7 +3611,7 @@ magpie.plugin("library", (ctx) => {
     const e = health.get(s.name);
     // A remembered URL is not a health result. Render the shortcut without
     // claiming the process is running. A new check supersedes the saved hint.
-    const h = e && e.key === healthKey(s) && (!s.webEntryKey || e.webView === taken) ? e.h : { state: "ok", webEntries: s.rememberedWebEntries };
+    const h = e?.h && e.key === healthKey(s) && (!s.webEntryKey || e.webView === taken) ? e.h : { state: "ok", webEntries: s.rememberedWebEntries };
     if (h?.state !== "ok" || !Array.isArray(h.webEntries)) return;
     // One front door per server. Prefer the app itself over documentation or a subpage.
     for (const kind of ["console", "website", "logs"]) {
@@ -3754,7 +3754,15 @@ magpie.plugin("library", (ctx) => {
   const healthKey = (s) => JSON.stringify([s.webEntryKey, s.transport, s.command, s.args, s.env, s.url, s.headers, s.signIn, s.repoLocalCommit, s.repoLocalHash,
     s.transport === "stdio" ? [...new Set((s.agents || []).map((a) => a.split("@wsl:")[1] || ""))].sort() : null,
     s.transport === "stdio" && !!lib.mcpHub && s.hub !== "direct"]);
-  const toolList = (name) => { const h = health.get(name)?.h; return h?.state === "ok" ? h.toolList || [] : []; };
+  function toolEvidence(name) {
+    const s = lib.servers.find(x => x.name === name);
+    if (!s) return null;
+    const e = health.get(name);
+    if (e && e.key === healthKey(s) && e.h) return e.h.state === "ok" ? e.h : null;
+    if (Array.isArray(s.rememberedTools)) return { tools: s.rememberedToolCount, toolList: s.rememberedTools.map(name => ({ name })), remembered: true };
+    return null;
+  }
+  const toolList = (name) => toolEvidence(name)?.toolList || [];
   // whether an agent the page shows gets the server, here or in a project
   // magpie keeps whose folder is there. The library keeps every agent it
   // gave a server to, those the page leaves out too: one hidden on the
@@ -3797,7 +3805,10 @@ magpie.plugin("library", (ctx) => {
       if (health.get(s.name) === pending) health.set(s.name, { key, h: reply.health, webView: taken });
       return reply;
     } catch (error) {
-      if (health.get(s.name) === pending) { delete s.rememberedWebEntries; health.delete(s.name); }
+      if (health.get(s.name) === pending) {
+        delete s.rememberedWebEntries; delete s.rememberedTools; delete s.rememberedToolCount;
+        health.delete(s.name);
+      }
       throw error;
     } finally { paintHealth(s.name); }
   }
@@ -3851,8 +3862,8 @@ magpie.plugin("library", (ctx) => {
     const cant = (lib.servers.find((s) => s.name === name)?.agents || []).map(agentOf).filter((a) => a && a.mcp && !a.toolsOff);
     if (cant.length) parts.push(el("p", "lib-toolcant", t("{agents} can't turn off single tools: they get every tool of the server.", { agents: cant.map((a) => a.name).join(", ") })));
     const foot = el("div", "lib-toolfoot");
-    const h = health.get(name).h;
-    if (h.tools > list.length) foot.append(el("span", "note", t("{n} more not shown", { n: h.tools - list.length })));
+    const h = toolEvidence(name);
+    if (h?.tools > list.length) foot.append(el("span", "note", t("{n} more not shown", { n: h.tools - list.length })));
     foot.append(el("span", "grow"), button(t("Check again"), "", () => recheck(name)));
     parts.push(foot);
     box.replaceChildren(...parts);
@@ -3990,9 +4001,22 @@ magpie.plugin("library", (ctx) => {
     if (stats) stats.textContent = hubStats();
     const boxes = typeof x === "string" ? page.querySelectorAll(`.lib-health[data-server="${CSS.escape(x)}"]`) : [x];
     for (const b of boxes) {
+      const current = lib.servers.find(s => s.name === b.dataset.server);
       const e = health.get(b.dataset.server);
       b.removeAttribute("aria-expanded");
-      if (!e) {
+      if (!current || !e || e.key !== healthKey(current)) {
+        const cached = toolEvidence(b.dataset.server);
+        if (cached?.remembered) {
+          b.hidden = false;
+          b.className = "lib-health idle";
+          if (cached.toolList.length) {
+            b.classList.add("has-list");
+            b.setAttribute("aria-expanded", String(toolsOpen.has(b.dataset.server)));
+          }
+          b.replaceChildren(el("span", "", t("Last listed: {n} tools", { n: cached.tools })));
+          b.title = cached.toolList.map(item => item.name).join(", ");
+          continue;
+        }
         // one in no use waits for a click (#1597); one in use is about
         // to be checked
         const s = lib.servers.find((x) => x.name === b.dataset.server);

@@ -671,6 +671,13 @@ func (b *backend) tools(ctx context.Context) ([]map[string]json.RawMessage, erro
 		return ts, nil
 	}
 	b.mu.Unlock()
+	ticket := beginToolList(b.s)
+	var listing *listedTools
+	defer func() {
+		if ctx.Err() == nil {
+			finishToolList(b.s, ticket, listing, nil)
+		}
+	}()
 	c, err := b.connect(ctx)
 	if err != nil {
 		return nil, err
@@ -700,7 +707,20 @@ func (b *backend) tools(ctx context.Context) ([]map[string]json.RawMessage, erro
 			return nil, errors.New("tools/list: " + err.Error())
 		}
 		all = append(all, r.Tools...)
-		if r.NextCursor == "" || r.NextCursor == cursor {
+		if r.Tools == nil {
+			break
+		}
+		if r.NextCursor == "" {
+			listing = &listedTools{Count: len(all)}
+			for _, tool := range all[:min(len(all), maxToolList)] {
+				var name string
+				if json.Unmarshal(tool["name"], &name) == nil {
+					listing.Names = append(listing.Names, name)
+				}
+			}
+			break
+		}
+		if r.NextCursor == cursor {
 			break
 		}
 		cursor = r.NextCursor

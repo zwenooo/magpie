@@ -23,9 +23,10 @@ func ProbeManagedMCP(parent context.Context, name string) (result ServerHealth, 
 	if err != nil {
 		return ServerHealth{}, err
 	}
+	ticket := beginToolList(s)
 	defer func() {
 		if parent.Err() == nil {
-			rememberWebEntries(s, result.WebEntries)
+			finishToolList(s, ticket, result.listedTools(), &result.WebEntries)
 		}
 	}()
 	if s.RepoLocalCommit == "" || s.RepoLocalHash == "" {

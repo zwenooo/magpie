@@ -388,13 +388,14 @@ func (s *runSession) close(ch chan []byte) {
 
 // runChild is a server magpie started for a session.
 type runChild struct {
-	tree  *proc.Tree
-	in    io.WriteCloser
-	errs  *tail
-	wmu   sync.Mutex
-	mu    sync.Mutex
-	waits map[string]chan json.RawMessage
-	done  chan struct{}
+	source *Server // original definition of this running process, not a later runGiven
+	tree   *proc.Tree
+	in     io.WriteCloser
+	errs   *tail
+	wmu    sync.Mutex
+	mu     sync.Mutex
+	waits  map[string]chan json.RawMessage
+	done   chan struct{}
 }
 
 func (c *runChild) ended() bool {
@@ -479,7 +480,7 @@ func runStart(s *runSession, spec runSpec, init json.RawMessage) (*runChild, jso
 	if err != nil {
 		return nil, nil, fmt.Errorf("couldn't start %s: %w", spec.Command, err)
 	}
-	c := &runChild{tree: tree, in: in, errs: errs, waits: map[string]chan json.RawMessage{}, done: make(chan struct{})}
+	c := &runChild{source: spec.source, tree: tree, in: in, errs: errs, waits: map[string]chan json.RawMessage{}, done: make(chan struct{})}
 	go func() {
 		err := tree.Wait()
 		if err != nil && !errors.Is(err, os.ErrProcessDone) {
@@ -631,21 +632,22 @@ func (s *runSession) listedTool(params json.RawMessage) string {
 	return ""
 }
 
-func (s *runSession) noteTools(epoch uint64, result json.RawMessage) {
+func (s *runSession) noteTools(epoch uint64, result json.RawMessage, snapshot bool) *listedTools {
 	var page struct {
 		Tools []struct {
 			Name string `json:"name"`
 		} `json:"tools"`
+		NextCursor string `json:"nextCursor"`
 	}
-	if json.Unmarshal(result, &page) != nil || len(page.Tools) == 0 {
-		return
+	if json.Unmarshal(result, &page) != nil || page.Tools == nil {
+		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.toolEpoch != epoch {
-		return
+		return nil
 	}
-	if s.tools == nil {
+	if s.tools == nil && len(page.Tools) != 0 {
 		s.tools = make(map[string]struct{})
 	}
 	for _, t := range page.Tools {
@@ -657,6 +659,14 @@ func (s *runSession) noteTools(epoch uint64, result json.RawMessage) {
 			s.tools[t.Name] = struct{}{}
 		}
 	}
+	if !snapshot || page.NextCursor != "" {
+		return nil
+	}
+	ts := &listedTools{Count: len(page.Tools)}
+	for _, t := range page.Tools[:min(len(page.Tools), maxToolList)] {
+		ts.Names = append(ts.Names, t.Name)
+	}
+	return ts
 }
 
 // ServeRun is the gateway's RunPath<name>: the server called name, run by
@@ -758,7 +768,7 @@ func ServeRun(w http.ResponseWriter, r *http.Request, name string) {
 	if first {
 		if v := said(spec, m.Method); v != nil {
 			if m.Method == "tools/list" {
-				s.noteTools(epoch, v)
+				s.noteTools(epoch, v, false)
 			}
 			runReply(w, rpcResult(m.ID, v))
 			return
@@ -783,6 +793,18 @@ func ServeRun(w http.ResponseWriter, r *http.Request, name string) {
 	if err != nil {
 		runReply(w, rpcError(m.ID, -32603, err.Error()))
 		return
+	}
+	// Only a real, complete first page belongs in the Library. Later pages
+	// are driven by the client; never fetch them or replay said() into it.
+	var ticket string
+	var listing *listedTools
+	if first && m.Method == "tools/list" {
+		ticket = beginToolList(c.source)
+		defer func() {
+			if r.Context().Err() == nil {
+				finishToolList(c.source, ticket, listing, nil)
+			}
+		}()
 	}
 	var events chan []byte
 	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
@@ -809,10 +831,11 @@ func ServeRun(w http.ResponseWriter, r *http.Request, name string) {
 		}
 		var r struct {
 			Result json.RawMessage `json:"result"`
+			Error  json.RawMessage `json:"error"`
 		}
-		if json.Unmarshal(b, &r) == nil && len(r.Result) > 0 {
+		if json.Unmarshal(b, &r) == nil && len(r.Error) == 0 && len(r.Result) > 0 {
 			if m.Method == "tools/list" {
-				s.noteTools(epoch, r.Result)
+				listing = s.noteTools(epoch, r.Result, ticket != "")
 			}
 			if first {
 				remember(spec, m.Method, r.Result)

@@ -31,20 +31,21 @@ import (
 // The Library page says of each server whether it works, found the only
 // way that tells: by connecting to it as an agent would. A command is
 // started, asked to initialize and to list its tools, and ended; a URL is
-// asked the same over HTTP. Nothing is written anywhere: the check only
-// reads the library, and what it found is kept in memory for the session.
+// asked the same over HTTP. Health stays in memory; CheckServers remembers
+// only completed observations of the library's own servers in its local sidecar.
 
 // ServerHealth is what a check of one server found.
 type ServerHealth struct {
 	// State is ok (it answered, with Tools tools), auth (it asks for a
 	// sign-in or a key) or error (Why says what went wrong)
-	State string `json:"state"`
-	Tools int    `json:"tools"`
+	State        string `json:"state"`
+	Tools        int    `json:"tools"`
+	completeList bool   // reached the end of an actual tools/list, not a partial check
 	// ToolList is each tool's name and what it says it does, as tools/list
 	// gave them, for the page to list (nf1qaz2w on Discord); at most
 	// maxToolList, while Tools counts every one
 	ToolList []Tool `json:"toolList,omitempty"`
-	// WebEntries are advertised by this check's initialize reply, never probed or saved.
+	// WebEntries are advertised by this check's initialize reply, never probed.
 	WebEntries []MCPWebEntry `json:"webEntries,omitempty"`
 	// Why is the kind of error, for the page to put in its own words:
 	// notfound, start, exited, timeout, http, refused, unreachable,
@@ -199,6 +200,7 @@ func CheckServers(ctx context.Context, names []string, fresh bool) (map[string]S
 			defer wg.Done()
 			slots <- struct{}{}
 			defer func() { <-slots }()
+			ticket := beginToolList(s)
 			h := checkServer(ctx, s, own)
 			if ctx.Err() == nil {
 				entries := h.WebEntries
@@ -209,7 +211,7 @@ func CheckServers(ctx context.Context, names []string, fresh bool) (map[string]S
 					// The page cannot carry a WSL namespace into the next session.
 					entries = slices.DeleteFunc(slices.Clone(entries), func(e MCPWebEntry) bool { return !allowWebEntry(e.URL, e.Kind, false, nil) })
 				}
-				rememberWebEntries(s, entries)
+				finishToolList(s, ticket, h.listedTools(), &entries)
 			}
 			// as the server is now: a sign-in the check found run out
 			// isn't one to check it again for
@@ -414,7 +416,7 @@ func toolsOf(m *rpcMsg) (ServerHealth, string) {
 	if err := json.Unmarshal(m.Result, &r); err != nil {
 		return failed("protocol", "tools/list: "+err.Error()), ""
 	}
-	h := ServerHealth{State: "ok", Tools: len(r.Tools)}
+	h := ServerHealth{State: "ok", Tools: len(r.Tools), completeList: r.Tools != nil}
 	for _, t := range r.Tools {
 		if len(h.ToolList) == maxToolList {
 			break
@@ -459,7 +461,11 @@ func listTools(ctx context.Context, ask func(id int, req []byte) (*rpcMsg, *Serv
 				all.ToolList = append(all.ToolList, t)
 			}
 		}
-		if next == "" || next == cursor {
+		if next == "" {
+			all.completeList = h.completeList
+			break
+		}
+		if !h.completeList || next == cursor {
 			break
 		}
 		cursor = next

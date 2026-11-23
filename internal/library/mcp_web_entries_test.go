@@ -120,7 +120,7 @@ func TestWebEntriesHTTP(t *testing.T) {
 			body = `{"jsonrpc":"2.0","id":` + id + `,"result":` + webInitFixture + `}`
 		case "notifications/initialized":
 		case "tools/list":
-			body = `{"jsonrpc":"2.0","id":2,"result":{"tools":[]}}`
+			body = `{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"read_page","description":"private check description"}]}}`
 			if mode == "failed" {
 				body = `{"jsonrpc":"2.0","id":2,"error":{"code":-1,"message":"unavailable"}}`
 			}
@@ -148,6 +148,17 @@ func TestWebEntriesHTTP(t *testing.T) {
 	if got := rememberedWebEntries(s); !slices.Equal(got, want) {
 		t.Fatalf("successful check not remembered: %v", got)
 	}
+	view, err := Glance(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := json.Marshal(view.Servers[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(row), `"rememberedTools":["read_page"]`) || !strings.Contains(string(row), `"rememberedToolCount":1`) || strings.Contains(read(t, webCacheFile()), "private check description") {
+		t.Fatal("missing remembered tool name/count or persisted tool description")
+	}
 	if !slices.Equal(methods, []string{"initialize", "notifications/initialized", "tools/list"}) {
 		t.Fatalf("requests: %v", methods)
 	}
@@ -166,6 +177,10 @@ func TestWebEntriesHTTP(t *testing.T) {
 	mode = "wrong id"
 	if h := check(t.Context(), true); h.State != "error" || len(h.WebEntries) != 0 {
 		t.Fatalf("unmatched initialize: %+v", h)
+	}
+	view, err = Glance(nil)
+	if err != nil || view.Servers[0].RememberedTools != nil || view.Servers[0].RememberedToolCount != 0 {
+		t.Fatal("failed check retained tools", err)
 	}
 	if len(rememberedWebEntries(s)) != 0 {
 		t.Fatal("failed completed check left a stale shortcut")

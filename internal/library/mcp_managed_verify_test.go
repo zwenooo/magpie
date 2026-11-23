@@ -3,6 +3,7 @@ package library
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -71,9 +72,17 @@ func TestVerifyManagedMCPRequiresLocalFilesAndFreshHandshake(t *testing.T) {
 			t.Fatal("no fresh initialize:", err)
 		}
 	}
+	v, err := Glance(nil)
+	if err != nil || !slices.Equal(v.Servers[0].RememberedTools, []string{"a", "b", "c"}) || v.Servers[0].RememberedToolCount != 3 {
+		t.Fatal("verified process's tools not remembered", err)
+	}
 	write(t, entry, "edited")
 	if err := VerifyManagedMCP(s.Name); err == nil {
 		t.Fatal("ran edited program")
+	}
+	v, err = Glance(nil)
+	if err != nil || v.Servers[0].RememberedTools != nil || v.Servers[0].RememberedToolCount != 0 {
+		t.Fatal("invalid program kept remembered tools", err)
 	}
 	if _, err := os.Stat(initMarker); !os.IsNotExist(err) {
 		t.Fatal("started process despite local change", err)

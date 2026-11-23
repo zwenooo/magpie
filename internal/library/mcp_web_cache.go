@@ -1,6 +1,7 @@
 package library
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 
 	"github.com/yetone/magpie/internal/filelock"
@@ -18,12 +20,11 @@ import (
 	"github.com/yetone/magpie/internal/steady"
 )
 
-// A sidecar beside (never inside) the carried Library. The last 128 servers
-// fit even if every URL byte expands to a six-byte JSON escape.
+// A bounded sidecar beside (never inside) the carried Library.
 const (
 	maxWebServers = 128
 	maxWebURL     = 2048
-	maxWebFile    = 5 << 20
+	maxWebFile    = 16 << 20 // 128 rows of 500 ASCII identifiers and three escaped URLs fit
 )
 
 func webCacheFile() string { return filepath.Join(settings.Dir(), "mcp-web-entries.json") }
@@ -76,7 +77,9 @@ func safeWebEntries(s *Server, entries []MCPWebEntry) []MCPWebEntry {
 
 type webRecord struct {
 	Key     string        `json:"key"`
-	Entries []MCPWebEntry `json:"entries"`
+	Entries []MCPWebEntry `json:"entries,omitempty"`
+	Tools   *listedTools  `json:"tools,omitempty"`
+	Pending string        `json:"pending,omitempty"` // token for the latest real list in flight
 }
 type webRecords []webRecord // oldest first
 
@@ -106,13 +109,19 @@ func readWebRecords() (webRecords, error) {
 	return records, nil
 }
 
-func (records webRecords) entries(key string, s *Server) []MCPWebEntry {
+func (records webRecords) record(key string, s *Server) webRecord {
 	for _, r := range records {
 		if r.Key == key && key != "" {
-			return safeWebEntries(s, r.Entries)
+			r.Entries = safeWebEntries(s, r.Entries)
+			r.Tools = r.Tools.safe()
+			return r
 		}
 	}
-	return nil
+	return webRecord{Key: key}
+}
+
+func (records webRecords) entries(key string, s *Server) []MCPWebEntry {
+	return records.record(key, s).Entries
 }
 
 func rememberedWebEntries(s *Server) []MCPWebEntry {
@@ -135,7 +144,7 @@ func rememberedWebEntries(s *Server) []MCPWebEntry {
 // (empty entries) is subject to the same check as a new advertisement.
 func rememberWebEntries(s *Server, entries []MCPWebEntry) {
 	if s != nil {
-		updateWebRecords(s, entries)
+		updateWebRecords(s, func(r *webRecord) bool { r.Entries = safeWebEntries(s, entries); return true })
 	}
 }
 
@@ -143,7 +152,76 @@ func rememberWebEntries(s *Server, entries []MCPWebEntry) {
 // re-adding even the very same definition does not revive a deleted address.
 func pruneWebRecords() { updateWebRecords(nil, nil) }
 
-func updateWebRecords(s *Server, entries []MCPWebEntry) {
+// A ticket belongs to one actual observation of this definition. A later list,
+// even in another process, supersedes it. Removing the server prunes its ticket
+// too, so a late reply cannot publish to an identical re-created definition.
+func beginToolList(s *Server) string {
+	if s == nil {
+		return ""
+	}
+	id := rand.Text()
+	updateWebRecords(s, func(r *webRecord) bool { r.Pending = id; return true })
+	return id
+}
+
+func finishToolList(s *Server, id string, tools *listedTools, entries *[]MCPWebEntry) {
+	if id == "" {
+		return
+	}
+	updateWebRecords(s, func(r *webRecord) bool {
+		if r.Pending != id {
+			return false
+		}
+		r.Pending, r.Tools = "", tools.safe()
+		if entries != nil {
+			r.Entries = safeWebEntries(s, *entries)
+		}
+		return true
+	})
+}
+
+// Names are identifiers, not prose, schemas or examples. Count is the full
+// reported count even when a name is unsafe or the display list is capped.
+type listedTools struct {
+	Names []string `json:"names"`
+	Count int      `json:"count"`
+}
+
+func (ts *listedTools) safe() *listedTools {
+	if ts == nil || ts.Count < 0 || len(ts.Names) > ts.Count {
+		return nil
+	}
+	names := make([]string, 0, min(len(ts.Names), maxToolList))
+	for _, n := range ts.Names[:min(len(ts.Names), maxToolList)] {
+		if len(n) == 0 || len(n) > maxToolName {
+			continue
+		}
+		ok := true
+		for _, c := range n {
+			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '.' || c == '-' || c == '_') {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			names = append(names, n)
+		}
+	}
+	return &listedTools{names, ts.Count}
+}
+
+func (h ServerHealth) listedTools() *listedTools {
+	if h.State != "ok" || !h.completeList {
+		return nil
+	}
+	ts := &listedTools{Count: h.Tools}
+	for _, t := range h.ToolList {
+		ts.Names = append(ts.Names, t.Name)
+	}
+	return ts
+}
+
+func updateWebRecords(s *Server, update func(*webRecord) bool) {
 	file := webCacheFile()
 	// Before the first handshake there is nothing to prune. Check its stable
 	// lock file, not the data file: a writer can already hold the lock and
@@ -182,23 +260,37 @@ func updateWebRecords(s *Server, entries []MCPWebEntry) {
 		}
 	}
 	next := make(webRecords, 0, len(old)+1)
+	row := webRecord{Key: key}
 	for _, r := range old {
 		server := current[r.Key]
-		if server == nil || r.Key == key {
+		if server == nil {
 			continue
 		}
-		if valid := safeWebEntries(server, r.Entries); len(valid) != 0 {
-			next = append(next, webRecord{r.Key, valid})
-		}
 		delete(current, r.Key)
+		r.Entries = safeWebEntries(server, r.Entries)
+		r.Tools = r.Tools.safe()
+		if r.Key == key {
+			row = r
+			continue
+		}
+		if len(r.Entries) != 0 || r.Tools != nil || r.Pending != "" {
+			next = append(next, r)
+		}
 	}
-	if valid := safeWebEntries(s, entries); len(valid) != 0 {
-		next = append(next, webRecord{key, valid})
+	if update != nil {
+		if !update(&row) {
+			return
+		}
+		if len(row.Entries) != 0 || row.Tools != nil || row.Pending != "" {
+			next = append(next, row)
+		}
 	}
 	if len(next) > maxWebServers {
 		next = next[len(next)-maxWebServers:]
 	}
-	if slices.EqualFunc(old, next, func(a, b webRecord) bool { return a.Key == b.Key && slices.Equal(a.Entries, b.Entries) }) {
+	if slices.EqualFunc(old, next, func(a, b webRecord) bool {
+		return a.Key == b.Key && a.Pending == b.Pending && reflect.DeepEqual(a.Tools, b.Tools) && slices.Equal(a.Entries, b.Entries)
+	}) {
 		return
 	}
 	data, err := json.Marshal(next)
