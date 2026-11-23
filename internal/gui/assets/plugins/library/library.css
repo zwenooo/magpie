@@ -755,9 +755,14 @@ input.lib-setname:focus { border-color: var(--accent); box-shadow: 0 0 0 3px col
    last lines across the row, independent of the room taken by agent chips. */
 .lib-vl > .row.lib-skill { position: relative; min-height: 0; padding: 7px 10px 23px 12px; gap: 11px; }
 .lib-vl > .row.lib-skill.lib-hasstats { padding-bottom: 55px; }
-.lib-usestats { min-width: 0; font-size: 11px; line-height: 16px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.lib-skill > .lib-usestats { position: absolute; bottom: 7px; left: 12px; right: 10px; }
-.lib-skill > .lib-usestats > div { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.lib-usestats { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 6px; min-width: 0; padding: 0; text-align: start; font-size: 11px; line-height: 16px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.lib-usestats > :nth-last-child(n+3) { grid-column: 1 / -1; }
+.lib-usedetails-link { color: var(--accent); text-decoration: underline; }
+.lib-skill > .lib-usestats { position: absolute; bottom: 7px; left: 12px; right: 10px; width: calc(100% - 22px); }
+.lib-skill > .lib-usestats > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.lib-usedetail .ehead, .lib-usedetail .lib-aside, .lib-useagent { overflow-wrap: anywhere; }
+.lib-usedetail .ebody > * { grid-column: 1 / -1; }
+.lib-useagent { padding-block: 6px; border-bottom: 1px solid var(--line-2); font-variant-numeric: tabular-nums; }
 .lib-usefilters { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 4px 0 8px; }
 .lib-usefilters .lib-usefilter { height: auto; max-width: 100%; white-space: normal; }
 .lib-usefilter[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }

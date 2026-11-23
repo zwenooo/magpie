@@ -50,6 +50,7 @@ function server(lang, st) {
     if (url.pathname === "/boot.js") return route.fulfill({ contentType: "text/javascript", body: `window.bootPrefs = {lang:"${lang}",theme:"light",web:${st.web}${st.gateway ? ",gateway:true" : ""}};` });
     if (url.pathname === "/wails/runtime.js") return route.fulfill({ contentType: "text/javascript", body: "export const Window = {};" });
     if (url.pathname === "/api/state") return json({ agents: [], profiles: [], settings: { lang, theme: "light", gateway: "http://127.0.0.1:3425", publicURL: "https://mcp.example.net" } });
+    if (st.detailRequests && url.pathname.startsWith("/api/library")) st.detailRequests.push([req.method(), url.pathname]);
     if (url.pathname === "/api/library") return json(st.library || fixture(st));
     if (st.library && url.pathname.startsWith("/api/library/") && req.method() !== "GET") st.sent.push(url.pathname);
     if (url.pathname === "/api/library/servers/hub") {
@@ -93,7 +94,11 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
     t.after(() => browser.close());
     const stats = { calls30: 0, failed30: 0, reads30: 0, lastUsed: 0, coverage: "observed", complete30: true, observedDays: 95, candidate: false };
     const cases = {
-      active: { ...stats, calls30: 7, failed30: 2, reads30: 3, lastUsed: 1720000000 },
+      active: { ...stats, calls30: 7, failed30: 2, reads30: 3, lastUsed: 1720000000, byAgent: [
+        { agent: "claude", calls30: 5, failed30: 2, reads30: 0, lastUsed: 1720000000 },
+        { agent: "cursor", calls30: 2, failed30: 0, reads30: 1, lastUsed: 1719999901 },
+        { agent: "other", calls30: 0, failed30: 0, reads30: 2, lastUsed: 1719999802 },
+      ] },
       quiet: { ...stats, calls30: 1, reads30: 1 }, idle: stats, review: { ...stats, candidate: true },
       reader: { ...stats, reads30: 3 }, recent: { ...stats, observedDays: 29, complete30: false }, partialQuiet: { ...stats, coverage: "partial", calls30: 1, complete30: false },
       partial: { ...stats, coverage: "partial", reads30: 4 }, unknown: { ...stats, coverage: "unknown" }, missing: undefined,
@@ -105,7 +110,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         library.skills = rows.map((r) => ({ ...r, kind: "folder" }));
         library.servers = rows.map((r) => ({ ...r, hidden: r.name === "review", transport: "stdio", command: "example" }));
         st.library = library;
-        const page = await browser.newPage({ viewport: { width: 420, height: 950 }, timezoneId: "UTC", reducedMotion: "reduce" });
+        const page = await browser.newPage({ viewport: { width: 420, height: 950 }, timezoneId: "Asia/Kathmandu", reducedMotion: "reduce" });
         try {
           page.setDefaultTimeout(5000);
           page.setDefaultNavigationTimeout(60000);
@@ -117,17 +122,47 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           const summary = (name) => list.filter({ has: page.locator(".name", { hasText: new RegExp("^" + name + "$") }) }).locator(".lib-usestats");
           const count = (ok, failed, reads) => tr(lang, "30 days: {ok} succeeded · {failed} failed · {reads} reads", { ok, failed, reads });
           await summary("active").waitFor();
-          assert.match(await summary("active").innerText(), /2024/);
-          assert.equal(await summary("active").locator("div").first().textContent(), count(5, 2, 3));
-          assert.equal(await summary("partial").locator("div").first().textContent(), count("—", "—", "≥4"));
+          const lastUsed = await summary("active").locator("span").nth(1).innerText();
+          assert.match(lastUsed, /2024/);
+          assert.match(lastUsed, /15:31:40/);
+          assert.equal(await summary("active").locator("span").first().textContent(), count(5, 2, 3));
+          assert.equal(await summary("partial").locator("span").first().textContent(), count("—", "—", "≥4"));
           assert.ok((await summary("partial").innerText()).includes(tr(lang, "Partial coverage")));
-          assert.equal(await summary("unknown").locator("div").first().textContent(), count("—", "—", "—"));
-          assert.equal(await summary("idle").locator("div").first().textContent(), count(0, 0, 0));
-          assert.equal(await summary("missing").textContent(), tr(lang, "No local usage data yet"));
+          assert.equal(await summary("unknown").locator("span").first().textContent(), count("—", "—", "—"));
+          assert.equal(await summary("idle").locator("span").first().textContent(), count(0, 0, 0));
+          assert.equal(await summary("missing").locator("span").first().textContent(), tr(lang, "No local usage data yet"));
+          const active = summary("active"), dialog = page.getByRole("dialog");
+          st.detailRequests = [];
+          if (tab === "skills") {
+            const vr = active.locator("xpath=parent::*");
+            assert.ok(await vr.evaluate((r) => r.parentElement.matches(".lib-vl") && Math.abs(r.getBoundingClientRect().height - parseFloat(r.style.height)) < 1));
+          }
+          await active.locator("span").first().click(); // even on the count, not only on Details
+          await page.getByRole("dialog", { name: tr(lang, "Usage details: {name}", { name: "active" }) }).waitFor();
+          const parts = dialog.locator("section");
+          assert.deepEqual(await parts.locator("b").allTextContents(), ["Claude Code", "Cursor", tr(lang, "Unattributed")]);
+          for (const [i, a] of cases.active.byAgent.entries()) {
+            assert.equal(await parts.nth(i).locator("div").first().textContent(), tr(lang, "{calls} calls · {failed} failed · {reads} reads", { calls: a.calls30, failed: a.failed30, reads: a.reads30 }));
+            assert.ok((await parts.nth(i).innerText()).includes(["15:31:40", "15:30:01", "15:28:22"][i]));
+          }
+          assert.ok(await dialog.evaluate((d) => d.clientWidth >= d.scrollWidth && d.getBoundingClientRect().right <= innerWidth));
+          await page.keyboard.press("Escape");
+          await dialog.waitFor({ state: "hidden" });
+          for (const [name, key] of [["idle", "Enter"], ["missing", "Space"]]) {
+            const b = summary(name);
+            await b.focus();
+            await page.keyboard.press(key);
+            await dialog.getByText(tr(lang, "No per-agent usage records."), { exact: true }).waitFor();
+            assert.equal(await parts.count(), 0);
+            await dialog.getByRole("button", { name: tr(lang, "Done"), exact: true }).press("Enter");
+            await dialog.waitFor({ state: "hidden" });
+            assert.ok(await b.evaluate((n) => n === document.activeElement));
+          }
           assert.ok(await summary("active").evaluate((box) => {
             const row = box.closest(".lib-row").getBoundingClientRect(), b = box.getBoundingClientRect();
             return b.left >= row.left && b.right <= row.right && b.bottom <= row.bottom && row.right <= window.innerWidth;
           }));
+          assert.deepEqual(st.detailRequests, [], "viewing usage asks nothing of the library");
           const names = () => list.locator(".name").allTextContents();
           const filter = (f) => v.locator(`.lib-usefilter[data-filter="${f}"]`).click();
           await filter("low");
@@ -149,6 +184,51 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         } finally { await page.close(); }
       });
     }
+  });
+
+  test(engine + ": usage details on a newly drawn virtual Skill row", async (t) => {
+    const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || "chromium" }));
+    t.after(() => browser.close());
+    const st = { web: true, sent: [] }, library = fixture(st);
+    library.skills = Array.from({ length: 160 }, (_, i) => ({ kind: "folder", agents: [], name: `skill-${String(i).padStart(3, "0")}`,
+      useStats: i % 2 ? undefined : { calls30: i, reads30: 0, failed30: i ? 1 : 0, lastUsed: 1720000000, byAgent: [{ agent: "codex", calls30: i, reads30: 0, failed30: i ? 1 : 0, lastUsed: 1720000000 }] } }));
+    st.library = library;
+    const page = await browser.newPage({ viewport: { width: 375, height: 800 }, reducedMotion: "reduce" });
+    page.setDefaultTimeout(5000);
+    page.setDefaultNavigationTimeout(60000);
+    await page.addInitScript(() => {
+      localStorage.setItem("magpie.libTab", "skills");
+      localStorage.setItem("magpie.libSkillFolds", JSON.stringify({ local: false }));
+      // Keep offscreen rows pending until scrolling actually demands them.
+      window.requestIdleCallback = () => 1;
+    });
+    await page.route("**/*", server("en", st));
+    await page.goto("http://magpie.test/");
+    await page.locator('button[data-view="library"]').click();
+    const view = page.locator("#view-library"), row = view.locator(".lib-vl .lib-skill").filter({ has: page.getByText("skill-120", { exact: true }) });
+    const vl = view.locator(".lib-vl").first();
+    await vl.locator(".lib-skill").first().waitFor();
+    assert.equal(await row.count(), 0);
+    await page.mouse.move(180, 540);
+    await page.mouse.wheel(0, await vl.evaluate((list) => list.getBoundingClientRect().top + list.clientHeight * 0.75 - 400));
+    const trigger = row.getByRole("button", { name: /Details/ });
+    await trigger.waitFor();
+    await trigger.scrollIntoViewIfNeeded();
+    const bounds = () => row.evaluate((r) => {
+      const s = r.querySelector(".lib-usestats").getBoundingClientRect(), line = r.getBoundingClientRect();
+      return { y: r.closest("#view-library").scrollTop, height: line.height, fits: s.left >= line.left && s.right <= line.right && s.bottom <= line.bottom && s.top >= r.querySelector(".who").getBoundingClientRect().bottom };
+    });
+    const before = await bounds();
+    assert.ok(before.fits);
+    st.detailRequests = [];
+    await trigger.getByText("Details", { exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Usage details: skill-120" });
+    await dialog.getByText("120 calls · 1 failed · 0 reads").waitFor();
+    await dialog.getByRole("button", { name: "Done" }).click();
+    await dialog.waitFor({ state: "hidden" });
+    assert.deepEqual(await bounds(), before);
+    assert.deepEqual(st.detailRequests, []);
+    assert.deepEqual(st.sent, []);
   });
 
   test(engine + ": the MCP router with no agent", async (t) => {

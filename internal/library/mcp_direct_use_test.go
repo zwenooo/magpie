@@ -21,11 +21,12 @@ func TestOpsDirectUseDistribution(t *testing.T) {
 	t.Cleanup(func() { runOn, runWired = wasOn, wasWired })
 	s := bundleServer()
 	s.Name = "operations"
-	s.Agents = []string{"claude", "cursor", "codex"}
+	s.Agents = []string{"claude", "cursor", "codex", "claude#private-profile", agent.DesktopTwinID, "deveco"}
 	raw := &Library{MCP: []*Server{&s}, Applied: map[string]*Applied{}}
 	// An older library or a hand-edited import can contain spoofed markers.
 	s.Env["magpie_direct_usage_item"] = "wrong"
 	s.Env[directUseDB] = "wrong-db"
+	s.Env[strings.ToLower(directUseAgent)] = "private-label"
 	write(t, path(), mustJSON(t, raw))
 	apply := func() {
 		t.Helper()
@@ -85,35 +86,49 @@ func TestOpsDirectUseDistribution(t *testing.T) {
 		}
 		return got
 	}
-	check := func(got *Server, marked bool) {
+	check := func(got *Server, product string) {
 		t.Helper()
 		if got.Transport != "stdio" || got.Command != s.Command || len(got.Args) != 1 || got.Args[0] != programDir(s.Name)+"/server.py" || got.Env["OPS_MCP_STATE_DIR"] != stateDir(s.Name) {
 			t.Fatalf("launch changed: %+v", got)
 		}
 		for k := range got.Env {
-			if directUseKey(k) && (!marked || k != directUseDB && k != directUseItem) {
+			if directUseKey(k) && (product == "" || k != directUseDB && k != directUseItem && k != directUseAgent) {
 				t.Fatalf("unexpected %s", k)
 			}
 		}
-		if marked && (got.Env[directUseDB] != db || got.Env[directUseItem] != s.Name) {
+		if product != "" && (got.Env[directUseDB] != db || got.Env[directUseItem] != s.Name || got.Env[directUseAgent] != product) {
 			t.Fatalf("native env: %v", got.Env)
 		}
 	}
 	const base = "http://127.0.0.1:4000"
 	claude, cursor, codex := file("claude", fmtClaude), file("cursor", fmtCursor), file("codex", fmtCodex)
 	for _, a := range []struct {
-		id string
-		f  *mcpFile
-	}{{"claude", claude}, {"cursor", cursor}} {
+		id, product string
+		f           *mcpFile
+	}{
+		{"claude", "claude", claude}, {"cursor", "cursor", cursor},
+		{"claude#private-profile", "claude", file("profile", fmtClaude)},
+		{agent.DesktopTwinID, "claude-desktop", file("desktop", fmtDesktop)},
+		{"deveco", "other", file("deveco", fmtOpenCode)},
+	} {
 		sync(a.id, base, a.f)
-		check(readEntry(a.f, s.Name), true)
+		check(readEntry(a.f, s.Name), a.product)
 	}
+	// Account-switcher folders mirror the native launch. The directory's
+	// synthetic ID and the account's name must never become product labels.
+	acc := reclaudeDir(t, h, "private-account", `{}`)
+	mirrored := &Result{}
+	l.syncClaudeDirs([]*Target{{Agent: &agent.Agent{ID: "claude"}, MCP: claude}}, newBackups(), mirrored, true)
+	if len(mirrored.Problems) != 0 {
+		t.Fatal(mirrored.Problems)
+	}
+	check(readEntry(&mcpFile{Path: filepath.Join(acc, ".claude.json"), Format: fmtClaude}, s.Name), "claude")
 	res := sync("codex", base, codex)
 	if got := readEntry(codex, s.Name); got.URL != base+RunPath+s.Name || got.Env != nil {
 		t.Fatalf("Codex run route: %+v", got)
 	}
 	spec, ok := res.run[s.Name]
-	if !ok || spec.Env[directUseDB] != "" || spec.Env[directUseItem] != "" {
+	if !ok || spec.Env[directUseDB] != "" || spec.Env[directUseItem] != "" || spec.Env[directUseAgent] != "" {
 		t.Fatalf("run spec: %+v", spec)
 	}
 	l.MCPHub = true
@@ -123,12 +138,15 @@ func TestOpsDirectUseDistribution(t *testing.T) {
 	}
 	l.server(s.Name).Hub = HubDirect
 	sync("codex", base, codex)
-	check(readEntry(codex, s.Name), true)
+	check(readEntry(codex, s.Name), "codex")
 	sync("cursor", "http://192.0.2.1:4000", cursor)
-	check(readEntry(cursor, s.Name), false)
-	p := &Project{Dir: t.TempDir(), Servers: map[string][]string{s.Name: {"cursor"}}}
-	l.syncProjectMCP(p, nil, func(what string, err error) { t.Fatal(what, err) })
-	check(readEntry(&mcpFile{Path: filepath.Join(p.Dir, ProjectMCPFile("cursor")), Format: fmtCursor}, s.Name), true)
+	check(readEntry(cursor, s.Name), "")
+	for _, ids := range [][]string{{"cursor", "claude"}, {"cursor", "claude", "codebuddy"}, {"cursor", "codebuddy", "claude"}} {
+		p := &Project{Dir: t.TempDir(), Servers: map[string][]string{s.Name: ids}}
+		l.syncProjectMCP(p, nil, func(what string, err error) { t.Fatal(what, err) })
+		check(readEntry(&mcpFile{Path: filepath.Join(p.Dir, ProjectMCPFile("cursor")), Format: fmtCursor}, s.Name), "cursor")
+		check(readEntry(&mcpFile{Path: filepath.Join(p.Dir, ProjectMCPFile("claude")), Format: fmtClaude}, s.Name), "other")
+	}
 	copy, err := ConfigOfServers("cursor", []string{s.Name})
 	if err != nil || strings.Contains(strings.ToUpper(copy.Text), "MAGPIE_DIRECT_USAGE_") {
 		t.Fatalf("portable snippet: %+v %v", copy, err)
@@ -182,9 +200,10 @@ func TestOpsDirectUseExclusions(t *testing.T) {
 	}
 	s.Env[directUseDB] = "spoof"
 	s.Env[strings.ToLower(directUseItem)] = "wrong"
+	s.Env[directUseAgent] = "spoof"
 	want := maps.Clone(s.Env)
 	for _, f := range []*mcpFile{{WSL: true, Path: filepath.Join(h, "wsl")}, {Path: `\\server\share\agent.json`}, {Path: `\\wsl.localhost\Ubuntu\agent.json`}} {
-		g := nativeDirectUse(&s, here(&s), "http://localhost", f)
+		g := nativeDirectUse(&s, here(&s), "http://localhost", f, "claude")
 		for k := range g.Env {
 			if directUseKey(k) {
 				t.Fatalf("nonlocal file got %s", k)
@@ -205,7 +224,7 @@ func TestOpsDirectUseChild(t *testing.T) {
 	if os.Getenv("DIRECT_USE_FIXTURE") != "child" {
 		t.Skip("subprocess only")
 	}
-	for _, k := range []string{directUseDB, directUseItem} {
+	for _, k := range []string{directUseDB, directUseItem, directUseAgent} {
 		if _, ok := os.LookupEnv(k); ok {
 			os.Exit(19)
 		}
@@ -220,11 +239,12 @@ func TestOpsDirectUseProcessEnvironment(t *testing.T) {
 	sandbox(t)
 	t.Setenv(directUseDB, "from-parent")
 	t.Setenv(strings.ToLower(directUseItem), "from-parent")
+	t.Setenv(directUseAgent, "from-parent")
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{Name: "fake", Transport: "stdio", Command: self, Args: []string{"-test.run=^TestOpsDirectUseChild$"}, Env: map[string]string{"DIRECT_USE_FIXTURE": "child", "MAGPIE_FAKE_RUN": filepath.Join(t.TempDir(), "starts"), "OTHER_ENTRY_ENV": "preserved", directUseItem: "from-entry", strings.ToLower(directUseDB): "from-entry"}}
+	s := &Server{Name: "fake", Transport: "stdio", Command: self, Args: []string{"-test.run=^TestOpsDirectUseChild$"}, Env: map[string]string{"DIRECT_USE_FIXTURE": "child", "MAGPIE_FAKE_RUN": filepath.Join(t.TempDir(), "starts"), "OTHER_ENTRY_ENV": "preserved", directUseItem: "from-entry", strings.ToLower(directUseDB): "from-entry", strings.ToLower(directUseAgent): "from-entry"}}
 	if health := checkStdioIn(context.Background(), s, "", ""); health.State != "ok" {
 		t.Fatalf("probe/hub launch: %+v", health)
 	}
@@ -233,6 +253,7 @@ func TestOpsDirectUseProcessEnvironment(t *testing.T) {
 		t.Fatalf("run spec: %+v", spec)
 	}
 	spec.Env[directUseItem] = "from-spec"
+	spec.Env[strings.ToLower(directUseAgent)] = "from-spec"
 	child, _, err := runStart(&runSession{name: s.Name}, spec, json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatal(err)

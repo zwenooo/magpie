@@ -2953,20 +2953,54 @@ magpie.plugin("library", (ctx) => {
     }
     return [note, box];
   }
-  function usageSummary(u) {
-    const box = el("div", "lib-usestats");
-    if (!u) { box.textContent = t("No local usage data yet"); return box; }
+  function useTime(seconds) {
+    return countKnown(seconds) && seconds > 0 && seconds <= 8.64e12
+      ? dateFmt({ year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", ...hourClock() }).format(seconds * 1000)
+      : t("No local record");
+  }
+  // A recorded client need not be installed on this computer anymore.
+  const useNames = new Map(Object.entries({ claude: "Claude Code", cursor: "Cursor", codex: "Codex", gemini: "Gemini CLI", opencode: "OpenCode", "claude-desktop": "Claude Desktop", "kiro-cli": "Kiro CLI", copilot: "GitHub Copilot CLI", droid: "Factory Droid", pi: "Pi", magpie: "magpie" }));
+  function usageDetails(name, u) {
+    const ed = el("div", "editor lib-editor lib-usedetail"), head = el("div", "ehead");
+    head.append(el("b", "", t("Usage details: {name}", { name })));
+    ed.append(head);
+    if (u?.byAgent?.length) {
+      ed.append(el("p", "lib-aside", t("Activity recorded on this computer in the last 30 days, by agent.")));
+      const number = (n) => countKnown(n) ? n : "—";
+      for (const a of u.byAgent) {
+        const label = a.agent === "other" ? t("Unattributed") : agentOf(a.agent)?.name || useNames.get(a.agent) || a.agent;
+        const part = el("section", "lib-useagent");
+        part.append(el("b", "", label), el("div", "", t("{calls} calls · {failed} failed · {reads} reads", { calls: number(a.calls30), failed: number(a.failed30), reads: number(a.reads30) })),
+          el("div", "", t("Last used: {when}", { when: useTime(a.lastUsed) })));
+        ed.append(part);
+      }
+    } else ed.append(el("p", "lib-aside", t("No per-agent usage records.")));
+    const bar = el("div", "bar");
+    bar.append(el("span", "grow"), button(t("Done"), "primary", closeLibModal));
+    ed.append(bar);
+    modal = { dirty: () => false };
+    openLib(ed);
+  }
+  function usageSummary({ name, useStats: u }) {
+    const box = el("button", "lib-usestats");
+    box.type = "button";
+    box.setAttribute("aria-haspopup", "dialog");
+    box.title = t("Usage details: {name}", { name });
+    box.onclick = (e) => { e.stopPropagation(); usageDetails(name, u); };
+    const more = el("span", "lib-usedetails-link", t("Details"));
+    if (!u) { box.append(el("span", "", t("No local usage data yet")), more); return box; }
     // Outside observed coverage, a positive count is a lower bound. Seeing
     // no events is not evidence of zero across paths we cannot observe.
     const number = (n) => !countKnown(n) ? "—" : completeUse(u) ? String(n) : n > 0 ? "≥" + n : "—";
     const ok = countKnown(u.calls30) && countKnown(u.failed30) ? u.calls30 - u.failed30 : null;
     const coverage = u.coverage === "observed" ? t("Observed paths") : u.coverage === "partial" ? t("Partial coverage") : t("Coverage unknown");
-    const when = u.lastUsed > 0 ? new Date(u.lastUsed * 1000).toLocaleDateString(intlLang()) : t("No local record");
+    const when = useTime(u.lastUsed);
     const lines = [t("30 days: {ok} succeeded · {failed} failed · {reads} reads", { ok: number(ok), failed: number(u.failed30), reads: number(u.reads30) }),
       [t("Last used: {when}", { when }), u.candidate === true && t("Cleanup candidate")].filter(Boolean).join(" · "),
       [coverage, countKnown(u.observedDays) && t("Days observed: {n}", { n: u.observedDays })].filter(Boolean).join(" · ")];
-    for (const line of lines) box.append(el("div", "", line));
-    box.title = lines.join("\n");
+    for (const line of lines) box.append(el("span", "", line));
+    box.append(more);
+    box.title += "\n" + lines.join("\n");
     return box;
   }
 
@@ -3529,7 +3563,7 @@ magpie.plugin("library", (ctx) => {
     who.append(nm, healthEl(s.name));
     const sub = el("div", "sub mono", serverLine(s));
     sub.title = serverLine(s);
-    who.append(noteSub(s.note, sub, serverLine(s)), toolsEl(s.name), usageSummary(s.useStats));
+    who.append(noteSub(s.note, sub, serverLine(s)), toolsEl(s.name), usageSummary(s));
     row.append(mark(s.icon, s.transport === "stdio" ? GLYPH.cmd : GLYPH.web), who, ...removeAct(() => confirmRemoveServer(s)),
       // no agent to give it to: other apps reach it through the router
       ...(agentless() ? [] : [agentChips(withGone(all, s.agents), s.agents, chipsChange("servers/agents", s.name, "servers", (x) => serverRow(x, all)), { problems: s.problems, blocked: sseBlocked(s), all: true })]),
@@ -8590,7 +8624,7 @@ magpie.plugin("library", (ctx) => {
     acts.append(rm);
     row.style.height = skillH(s) + "px";
     row.classList.toggle("lib-hasstats", !!s.useStats);
-    row.append(mark(s.icon, GLYPH.skill), who, acts, agentChips(withGone(all, s.agents), s.agents, chipsChange("skills/agents", s.name, "skills", (x) => skillRow(x, all)), { problems: s.problems, via: viaFor(s), all: true, always: alwaysFor(s) }), usageSummary(s.useStats));
+    row.append(mark(s.icon, GLYPH.skill), who, acts, agentChips(withGone(all, s.agents), s.agents, chipsChange("skills/agents", s.name, "skills", (x) => skillRow(x, all)), { problems: s.problems, via: viaFor(s), all: true, always: alwaysFor(s) }), usageSummary(s));
     if (picking) return pickRow(row, s.name);
     row.onclick = () => viewSkill(s);
     row.title = t("Read {name}'s SKILL.md", { name: s.name });

@@ -1,6 +1,7 @@
 package library
 
 import (
+	"cmp"
 	"context"
 	"slices"
 	"time"
@@ -10,16 +11,25 @@ import (
 
 // UseStats is local evidence. A partial count is a lower bound, not evidence
 // that an item was unused on other clients or computers.
+type AgentUseStats struct {
+	Agent    string `json:"agent"`
+	Calls30  int64  `json:"calls30"`
+	Failed30 int64  `json:"failed30"`
+	Reads30  int64  `json:"reads30"`
+	LastUsed int64  `json:"lastUsed"`
+}
+
 type UseStats struct {
-	DirectCalls30 int64  `json:"directCalls30,omitempty"`
-	Calls30       int64  `json:"calls30"`
-	Failed30      int64  `json:"failed30"`
-	Reads30       int64  `json:"reads30"`
-	LastUsed      int64  `json:"lastUsed"`
-	Coverage      string `json:"coverage"`
-	Complete30    bool   `json:"complete30"`
-	Candidate     bool   `json:"candidate"`
-	ObservedDays  int    `json:"observedDays"`
+	ByAgent       []AgentUseStats `json:"byAgent,omitempty"`
+	DirectCalls30 int64           `json:"directCalls30,omitempty"`
+	Calls30       int64           `json:"calls30"`
+	Failed30      int64           `json:"failed30"`
+	Reads30       int64           `json:"reads30"`
+	LastUsed      int64           `json:"lastUsed"`
+	Coverage      string          `json:"coverage"`
+	Complete30    bool            `json:"complete30"`
+	Candidate     bool            `json:"candidate"`
+	ObservedDays  int             `json:"observedDays"`
 }
 
 func useInventory(l *Library) []libraryuse.Item {
@@ -103,9 +113,22 @@ func rowUse(s libraryuse.Summary, coverage string, now time.Time) UseStats {
 	if s.ObservedSince.IsZero() && s.LastUsed.IsZero() {
 		u.Coverage = "unknown"
 	}
+	for agent, t := range s.ByClient {
+		a := AgentUseStats{Agent: agent, Calls30: t.Days30.Count - t.Days30.Reads, Failed30: t.Days30.Failed, Reads30: t.Days30.Reads}
+		if !t.LastUsed.IsZero() {
+			a.LastUsed = t.LastUsed.Unix()
+		}
+		u.ByAgent = append(u.ByAgent, a)
+	}
+	sortAgentUse(u.ByAgent)
 	u.Complete30 = u.Coverage == "observed" && s.Days30.Complete
 	u.Candidate = u.Coverage == "observed" && s.Days90.Complete && s.Days90.Count == 0 && u.ObservedDays >= 90 && (s.LastUsed.IsZero() || !s.LastUsed.After(now.Add(-90*24*time.Hour)))
 	return u
+}
+func sortAgentUse(rows []AgentUseStats) {
+	slices.SortFunc(rows, func(a, b AgentUseStats) int {
+		return cmp.Or(cmp.Compare(b.Calls30+b.Reads30, a.Calls30+a.Reads30), cmp.Compare(b.LastUsed, a.LastUsed), cmp.Compare(a.Agent, b.Agent))
+	})
 }
 func withDirectUse(u UseStats, d libraryuse.DirectUsage, err error) UseStats {
 	// Other native clients may still run an older snapshot or environment.
@@ -121,6 +144,21 @@ func withDirectUse(u UseStats, d libraryuse.DirectUsage, err error) UseStats {
 	u.Calls30 += d.Calls30
 	u.Failed30 += d.Failed30
 	u.LastUsed = max(u.LastUsed, d.LastUsed)
+	if len(d.ByAgent) > 0 {
+		u.ByAgent = slices.Clone(u.ByAgent)
+		for id, v := range d.ByAgent {
+			i := slices.IndexFunc(u.ByAgent, func(a AgentUseStats) bool { return a.Agent == id })
+			if i < 0 {
+				u.ByAgent = append(u.ByAgent, AgentUseStats{Agent: id})
+				i = len(u.ByAgent) - 1
+			}
+			a := &u.ByAgent[i]
+			a.Calls30 += v.Calls30
+			a.Failed30 += v.Failed30
+			a.LastUsed = max(a.LastUsed, v.LastUsed)
+		}
+		sortAgentUse(u.ByAgent)
+	}
 	return u
 }
 

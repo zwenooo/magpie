@@ -45,6 +45,16 @@ func TestDirectUseIsAddedOnceAndCannotProveInactivity(t *testing.T) {
 	}
 }
 
+func TestLibraryUseAgentBreakdown(t *testing.T) {
+	now := time.Date(2026, 11, 22, 15, 16, 37, 0, time.UTC)
+	gateway := rowUse(libraryuse.Summary{ByClient: map[string]libraryuse.ToolSummary{"claude": {LastUsed: now, Days30: libraryuse.Window{Count: 4, Reads: 1, Failed: 1}}}}, "partial", now)
+	d := libraryuse.DirectUsage{Calls30: 3, Failed30: 1, LastUsed: now.Add(time.Second).Unix(), ByAgent: map[string]libraryuse.DirectAgentUsage{"claude": {Calls30: 1, LastUsed: now.Add(time.Second).Unix()}, "cursor": {Calls30: 2, Failed30: 1, LastUsed: now.Unix()}}}
+	u := withDirectUse(gateway, d, nil)
+	if len(u.ByAgent) != 2 || u.ByAgent[0] != (AgentUseStats{"claude", 4, 1, 1, now.Add(time.Second).Unix()}) || u.ByAgent[1] != (AgentUseStats{"cursor", 2, 1, 0, now.Unix()}) || gateway.ByAgent[0].Calls30 != 3 {
+		t.Fatalf("wrong agent rows: %+v", u.ByAgent)
+	}
+}
+
 func TestLibraryUseScopeExcludesDirectAndProjectRoutes(t *testing.T) {
 	l := &Library{MCPHub: true, MCP: []*Server{{Name: "weather", Agents: []string{"claude"}}}, Applied: map[string]*Applied{"claude": {MCP: []string{HubEntry}}}}
 	eligible := func() bool { return useInventory(l)[0].Eligible }

@@ -346,7 +346,7 @@ func (l *Library) syncMCP(t *Target, b *backups, res *Result) {
 			}
 		}
 		if t.Agent.WSL == "" {
-			s = nativeDirectUse(raw, s, base, t.MCP)
+			s = nativeDirectUse(raw, s, base, t.MCP, id)
 		}
 		s = t.MCP.withCmdVars(s)
 		s = wroteStartup(s, a.Startup[s.Name])

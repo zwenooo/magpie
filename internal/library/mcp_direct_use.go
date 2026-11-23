@@ -9,11 +9,29 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/yetone/magpie/internal/agent"
 	"github.com/yetone/magpie/internal/settings"
 )
 
 const directUseDB = "MAGPIE_DIRECT_USAGE_DB"
 const directUseItem = "MAGPIE_DIRECT_USAGE_ITEM"
+const directUseAgent = "MAGPIE_DIRECT_USAGE_AGENT"
+
+// Use only libraryuse.product's fixed buckets. In particular a Claude Code
+// config folder's suffix is user data, not a separate product.
+func directProduct(id string) string {
+	switch {
+	case strings.HasPrefix(id, "claude#"):
+		return "claude"
+	case id == agent.DesktopTwinID:
+		return "claude-desktop"
+	}
+	switch id {
+	case "claude", "codex", "cursor", "gemini", "opencode", "claude-desktop", "kiro-cli", "copilot", "droid", "pi", "magpie":
+		return id
+	}
+	return "other"
+}
 
 // supportsDirectUse takes the library definition, before here expands it. The
 // local receipt binds the install to the source, not merely to the server name
@@ -33,7 +51,7 @@ func supportsDirectUse(s *Server) bool {
 }
 
 func directUseKey(k string) bool {
-	return strings.EqualFold(k, directUseDB) || strings.EqualFold(k, directUseItem)
+	return strings.EqualFold(k, directUseDB) || strings.EqualFold(k, directUseItem) || strings.EqualFold(k, directUseAgent)
 }
 
 // withoutDirectUse leaves ordinary environments alone, including nil. Never
@@ -73,7 +91,7 @@ func directUseLocalBase(base string) bool {
 
 // nativeDirectUse is the last step after routing: only a native command can
 // receive this overlay, never an HTTP replacement, check or gateway spec.
-func nativeDirectUse(raw, given *Server, base string, file *mcpFile) *Server {
+func nativeDirectUse(raw, given *Server, base string, file *mcpFile, id string) *Server {
 	if given.Transport != "stdio" || file.WSL || !supportsDirectUse(raw) || !directUseLocalBase(base) {
 		return given
 	}
@@ -87,6 +105,7 @@ func nativeDirectUse(raw, given *Server, base string, file *mcpFile) *Server {
 	}
 	c.Env[directUseDB] = filepath.Join(settings.Dir(), "library-use", "ops-direct.db")
 	c.Env[directUseItem] = raw.Name
+	c.Env[directUseAgent] = directProduct(id)
 	return &c
 }
 

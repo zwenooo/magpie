@@ -36,9 +36,20 @@ func TestDirectSnapshot(t *testing.T) {
 	}
 	for range 2 {
 		v, e := directSnapshot(file, now)
-		if e != nil || v["ops"] != (DirectUsage{4, 1, d * 86400}) {
+		if e != nil || v["ops"].Calls30 != 4 || v["ops"].Failed30 != 1 || v["ops"].LastUsed != d*86400 || v["ops"].ByAgent["other"] != (DirectAgentUsage{4, 1, d * 86400}) {
 			t.Fatalf("snapshot: %+v %v", v, e)
 		}
+	}
+	// New workers record a second margin; residual old-worker calls still belong to other.
+	if _, err = db.Exec(`CREATE TABLE direct_agent_daily(item TEXT,day INTEGER,agent TEXT,n INTEGER,failed INTEGER,last INTEGER,PRIMARY KEY(item,day,agent))`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`INSERT INTO direct_agent_daily VALUES('ops',?,'cursor',1,0,?)`, d-29, (d-29)*86400); err != nil {
+		t.Fatal(err)
+	}
+	v, err := directSnapshot(file, now)
+	if err != nil || v["ops"].Calls30 != 4 || v["ops"].ByAgent["other"] != (DirectAgentUsage{3, 1, d * 86400}) || v["ops"].ByAgent["cursor"] != (DirectAgentUsage{1, 0, (d - 29) * 86400}) {
+		t.Fatalf("mixed snapshot: %+v %v", v, err)
 	}
 	if _, err = db.Exec(`UPDATE direct_daily SET failed=n+1`); err != nil {
 		t.Fatal(err)

@@ -141,7 +141,16 @@ func (l *Library) syncProjectMCP(p *Project, hubs map[string]*Server, fail func(
 			if !slices.ContainsFunc(want[rel], func(x *Server) bool { return x.Name == s.Name }) {
 				base := gateway.URL()
 				f := &mcpFile{Path: filepath.Join(p.Dir, filepath.FromSlash(rel)), Format: format}
-				want[rel] = append(want[rel], nativeDirectUse(s, through(here(s), base), base, f))
+				// A shared file identifies none of its readers, even if only
+				// one was selected (e.g. Claude Code and CodeBuddy's .mcp.json).
+				owner := id
+				for other, dest := range projectMCPFiles {
+					if other != id && dest.rel == rel {
+						owner = "other"
+						break
+					}
+				}
+				want[rel] = append(want[rel], nativeDirectUse(s, through(here(s), base), base, f, owner))
 			}
 		}
 	}
