@@ -485,16 +485,25 @@ func TestCheckServersOnce(t *testing.T) {
 	if starts() != 3 {
 		t.Fatalf("changed server: %d starts, want 3", starts())
 	}
+	records, err := readWebRecords()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tools := records.record(webEntryKey(s), s).Tools; tools == nil || tools.Count != 3 || !slices.Equal(tools.Names, []string{"a", "b", "c"}) {
+		t.Fatalf("the changed configuration's actual list was not remembered: %+v", tools)
+	}
 	if after := snapshot(t, os.Getenv("HOME")); after != before {
 		t.Errorf("the check wrote files:\n%s\n---\n%s", before, after)
 	}
 }
 
-// snapshot is every file under dir with its size and time.
+// snapshot covers the whole home except the local sidecar that the check
+// is meant to update; agent files, library.json and even the lock stay covered.
 func snapshot(t *testing.T, dir string) string {
 	var b strings.Builder
+	cache := webCacheFile()
 	filepath.Walk(dir, func(p string, fi os.FileInfo, err error) error {
-		if err != nil || fi.IsDir() {
+		if err != nil || fi.IsDir() || p == cache {
 			return nil
 		}
 		fmt.Fprintf(&b, "%s %d %d\n", p, fi.Size(), fi.ModTime().UnixNano())
