@@ -200,6 +200,17 @@ func CheckServers(ctx context.Context, names []string, fresh bool) (map[string]S
 			slots <- struct{}{}
 			defer func() { <-slots }()
 			h := checkServer(ctx, s, own)
+			if ctx.Err() == nil {
+				entries := h.WebEntries
+				if h.State != "ok" {
+					entries = nil
+				}
+				if s.Transport == "stdio" && slices.ContainsFunc(h.Checked, func(side string) bool { return side != "" }) {
+					// The page cannot carry a WSL namespace into the next session.
+					entries = slices.DeleteFunc(slices.Clone(entries), func(e MCPWebEntry) bool { return !allowWebEntry(e.URL, e.Kind, false, nil) })
+				}
+				rememberWebEntries(s, entries)
+			}
 			// as the server is now: a sign-in the check found run out
 			// isn't one to check it again for
 			key := healthKey(s, own)
@@ -572,7 +583,7 @@ func withPath(env []string, dir string) []string {
 // MCP connection; what it writes to stderr is kept in errs; stop ends a
 // run in a distro (call it beside tree.Kill). The check starts it so, and
 // so does the hub (mcp_hub.go), on this machine.
-func startServer(ctx context.Context, s *Server, distro, dir string) (tree *proc.Tree, stdin io.WriteCloser, stdout io.ReadCloser, errs *tail, stop func(), bad *ServerHealth) {
+func startServer(ctx context.Context, s *Server, distro, dir string, startedCommand ...*string) (tree *proc.Tree, stdin io.WriteCloser, stdout io.ReadCloser, errs *tail, stop func(), bad *ServerHealth) {
 	fail := func(h ServerHealth) (*proc.Tree, io.WriteCloser, io.ReadCloser, *tail, func(), *ServerHealth) {
 		return nil, nil, nil, nil, nil, &h
 	}
@@ -581,6 +592,9 @@ func startServer(ctx context.Context, s *Server, distro, dir string) (tree *proc
 	}
 	s = here(s)
 	command, args, own := launchCmd(s, distro)
+	if len(startedCommand) != 0 && startedCommand[0] != nil {
+		*startedCommand[0] = command
+	}
 	env, unset := expandAll(own)
 	if len(unset) > 0 {
 		return fail(failed("novar", strings.Join(unset, ", ")))
@@ -728,7 +742,8 @@ func inHome(s *Server) bool {
 // checkStdioIn is checkStdioAt with the command started in dir ("" for
 // home).
 func checkStdioIn(ctx context.Context, s *Server, distro, dir string) ServerHealth {
-	tree, stdin, stdout, errs, stop, bad := startServer(ctx, s, distro, dir)
+	var command string
+	tree, stdin, stdout, errs, stop, bad := startServer(ctx, s, distro, dir, &command)
 	if bad != nil {
 		return *bad
 	}
@@ -818,7 +833,7 @@ func checkStdioIn(ctx context.Context, s *Server, distro, dir string) ServerHeal
 	return listTools(ctx, func(id int, req []byte) (*rpcMsg, *ServerHealth) {
 		_ = send(req)
 		return await(id)
-	}).withWebEntries(m.Result, s, distro)
+	}).withWebEntries(m.Result, &Server{Transport: "stdio", Command: command}, distro)
 }
 
 func exitHealth(err error, errs *tail) ServerHealth {

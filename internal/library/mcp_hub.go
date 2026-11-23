@@ -776,9 +776,10 @@ func healthErr(h ServerHealth) error {
 func dialHub(ctx context.Context, s *Server, changed func()) (hubConn, error) {
 	var c *streamConn
 	var err error
+	peer := *s
 	switch s.Transport {
 	case "stdio":
-		c, err = dialStdio(s, changed)
+		c, err = dialStdio(s, changed, &peer.Command)
 	case "sse":
 		c, err = dialSSE(ctx, s, changed)
 	default:
@@ -804,7 +805,19 @@ func dialHub(ctx context.Context, s *Server, changed func()) (hubConn, error) {
 		return nil, err
 	}
 	c.says = saysOf(m.Result)
+	rememberHandshake(s, &peer, m.Result)
 	return c, nil
+}
+
+// source identifies the Library definition; peer is what was actually dialed,
+// not the router or /mcp/run URL handed to the client. A missing or malformed
+// result is not a handshake revoking previously advertised entries.
+func rememberHandshake(source, peer *Server, result json.RawMessage) {
+	if raw := bytes.TrimSpace(result); len(raw) == 0 || raw[0] != '{' {
+		return
+	}
+	h := (ServerHealth{State: "ok"}).withWebEntries(result, peer, "")
+	rememberWebEntries(source, h.WebEntries)
 }
 
 // waiters are the requests sent on a stream (a command's stdout, an SSE
@@ -952,9 +965,9 @@ func (c *streamConn) close() {
 }
 
 // dialStdio starts the command s runs, as the check starts it.
-func dialStdio(s *Server, changed func()) (*streamConn, error) {
+func dialStdio(s *Server, changed func(), command *string) (*streamConn, error) {
 	// the hub's server lives until the hub ends it, not with a request
-	tree, stdin, stdout, errs, stop, bad := startServer(context.Background(), s, "", "")
+	tree, stdin, stdout, errs, stop, bad := startServer(context.Background(), s, "", "", command)
 	if bad != nil {
 		return nil, healthErr(*bad)
 	}
@@ -1105,6 +1118,7 @@ func dialHTTP(ctx context.Context, s *Server) (*httpConn, error) {
 	if h := c.initialize(ctx, initializeReq()); h != nil {
 		return nil, healthErr(*h)
 	}
+	rememberHandshake(s, s, c.init)
 	hc := &httpConn{c: c}
 	hc.ids.Store(1)
 	return hc, nil
@@ -1142,12 +1156,19 @@ func (h *httpConn) ask(ctx context.Context, method string, params any) (*rpcMsg,
 			}
 			h.c.mu.Unlock()
 			var again *ServerHealth
+			var init json.RawMessage
 			if same {
 				again = h.c.initialize(ctx, initializeReq())
+				if again == nil {
+					init = h.c.init // immutable; read before another reopen can replace it
+				}
 			}
 			h.reopen.Unlock()
 			if again != nil {
 				return nil, healthErr(*again)
+			}
+			if init != nil {
+				rememberHandshake(h.c.s, h.c.s, init)
 			}
 			continue
 		}

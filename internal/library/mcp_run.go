@@ -52,6 +52,9 @@ var runIdle = 15 * time.Minute
 
 // runSpec is the command a server is run with, its variables expanded.
 type runSpec struct {
+	// The Library definition before sync rewrites folders, npx or the URL.
+	// It identifies an observed handshake, not the executable or its cache key.
+	source   *Server
 	Revision string            `json:"revision,omitempty"` // an in-place program update also invalidates cached handshakes
 	Command  string            `json:"command"`
 	Args     []string          `json:"args"`
@@ -130,8 +133,18 @@ func init() {
 	}
 }
 
-// runVia is s as an agent that runsFor is given it, and the spec it is
-// run with; false for one magpie doesn't run.
+// runViaSource builds the agent's HTTP entry and the command actually run.
+// Keep the Library source separate: neither that URL nor an expanded command
+// identifies the original configuration to which a handshake belongs.
+func runViaSource(raw, s *Server, base string) (*Server, runSpec, bool) {
+	via, spec, ok := runVia(s, base)
+	if ok {
+		source := *raw
+		spec.source = &source
+	}
+	return via, spec, ok
+}
+
 func runVia(s *Server, base string) (*Server, runSpec, bool) {
 	spec, ok := specOf(s)
 	if !ok {
@@ -161,9 +174,7 @@ func runGiven(given map[string]runSpec) {
 		spec, ok := given[s.name]
 		s.mu.Lock()
 		changed := !ok || spec.key() != s.spec.key()
-		if changed {
-			s.spec, s.gone = spec, !ok
-		}
+		s.spec, s.gone = spec, !ok // use this source for the next real start even when the command is unchanged
 		s.mu.Unlock()
 		if changed {
 			s.stop()
@@ -191,7 +202,9 @@ func runSpecOf(name string) (runSpec, bool) {
 	if s == nil || !slices.Contains(s.Agents, "codex") || s.Hub == HubDirect {
 		return runSpec{}, false
 	}
-	return specOf(npxDirect(s))
+	spec, ok := specOf(npxDirect(s))
+	spec.source = s
+	return spec, ok
 }
 
 type runSession struct {
@@ -289,23 +302,31 @@ func (s *runSession) running() *runChild {
 // it answered the session's initialize with when it was started now.
 func (s *runSession) ensure() (*runChild, json.RawMessage, error) {
 	s.start.Lock()
-	defer s.start.Unlock()
 	if c := s.running(); c != nil {
+		s.start.Unlock()
 		return c, nil, nil
 	}
 	s.mu.Lock()
 	spec, init, gone := s.spec, s.init, s.gone
 	s.mu.Unlock()
 	if gone {
+		s.start.Unlock()
 		return nil, nil, fmt.Errorf("magpie gives Codex no server called %s now", s.name)
 	}
 	c, res, err := runStart(s, spec, init)
 	if err != nil {
+		s.start.Unlock()
 		return nil, nil, err
 	}
 	s.mu.Lock()
 	s.child = c
 	s.mu.Unlock()
+	s.start.Unlock()
+	if spec.source != nil {
+		peer := *spec.source
+		peer.Command = spec.Command // the launcher after variable expansion
+		rememberHandshake(spec.source, &peer, res)
+	}
 	return c, res, nil
 }
 
@@ -321,10 +342,15 @@ func (s *runSession) deliver(c *runChild, line []byte, id json.RawMessage, metho
 		spec := s.spec
 		s.mu.Unlock()
 		forget(spec, "tools/list")
-	case "notifications/prompts/list_changed":
-		forget(s.spec, "prompts/list")
-	case "notifications/resources/list_changed":
-		forget(s.spec, "resources/list", "resources/templates/list")
+	case "notifications/prompts/list_changed", "notifications/resources/list_changed":
+		s.mu.Lock()
+		spec := s.spec
+		s.mu.Unlock()
+		if method == "notifications/prompts/list_changed" {
+			forget(spec, "prompts/list")
+		} else {
+			forget(spec, "resources/list", "resources/templates/list")
+		}
 	}
 	s.mu.Lock()
 	var to chan []byte
@@ -530,7 +556,10 @@ func runStart(s *runSession, spec runSpec, init json.RawMessage) (*runChild, jso
 		}
 		return nil, nil, fmt.Errorf("couldn't start %s: %s", s.name, why)
 	}
-	_ = c.send(initializedNote)
+	if err := c.send(initializedNote); err != nil {
+		c.end()
+		return nil, nil, fmt.Errorf("couldn't initialize %s: %w", spec.Command, err)
+	}
 	return c, m.Result, nil
 }
 

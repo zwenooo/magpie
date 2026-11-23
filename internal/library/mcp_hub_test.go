@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -24,6 +26,132 @@ func hubSandbox(t *testing.T) string {
 	h := sandbox(t)
 	t.Cleanup(hubStopAll)
 	return h
+}
+
+func TestHubRemembersStdioInitialize(t *testing.T) {
+	hubSandbox(t)
+	s := fakeStdio(t, "web", nil)
+	if err := (&Library{MCPHub: true, MCP: []*Server{s}}).save(); err != nil {
+		t.Fatal(err)
+	}
+	h := theHub{}
+	if tools := h.Tools(t.Context(), ""); len(tools) != 3 {
+		t.Fatalf("tools: %v", tools)
+	}
+	want := []MCPWebEntry{{"website", webSite}, {"console", "https://service.example:443/admin"}, {"logs", "http://127.0.0.1:8787/logs"}}
+	if got := rememberedWebEntries(s); !slices.Equal(got, want) {
+		t.Fatalf("stdio handshake: %v", got)
+	}
+}
+
+func TestHubRemembersSSEInitialize(t *testing.T) {
+	hubSandbox(t)
+	s := &Server{Name: "web", Transport: "sse", URL: "https://service.example/sse"}
+	if err := (&Library{MCPHub: true, MCP: []*Server{s}}).save(); err != nil {
+		t.Fatal(err)
+	}
+	// Advertise a distinct POST endpoint: the peer's originally configured
+	// origin, not this relay, governs which console may be remembered.
+	rd, wr := io.Pipe()
+	defer rd.Close()
+	defer wr.Close()
+	old := checkClient
+	defer func() { checkClient = old }()
+	checkClient = &http.Client{Transport: webCheckTransport(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.Method == "GET" && r.URL.String() == s.URL:
+			stream := io.MultiReader(strings.NewReader("event: endpoint\ndata: https://relay.example/post\n\n"), rd)
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(stream)}, nil
+		case r.Method == "POST" && r.URL.String() == "https://relay.example/post":
+			var m rpcIn
+			if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+				return nil, err
+			}
+			switch m.Method {
+			case "initialize":
+				if _, err := fmt.Fprintf(wr, "event: message\ndata: %s\n\n", rpcResult(m.ID, json.RawMessage(webInitFixture))); err != nil {
+					return nil, err
+				}
+			case "notifications/initialized":
+			default:
+				return nil, fmt.Errorf("unexpected %s", m.Method)
+			}
+			return &http.Response{StatusCode: 202, Body: http.NoBody}, nil
+		}
+		return nil, fmt.Errorf("unexpected request %s %s", r.Method, r.URL)
+	})}
+	conn, err := dialHub(t.Context(), s, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn.close()
+	want := []MCPWebEntry{{"website", webSite}, {"console", "https://service.example:443/admin"}}
+	if got := rememberedWebEntries(s); !slices.Equal(got, want) {
+		t.Fatalf("SSE handshake: %v, want %v", got, want)
+	}
+}
+
+func TestHubRemembersHTTPReinitializeNotToolResult(t *testing.T) {
+	hubSandbox(t)
+	s := &Server{Name: "web", Transport: "http", URL: "https://service.example/mcp"}
+	if err := (&Library{MCPHub: true, MCP: []*Server{s}}).save(); err != nil {
+		t.Fatal(err)
+	}
+	old := checkClient
+	defer func() { checkClient = old }()
+	var methods []string
+	inits := 0
+	checkClient = &http.Client{Transport: webCheckTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.String() != s.URL {
+			return nil, fmt.Errorf("unexpected dial %s", r.URL)
+		}
+		hdr := http.Header{"Content-Type": {"application/json"}}
+		var status = http.StatusOK
+		var body string
+		if r.Method != http.MethodDelete {
+			var m rpcIn
+			if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+				return nil, err
+			}
+			methods = append(methods, m.Method)
+			switch m.Method {
+			case "initialize":
+				inits++
+				hdr.Set("Mcp-Session-Id", fmt.Sprint(inits))
+				body = string(rpcResult(m.ID, json.RawMessage(strings.ReplaceAll(webInitFixture, "/admin", fmt.Sprintf("/admin/%d", inits)))))
+			case "notifications/initialized":
+			case "tools/call":
+				if r.Header.Get("Mcp-Session-Id") == "1" {
+					status = http.StatusNotFound
+				} else {
+					body = string(rpcResult(m.ID, json.RawMessage(webInitFixture)))
+				}
+			default:
+				return nil, fmt.Errorf("unexpected request %s", m.Method)
+			}
+		}
+		return &http.Response{StatusCode: status, Header: hdr, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}
+	b := backendOf(s)
+	defer b.stop()
+	if _, err := b.connect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	check := func(n int) {
+		t.Helper()
+		want := []MCPWebEntry{{"website", webSite}, {"console", fmt.Sprintf("https://service.example:443/admin/%d", n)}}
+		if got := rememberedWebEntries(s); !slices.Equal(got, want) {
+			t.Fatalf("handshake %d: %v, want %v", n, got, want)
+		}
+	}
+	check(1)
+	if _, err := b.call(t.Context(), "tool", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	check(2)
+	if want := []string{"initialize", "notifications/initialized", "tools/call", "initialize", "notifications/initialized", "tools/call"}; !slices.Equal(methods, want) {
+		t.Fatalf("requests %v, want %v", methods, want)
+	}
 }
 
 func hubText(t *testing.T, res json.RawMessage) string {

@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -141,10 +140,13 @@ func TestWebEntriesHTTP(t *testing.T) {
 	// The first OAuth status read takes an empty mcp-signins.json.lock on
 	// Windows. Establish it before any server has advertised a URL.
 	mcpauth.StatusOf(s.Name, s.URL)
-	before := snapshot(t, os.Getenv("HOME"))
+	before := read(t, path()) // the local hint must not modify the synced Library
 	want := []MCPWebEntry{{"website", webSite}, {"console", "https://service.example:443/admin"}}
 	if h := check(t.Context(), true); h.State != "ok" || !slices.Equal(h.WebEntries, want) {
 		t.Fatalf("HTTP: %+v", h)
+	}
+	if got := rememberedWebEntries(s); !slices.Equal(got, want) {
+		t.Fatalf("successful check not remembered: %v", got)
 	}
 	if !slices.Equal(methods, []string{"initialize", "notifications/initialized", "tools/list"}) {
 		t.Fatalf("requests: %v", methods)
@@ -165,7 +167,10 @@ func TestWebEntriesHTTP(t *testing.T) {
 	if h := check(t.Context(), true); h.State != "error" || len(h.WebEntries) != 0 {
 		t.Fatalf("unmatched initialize: %+v", h)
 	}
-	if after := snapshot(t, os.Getenv("HOME")); before != after {
-		t.Errorf("health check changed sandbox:\nbefore:\n%s\nafter:\n%s", before, after)
+	if len(rememberedWebEntries(s)) != 0 {
+		t.Fatal("failed completed check left a stale shortcut")
+	}
+	if after := read(t, path()); before != after {
+		t.Error("web hints changed the synced library")
 	}
 }

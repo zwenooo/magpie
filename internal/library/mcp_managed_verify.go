@@ -18,11 +18,16 @@ func VerifyManagedMCP(name string) error {
 
 // ProbeManagedMCP returns the validated handshake from this exact process so
 // the Library row can use its advertised pages without starting a second one.
-func ProbeManagedMCP(parent context.Context, name string) (ServerHealth, error) {
+func ProbeManagedMCP(parent context.Context, name string) (result ServerHealth, failure error) {
 	s, _, err := repoTarget(name, nil)
 	if err != nil {
 		return ServerHealth{}, err
 	}
+	defer func() {
+		if parent.Err() == nil {
+			rememberWebEntries(s, result.WebEntries)
+		}
+	}()
 	if s.RepoLocalCommit == "" || s.RepoLocalHash == "" {
 		return ServerHealth{}, errors.New("this repository program has not been installed on this computer")
 	}

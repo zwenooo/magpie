@@ -3608,8 +3608,11 @@ magpie.plugin("library", (ctx) => {
   function paintWebEntries(box, s) {
     box.replaceChildren();
     box.hidden = true;
-    const e = health.get(s.name), h = e?.h;
-    if (h?.state !== "ok" || e.key !== healthKey(s) || !Array.isArray(h.webEntries)) return;
+    const e = health.get(s.name);
+    // A remembered URL is not a health result. Render the shortcut without
+    // claiming the process is running. A new check supersedes the saved hint.
+    const h = e && e.key === healthKey(s) && (!s.webEntryKey || e.webView === taken) ? e.h : { state: "ok", webEntries: s.rememberedWebEntries };
+    if (h?.state !== "ok" || !Array.isArray(h.webEntries)) return;
     // One front door per server. Prefer the app itself over documentation or a subpage.
     for (const kind of ["console", "website", "logs"]) {
       for (const entry of h.webEntries) {
@@ -3748,7 +3751,7 @@ magpie.plugin("library", (ctx) => {
   // distro (mcp_check_wsl.go): agents moved between them is a check anew,
   // and so is the router taking it or leaving it to the agents, which
   // start it in their project and the router in home (inProject)
-  const healthKey = (s) => JSON.stringify([s.transport, s.command, s.args, s.env, s.url, s.headers, s.signIn, s.repoLocalCommit, s.repoLocalHash,
+  const healthKey = (s) => JSON.stringify([s.webEntryKey, s.transport, s.command, s.args, s.env, s.url, s.headers, s.signIn, s.repoLocalCommit, s.repoLocalHash,
     s.transport === "stdio" ? [...new Set((s.agents || []).map((a) => a.split("@wsl:")[1] || ""))].sort() : null,
     s.transport === "stdio" && !!lib.mcpHub && s.hub !== "direct"]);
   const toolList = (name) => { const h = health.get(name)?.h; return h?.state === "ok" ? h.toolList || [] : []; };
@@ -3786,15 +3789,15 @@ magpie.plugin("library", (ctx) => {
     if (s && (!e || e.h)) checkHealth([s], true);
   }
   async function probeManaged(s) {
-    const key = healthKey(s), pending = { key, h: null };
+    const key = healthKey(s), pending = { key, h: null, webView: taken };
     health.set(s.name, pending); paintHealth(s.name);
     try {
       const reply = await api("library/servers/managed-verify", { name: s.name });
       if (!reply?.ok || reply.health?.state !== "ok") throw Error("probe");
-      if (health.get(s.name) === pending) health.set(s.name, { key, h: reply.health });
+      if (health.get(s.name) === pending) health.set(s.name, { key, h: reply.health, webView: taken });
       return reply;
     } catch (error) {
-      if (health.get(s.name) === pending) health.delete(s.name);
+      if (health.get(s.name) === pending) { delete s.rememberedWebEntries; health.delete(s.name); }
       throw error;
     } finally { paintHealth(s.name); }
   }
@@ -3906,7 +3909,7 @@ magpie.plugin("library", (ctx) => {
   async function checkHealth(list, fresh) {
     if (!list.length) return;
     const keys = new Map(list.map((s) => [s.name, healthKey(s)]));
-    for (const [name, key] of keys) { health.set(name, { key, h: null }); paintHealth(name); }
+    for (const [name, key] of keys) { health.set(name, { key, h: null, webView: taken }); paintHealth(name); }
     let got = {}, failed = null;
     try { got = (await api("library/mcp/check", { names: [...keys.keys()], fresh: !!fresh })).servers || {}; } catch (e) { failed = e.message; }
     let signIns = false;
@@ -3920,11 +3923,11 @@ magpie.plugin("library", (ctx) => {
       const s = lib.servers.find((x) => x.name === name);
       if (h?.signIn && s && (!!h.signIn.signedIn !== !!s.signIn?.signedIn || !!h.signIn.dead !== !!s.signIn?.dead)) {
         s.signIn = h.signIn;
-        health.set(name, { key: healthKey(s), h });
+        health.set(name, { key: healthKey(s), h, webView: taken });
         signIns = true;
         continue;
       }
-      if (h) health.set(name, { key, h }); else health.delete(name);
+      if (h) health.set(name, { key, h, webView: taken }); else health.delete(name);
       paintHealth(name);
     }
     if (signIns) render();

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -51,6 +52,10 @@ func TestFakeRunServer(t *testing.T) {
 			l, _ := os.OpenFile(logf, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 			fmt.Fprintf(l, "%d %s\n", os.Getpid(), m.Params.ClientInfo.Name)
 			l.Close()
+			if os.Getenv("MAGPIE_FAKE_RUN_WEB") == "1" {
+				say(map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": json.RawMessage(webInitFixture)})
+				continue
+			}
 			say(map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{"listChanged": true}}, "serverInfo": map[string]any{"name": "fake", "version": "1"}}})
 		case m.Method == "tools/list":
 			say(map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": map[string]any{"tools": []any{map[string]any{"name": "echo"}, map[string]any{"name": fmt.Sprint("pid", os.Getpid())}}}})
@@ -90,6 +95,49 @@ func runFixture(t *testing.T) (*httptest.Server, string, runSpec) {
 	}))
 	t.Cleanup(srv.Close)
 	return srv, logf, spec
+}
+
+func TestRunRemembersOnlyRealHandshakesOfOriginalServer(t *testing.T) {
+	sandbox(t)
+	srv, logf, spec := runFixture(t)
+	spec.Env["MAGPIE_FAKE_RUN_WEB"] = "1"
+	s := &Server{Name: "fake", Transport: "stdio", Command: spec.Command, Args: spec.Args, Env: spec.Env, Agents: []string{"codex"}}
+	s.Args = append(slices.Clone(s.Args), "--", "{{program}}/test")
+	l := &Library{MCP: []*Server{s}}
+	if err := l.save(); err != nil {
+		t.Fatal(err)
+	}
+	via, spec, ok := runViaSource(s, here(s), srv.URL)
+	if !ok || via.Transport != "http" || spec.Args[len(spec.Args)-1] == "{{program}}/test" {
+		t.Fatal("expected HTTP entry for an expanded command")
+	}
+	runGiven(map[string]runSpec{s.Name: spec})
+	want := []MCPWebEntry{{"website", webSite}, {"console", "https://service.example:443/admin"}, {"logs", "http://127.0.0.1:8787/logs"}}
+	check := func(entries []MCPWebEntry, starts int) {
+		t.Helper()
+		if got := rememberedWebEntries(s); !slices.Equal(got, entries) || startCount(logf) != starts {
+			t.Fatalf("got entries %v, starts %d; want %v, %d", got, startCount(logf), entries, starts)
+		}
+	}
+	call(t, srv, "", fmt.Sprintf(runInit, "thread-a"))
+	check(want, 1)
+	// A cached initialize does not observe the server; a lazy start does.
+	rememberWebEntries(s, nil)
+	_, sid := call(t, srv, "", fmt.Sprintf(runInit, "thread-b"))
+	check(nil, 1)
+	call(t, srv, sid, `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`)
+	check(want, 2)
+	// Another process edits the definition. A gateway still using its old
+	// launch snapshot must not attribute a real later handshake to this edit.
+	s.Note = "new definition"
+	if err := l.save(); err != nil {
+		t.Fatal(err)
+	}
+	newer := []MCPWebEntry{{"website", "https://new.example"}}
+	rememberWebEntries(s, newer)
+	_, sid = call(t, srv, "", fmt.Sprintf(runInit, "thread-c"))
+	call(t, srv, sid, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"echo"}}`)
+	check(newer, 3)
 }
 
 // resetRuns ends every session's server, before the test and after it.

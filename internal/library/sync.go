@@ -112,7 +112,12 @@ func syncSteps(all, gone []*Target, b *backups, res *Result) []func(*Library) {
 	// a skill whose app moved it is followed first, for every agent to
 	// get the moved one (skill_moved.go)
 	// an edit made in a subagent's own file too (subagent_file.go)
-	steps := []func(*Library){func(l *Library) { l.followMovedSkills(); l.markDangling(); l.followSubagentFiles() }}
+	steps := []func(*Library){func(l *Library) {
+		pruneWebRecords()
+		l.followMovedSkills()
+		l.markDangling()
+		l.followSubagentFiles()
+	}}
 	for _, t := range all {
 		steps = append(steps, func(l *Library) {
 			l.syncInstructions(t, all, b, res, true)
@@ -338,7 +343,7 @@ func (l *Library) syncMCP(t *Target, b *backups, res *Result) {
 		// a server the user keeps direct is started by Codex itself, in
 		// the thread's folder (#4382): magpie would start it from home
 		if run && s.Hub != HubDirect {
-			if via, spec, ok := runVia(s, base); ok {
+			if via, spec, ok := runViaSource(raw, s, base); ok {
 				if res.run == nil {
 					res.run = map[string]runSpec{}
 				}
@@ -487,7 +492,9 @@ type AgentView struct {
 type ServerView struct {
 	UseStats UseStats `json:"useStats"`
 	*Server
-	Icon string `json:"icon,omitempty"`
+	Icon                 string        `json:"icon,omitempty"`
+	WebEntryKey          string        `json:"webEntryKey"`
+	RememberedWebEntries []MCPWebEntry `json:"rememberedWebEntries,omitempty"`
 	// Problems are the agents it couldn't be given to, and why
 	Problems map[string]string `json:"problems,omitempty"`
 	// SignIn is magpie's sign-in to a streamable HTTP server, which the
@@ -793,6 +800,7 @@ func readView(problems []Problem, glance bool) (*View, error) {
 		}
 		return m
 	}
+	web, _ := readWebRecords() // an unreadable local cache supplies no shortcuts
 	for _, s := range l.MCP {
 		// one on no agent yet has none, not null, for the page to look in
 		if s.Agents == nil {
@@ -800,7 +808,8 @@ func readView(problems []Problem, glance bool) (*View, error) {
 			c.Agents = []string{}
 			s = &c
 		}
-		sv := ServerView{Server: s, Icon: serverIcon(l, s), Problems: of("mcp:" + s.Name)}
+		sv := ServerView{Server: s, Icon: serverIcon(l, s), Problems: of("mcp:" + s.Name), WebEntryKey: webEntryKey(s)}
+		sv.RememberedWebEntries = web.entries(sv.WebEntryKey, s)
 		if s.Transport == "http" {
 			st := mcpauth.StatusOf(s.Name, s.URL)
 			sv.SignIn = &st

@@ -33,6 +33,8 @@ for (const engine of process.env.BROWSER ? [process.env.BROWSER] : ["chromium", 
       for (const [name, src] of [["ops-mcp", toolkit], ["subfolder", {...standalone, path: "mcp/ops-mcp"}], ["other-owner", {...standalone, repo: "https://github.com/example/ops-mcp"}]]) {
         lib.servers.push({...installed, name, repoSource: src, repoLocalSource: src});
       }
+      const saved = lib.servers.find(s => s.name === "my-tools");
+      saved.webEntryKey = 'fixture-v1'; saved.rememberedWebEntries = [{kind:'console',url:'https://example.test/remembered'}, {kind:'logs',url:'https://example.test/logs'}];
       let latest = first, current = "", bundle, restored, gateway;
       const managed = [];
       await page.route("**/*", async (route) => {
@@ -68,6 +70,12 @@ for (const engine of process.env.BROWSER ? [process.env.BROWSER] : ["chromium", 
       });
       await page.goto("http://magpie.test/", {waitUntil: "domcontentloaded"});
       await page.locator('button[data-view="library"]').click();
+      const remembered = page.locator('.lib-server[data-server="my-tools"] .lib-webentries button');
+      await remembered.waitFor(); assert.equal(await remembered.getAttribute('title'), 'https://example.test/remembered');
+      assert.equal(await remembered.count(), 1); assert.deepEqual(starts, []); assert.deepEqual(managed, []);
+      await page.reload({waitUntil:'domcontentloaded'});
+      await page.locator('button[data-view="library"]').click();
+      await remembered.waitFor(); assert.equal(await remembered.count(), 1); assert.deepEqual(starts, []); assert.deepEqual(managed, []);
       const modal = page.locator("#modal .lib-editor"), box = modal.locator(".lib-program-source");
       const action = (key) => box.getByRole("button", {name: tr(key), exact: true});
       const open = async (name) => {
