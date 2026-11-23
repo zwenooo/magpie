@@ -150,7 +150,6 @@ internal/pii/serve.go
 internal/pii/serve_test.go
 internal/awake/awake.go
 internal/awake/awake_test.go
-plugins/rotation/rotation.go
 docs/subsystems/gateway-routing.md
 docs/subsystems/claude-subscription-bridge.md
 

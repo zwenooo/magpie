@@ -186,12 +186,14 @@ upstream `feb0d8d7f` (2026-11-24).
 | JSON padding is skipped 1 KiB at a time, so a body padded past 64 MiB doesn't spend the pre-routing deadline under `-race` (ce01f86c0, bb7de239e) | `gateway/fastjson.go` | not fixed |
 | `httpServer` gives the serving loop and the handover tests one server, and the comments say an idle keep-alive connection to the old process may close (a8a349eed, 363e7b09d); the drain itself is upstream's | `gateway/gateway.go`, `gateway/handover.go` | test seam only |
 | `nextBeat` lets the keep-awake tests drive wakeups by events (e1f42fc0c) | `awake/awake.go` | test seam only |
-| The routing strategies row says "besides Quota first", the words i18n has (d2f7c3290) | `plugins/rotation/rotation.go` | the same in 4d92af050; gone with the next merge |
 
-Taken out because upstream fixed the cause: `summaryTooLarge` reading a size
-refusal from a 200 stream's error event (890c0803b). Upstream 5ee9a1874
-fixed #4862 by never keeping magpie's own summary ask alive, so its refusal
-keeps its 413.
+Taken out because upstream fixed it:
+
+- `summaryTooLarge` reading a size refusal from a 200 stream's error event
+  (890c0803b). Upstream 5ee9a1874 fixed #4862 by never keeping magpie's own
+  summary ask alive, so its refusal keeps its 413.
+- The routing strategies row saying "besides Quota first" (d2f7c3290):
+  upstream's 4d92af050 is the same change, merged at feb0d8d7f.
 
 The last group in `build/fork/upstream-edits.txt` is upstream tests changed
 so they pass on Windows, in WSL or under `-race`; the code they test is
