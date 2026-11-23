@@ -771,6 +771,21 @@ func libraryRoutes(mux *http.ServeMux, w Windows) {
 			res, err = library.SaveInstructions(c)
 		case "instructions/import":
 			res, err = library.ImportInstructions(in.Name)
+		case "servers/open-console", "servers/open-logs":
+			if isWeb(w) {
+				fail(rw, errors.New("open the local console from the desktop app"))
+				return
+			}
+			page, e := library.OpsConsolePage(r.Context(), in.Name, r.PathValue("action") == "open-logs")
+			if e == nil {
+				e = w.OpenURL(page)
+			}
+			if e != nil {
+				fail(rw, e)
+				return
+			}
+			rw.WriteHeader(http.StatusNoContent)
+			return
 		case "servers/repo-check":
 			check, err := library.CheckMCPRepo(in.Name, in.RepoSource)
 			if err != nil {

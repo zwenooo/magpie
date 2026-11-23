@@ -3561,6 +3561,15 @@ magpie.plugin("library", (ctx) => {
     // its status beside the name, not in it: the name is still the name
     who.classList.add("lib-srvwho");
     who.append(nm, healthEl(s.name));
+    if (s.localConsole && !web && !picking) {
+      const links = el("div", "bar");
+      for (const [action, label] of [["open-console", t("Manage targets")], ["open-logs", t("View server logs")]]) {
+        const b = button(label, "", () => api("library/servers/" + action, { name: s.name }).catch(() => status(t("Could not open the local ops-mcp console. Check that it is running."), "err")));
+        links.append(b);
+      }
+      links.onclick = (event) => event.stopPropagation();
+      who.append(links);
+    }
     const sub = el("div", "sub mono", serverLine(s));
     sub.title = serverLine(s);
     who.append(noteSub(s.note, sub, serverLine(s)), toolsEl(s.name), usageSummary(s));
