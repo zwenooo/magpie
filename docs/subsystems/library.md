@@ -63,7 +63,7 @@ The MCP endpoint, OAuth sign-in, and the server's own website or control panel a
 {"serverInfo":{"name":"example","version":"1.2","websiteUrl":"https://example.org"},"_meta":{"io.github.zwenooo.magpie/web-entries":{"console":"http://127.0.0.1:8123/","logs":"http://127.0.0.1:8123/logs"}}}
 ```
 
-This excerpt is a local stdio example, not an entire initialize result. Remote consoles/logs must use the MCP server's HTTPS origin; an arbitrary remote server cannot advertise a viewer's localhost as its admin panel. Links carrying credentials or query strings are not shortcuts. A health result is a hint from a specific server, not an authorization grant. No website/console metadata means no **generic** link; Magpie also retains the desktop-only, verified loopback adapter for older managed `ops-mcp` installations. Clicking opens a web page, not an OAuth flow; it does not restore credentials or change settings.
+This excerpt is a local stdio example, not an entire initialize result. Remote consoles/logs must use the MCP server's HTTPS origin; an arbitrary remote server cannot advertise a viewer's localhost as its admin panel. Links carrying credentials or query strings are not shortcuts. A health result is a hint from a specific server, not an authorization grant. Every server uses the same single shortcut: the first allowed console URL, otherwise its website, otherwise its logs page. No advertised safe URL means no shortcut. The destination is shown in the tooltip. Clicking opens a web page, not an OAuth flow; it does not restore credentials or change settings.
 
 ### Observed use on this computer (fork)
 

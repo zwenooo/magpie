@@ -2,10 +2,7 @@
 // kernel adds them to i18n.js's (magpie.strings).
 magpie.strings({
   zh: {
-    "Open console": "打开控制台",
-    "Manage targets": "管理服务器",
-    "View server logs": "查看服务日志",
-    "Could not open the local ops-mcp console. Check that it is running.": "无法打开本机 ops-mcp 控制台，请确认它正在运行。",
+    "Open web page": "打开网页",
     "Usage only includes paths visible on this computer. Filters never disable or remove anything.": "使用量仅统计本机可见路径。筛选不会停用或删除任何项目。",
     "All items": "全部项目",
     "Low use (≤2 calls and reads combined in 30 days)": "低频（近 30 天调用和读取合计不超过 2 次）",
@@ -1201,10 +1198,7 @@ magpie.strings({
     "{agents} reads no project instructions file magpie knows of.": "{agents} 没有 magpie 已知的项目指令文件。",
   },
   "zh-TW": {
-    "Open console": "開啟控制台",
-    "Manage targets": "管理伺服器",
-    "View server logs": "檢視服務日誌",
-    "Could not open the local ops-mcp console. Check that it is running.": "無法開啟本機 ops-mcp 控制台，請確認它正在執行。",
+    "Open web page": "開啟網頁",
     "Usage only includes paths visible on this computer. Filters never disable or remove anything.": "使用量僅統計本機可見路徑。篩選不會停用或刪除任何項目。",
     "All items": "全部項目",
     "Low use (≤2 calls and reads combined in 30 days)": "低頻（近 30 天呼叫和讀取合計不超過 2 次）",
@@ -2400,10 +2394,7 @@ magpie.strings({
     "{agents} reads no project instructions file magpie knows of.": "{agents} 沒有 magpie 已知的專案指令檔案。",
   },
   ja: {
-    "Open console": "コンソールを開く",
-    "Manage targets": "サーバー管理",
-    "View server logs": "サーバーログを表示",
-    "Could not open the local ops-mcp console. Check that it is running.": "ローカルの ops-mcp コンソールを開けません。起動状況を確認してください。",
+    "Open web page": "ウェブページを開く",
     "Usage only includes paths visible on this computer. Filters never disable or remove anything.": "この端末から確認できる経路だけを集計します。絞り込んでも項目は無効化・削除されません。",
     "All items": "すべての項目",
     "Low use (≤2 calls and reads combined in 30 days)": "低頻度（過去30日の呼び出しと読み取りが計2回以下）",
@@ -3599,10 +3590,7 @@ magpie.strings({
     "{agents} reads no project instructions file magpie knows of.": "{agents} は magpie が把握しているプロジェクトの指示ファイルを読みません。",
   },
   de: {
-    "Open console": "Konsole öffnen",
-    "Manage targets": "Server verwalten",
-    "View server logs": "Serverprotokolle anzeigen",
-    "Could not open the local ops-mcp console. Check that it is running.": "Die lokale ops-mcp-Konsole konnte nicht geöffnet werden. Prüfe, ob sie läuft.",
+    "Open web page": "Webseite öffnen",
     "Usage only includes paths visible on this computer. Filters never disable or remove anything.": "Gezählt werden nur auf diesem Computer sichtbare Zugriffswege. Filtern deaktiviert oder entfernt nichts.",
     "All items": "Alle Einträge",
     "Low use (≤2 calls and reads combined in 30 days)": "Selten genutzt (höchstens 2 Aufrufe und Lesezugriffe zusammen in 30 Tagen)",

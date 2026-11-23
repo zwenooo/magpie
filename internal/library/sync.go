@@ -485,8 +485,7 @@ type AgentView struct {
 
 // ServerView is a library server, and what each agent it's on made of it.
 type ServerView struct {
-	LocalConsole bool     `json:"localConsole,omitempty"`
-	UseStats     UseStats `json:"useStats"`
+	UseStats UseStats `json:"useStats"`
 	*Server
 	Icon string `json:"icon,omitempty"`
 	// Problems are the agents it couldn't be given to, and why
@@ -801,7 +800,7 @@ func readView(problems []Problem, glance bool) (*View, error) {
 			c.Agents = []string{}
 			s = &c
 		}
-		sv := ServerView{Server: s, LocalConsole: opsConsoleBase(s) != "", Icon: serverIcon(l, s), Problems: of("mcp:" + s.Name)}
+		sv := ServerView{Server: s, Icon: serverIcon(l, s), Problems: of("mcp:" + s.Name)}
 		if s.Transport == "http" {
 			st := mcpauth.StatusOf(s.Name, s.URL)
 			sv.SignIn = &st

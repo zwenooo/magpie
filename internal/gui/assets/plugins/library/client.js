@@ -3606,29 +3606,25 @@ magpie.plugin("library", (ctx) => {
   }
 
   function paintWebEntries(box, s) {
-    const buttons = new Map();
-    if (s.localConsole && !web) {
-      // This route verifies the local service on click, including for old
-      // ops-mcp versions that don't advertise any web entries.
-      for (const [kind, label] of [["console", t("Manage targets")], ["logs", t("View server logs")]]) {
-        buttons.set(kind, button(label, "", () => api("library/servers/open-" + kind, { name: s.name }).catch(() => status(t("Could not open the local ops-mcp console. Check that it is running."), "err"))));
-      }
-    }
+    box.replaceChildren();
+    box.hidden = true;
     const e = health.get(s.name), h = e?.h;
-    if (h?.state === "ok" && e.key === healthKey(s) && Array.isArray(h.webEntries)) {
+    if (h?.state !== "ok" || e.key !== healthKey(s) || !Array.isArray(h.webEntries)) return;
+    // One front door per server. Prefer the app itself over documentation or a subpage.
+    for (const kind of ["console", "website", "logs"]) {
       for (const entry of h.webEntries) {
-        const kind = entry?.kind;
-        if (!["website", "console", "logs"].includes(kind) || buttons.has(kind)) continue;
+        if (entry?.kind !== kind) continue;
         const url = entryURL(kind, entry.url, s, h);
         if (!url) continue;
-        const label = kind === "website" ? t("Website") : kind === "console" ? t("Open console") : t("View server logs");
-        const b = button(label + " · " + url, "", () => browse(url));
+        const b = el("button", "", t("Open web page"));
+        b.type = "button";
         b.title = url;
-        buttons.set(kind, b);
+        b.onclick = (e) => { e.stopPropagation(); if (web) window.open(url, "_blank", "noopener"); else browse(url); };
+        box.append(b);
+        box.hidden = false;
+        return;
       }
     }
-    box.replaceChildren(...buttons.values());
-    box.hidden = !buttons.size;
   }
 
   // A server off for everyone, or on again as it was (swang20201 on X:

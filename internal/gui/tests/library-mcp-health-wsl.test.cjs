@@ -12,7 +12,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
-const { chromium, webkit } = require("playwright");
+const { chromium, webkit } = require("playwright-core");
 
 const assets = path.resolve(__dirname, "../assets");
 const HOME = "C:\\Users\\loong";
@@ -146,11 +146,11 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const site = "https://docs.example.org/start", next = "https://docs.example.org/new", loop = "http://127.0.0.1:8123/";
       const panel = "https://mcp.linear.app/panel", entry = (kind, url) => ({ kind, url });
       const ok = (...webEntries) => ({ state: "ok", tools: 1, webEntries });
-      library.servers.push({ ...library.servers.find(s => s.name === "here"), localConsole: true, name: "managed" });
+      library.servers.push({ ...library.servers.find(s => s.name === "here"), name: "example-service" });
       const replies = { ...found,
         here: ok(entry("website", site), entry("website", next), entry("console", loop), entry("logs", "javascript:void(0)")),
         inwsl: { ...ok(entry("website", site), entry("console", loop)), checked: ["Ubuntu"] },
-        managed: ok(entry("console", loop), entry("logs", loop + "logs"), entry("website", site)),
+        "example-service": ok(entry("console", loop), entry("logs", loop + "logs"), entry("website", site)),
         signed: ok(entry("console", "https://wrong.example.org/panel"), entry("console", panel), entry("logs", panel + "?token=x")),
         unsigned: { ...found.unsigned, webEntries: [entry("website", site)] },
       };
@@ -170,23 +170,22 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const buttons = name => row(name).locator(".lib-webentries button");
       const labels = name => buttons(name).allTextContents();
       await row("here").locator(".lib-health.ok").waitFor();
-      assert.deepEqual(await labels("here"), ["Website · " + site, ...(web ? [] : ["Open console · " + loop])]);
-      assert.deepEqual(await labels("inwsl"), ["Website · " + site]);
-      assert.deepEqual(await labels("signed"), ["Open console · " + panel]);
+      assert.deepEqual(await labels("here"), ["Open web page"]);
+      assert.equal(await buttons("here").getAttribute("title"), web ? site : loop);
+      assert.deepEqual(await labels("inwsl"), ["Open web page"]);
+      assert.deepEqual(await labels("signed"), ["Open web page"]);
       assert.deepEqual(await labels("unsigned"), []);
       assert.equal(await row("unsigned").locator(".lib-health.auth").textContent(), words.en.needs);
-      assert.deepEqual(await labels("managed"), [...(web ? [] : ["Manage targets", "View server logs"]), "Website · " + site]);
+      assert.deepEqual(await labels("example-service"), ["Open web page"]);
+      assert.equal(await buttons("example-service").getAttribute("title"), web ? site : loop);
+      assert.equal(await buttons("signed").getAttribute("title"), panel);
       assert.deepEqual(opened, []);
       assert.deepEqual(await page.evaluate(() => window.openedLinks), []);
       assert.equal(checks.length, 1);
-      if (!web) for (const [label, kind] of [["Manage targets", "console"], ["View server logs", "logs"]]) {
-        await Promise.all([page.waitForResponse(r => r.url().endsWith("/servers/open-" + kind)), row("managed").getByRole("button", { name: label, exact: true }).click()]);
-        assert.deepEqual(opened.at(-1), ["/api/library/servers/open-" + kind, { name: "managed" }]);
-      }
       const health = row("here").locator(".lib-health");
       await health.click();
-      await buttons("here").filter({ hasText: next }).waitFor();
-      assert.deepEqual(await labels("here"), ["View server logs · " + next]);
+      await row("here").locator(`.lib-webentries button[title="${next}"]`).waitFor();
+      assert.deepEqual(await labels("here"), ["Open web page"]);
       const click = () => buttons("here").click();
       if (web) {
         await click();
@@ -205,7 +204,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await row("here").locator(".lib-health.err").waitFor();
       assert.deepEqual(await labels("here"), []);
       assert.deepEqual(checks.slice(1), [{ names: ["here"], fresh: true }, { names: ["here"], fresh: true }]);
-      assert.equal(opened.length, web ? 0 : 3);
+      assert.equal(opened.length, web ? 0 : 1);
       assert.equal(await page.evaluate(() => window.openedLinks.length), web ? 1 : 0);
       assert.deepEqual(external, []);
     });
