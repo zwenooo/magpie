@@ -1,4 +1,4 @@
-> **zwenooo fork:** includes Cursor BYOK configuration management. See [FORK.md](FORK.md) for our builds, update policy and upstream merge procedure. The upstream downloads below do not include fork features. [Download this fork](https://github.com/zwenooo/magpie/releases/latest).
+> **zwenooo fork:** adds Cursor BYOK, its own releases and in-app updates, the CodeZ preset, imported Claude histories and handoff to any agent on the Sessions page, and MCP and Claude config folders carried by the library. See [FORK.md](FORK.md) for the full list, our builds, update policy and upstream merge procedure. The upstream downloads below do not include fork features. [Download this fork](https://github.com/zwenooo/magpie/releases/latest).
 
 <div align="center">
 

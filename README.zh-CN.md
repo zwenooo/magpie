@@ -1,4 +1,4 @@
-> **zwenooo 独立维护版：**包含 Cursor BYOK 配置管理。构建方式、更新策略和合并上游流程见 [FORK.md](FORK.md)。下方上游下载链接不包含本 fork 的功能。 [下载此 fork 的发行版](https://github.com/zwenooo/magpie/releases/latest)。
+> **zwenooo 独立维护版：**在上游之上增加了 Cursor BYOK、自己的发行版与应用内更新、CodeZ 预设、会话页的 Claude 历史导入和交接给任意 agent，以及随资料库同步的 MCP 与 Claude 配置目录。完整列表、构建方式、更新策略和合并上游流程见 [FORK.md](FORK.md)。下方上游下载链接不包含本 fork 的功能。 [下载此 fork 的发行版](https://github.com/zwenooo/magpie/releases/latest)。
 
 <div align="center">
 
