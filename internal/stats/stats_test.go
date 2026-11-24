@@ -194,7 +194,12 @@ func TestSendPartnerCounts(t *testing.T) {
 	defer srv.Close()
 	t.Setenv("MAGPIE_STATS_HOST", srv.URL)
 	// This upstream behavior is retained only for an explicitly enabled feed.
-	t.Setenv("MAGPIE_PARTNERS", srv.URL)
+	// The feed is a server of its own: counting asks which list each partner
+	// is in (partnerSlot), and the list it then fetches must not land among
+	// the stats batches.
+	feed := httptest.NewServer(http.NotFoundHandler())
+	defer feed.Close()
+	t.Setenv("MAGPIE_PARTNERS", feed.URL)
 	day := time.Date(2026, 9, 28, 9, 0, 0, 0, time.UTC)
 	partners := func(batch []map[string]any) []string {
 		var out []string
