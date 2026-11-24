@@ -159,6 +159,8 @@ internal/awake/awake.go
 internal/awake/awake_test.go
 internal/testenv/testenv.go
 internal/testenv/testenv_test.go
+internal/agent/applied.go
+internal/agent/claude.go
 docs/subsystems/gateway-routing.md
 docs/subsystems/claude-subscription-bridge.md
 

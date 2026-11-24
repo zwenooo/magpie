@@ -218,6 +218,7 @@ upstream `feb0d8d7f` (2026-11-24).
 | `httpServer` gives the serving loop and the handover tests one server, and the comments say an idle keep-alive connection to the old process may close (a8a349eed, 363e7b09d); the drain itself is upstream's | `gateway/gateway.go`, `gateway/handover.go` | test seam only |
 | `nextBeat` lets the keep-awake tests drive wakeups by events (e1f42fc0c) | `awake/awake.go` | test seam only |
 | The isolated test process pins `GOTMPDIR` to its sandbox's temporary root: Go 1.26's testing takes `GOTMPDIR` over `TMP`, so fixtures landed outside the folder the re-run child's HOME check expects (8362cae64) | `testenv/testenv.go` | not fixed |
+| An agent magpie set up whose config still sends every request to magpie's gateway is connected (`Wired`), whatever model it names: Claude Code with a model picked by `/model` that magpie doesn't list showed "not connected · on its Claude subscription" while its `ANTHROPIC_BASE_URL` was magpie's. Claude Code now has `Routed`, as Codex has | `agent/applied.go`, `agent/claude.go` | not fixed |
 
 Taken out because upstream fixed it:
 

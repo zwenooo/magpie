@@ -2550,6 +2550,9 @@ func claudeIn(at place) *Agent {
 		Fields:       fields,
 		ModelAliases: claudeAliases,
 		Telemetry:    claudeTelemetry(at, path),
+		// on magpie's address whatever model it names, as Codex's is
+		// (Wired, zwenooo/magpie fork)
+		Routed: routed,
 		// Claude Code as it was before magpie: its default puts it back as
 		// installed, on Anthropic's endpoint, where this brings back the
 		// endpoint, token and model the user had

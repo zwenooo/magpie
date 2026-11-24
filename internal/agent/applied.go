@@ -606,7 +606,12 @@ func (a *Agent) Wired() bool {
 			return !a.handWired()
 		}
 	}
-	return false
+	// magpie set it up and its config still sends every request to
+	// magpie's gateway: connected, whatever model it names now, one picked
+	// in the agent that magpie doesn't list included. Read by its model
+	// alone, Claude Code on magpie's address showed "not connected · on its
+	// Claude subscription" (zwenooo/magpie fork)
+	return a.Routed != nil && a.setUp() && a.Routed()
 }
 
 // Pick sets a field from the Agents page's model picker. One of magpie's
