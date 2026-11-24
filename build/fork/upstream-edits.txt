@@ -1,0 +1,185 @@
+# Upstream files this fork changes or deletes, grouped by why.
+#
+# build/fork/check-upstream-edits.ps1 compares this list with
+# `git diff --name-only --diff-filter=MD <merge base with upstream> HEAD`
+# and fails on a changed file that isn't listed, or a listed file that no
+# longer differs from upstream. Files the fork adds are not listed: they
+# are its own (see FORK.md's "Local features and boundaries").
+#
+# One path per line; `#` starts a comment. When a fork change touches an
+# upstream file, add it under the group it serves, or under "Fixes to
+# upstream behaviour" with what it fixes in FORK.md.
+
+# --- Cursor BYOK: registration, lifecycle and GUI hooks
+internal/agent/agents.go
+internal/agent/quitrestore.go
+internal/gui/api.go
+internal/gui/app.go
+internal/gui/backend.go
+internal/gui/handover.go
+internal/gui/assets/plugins/library/i18n.js
+docs/subsystems/agent-wiring.md
+Makefile
+.gitignore
+internal/agent/applied_test.go
+internal/agent/bili_chain_test.go
+internal/agent/disconnect_stays_test.go
+internal/agent/lan_kept_test.go
+internal/agent/proxy_kept_test.go
+internal/agent/rewire_test.go
+internal/library/every_agent_test.go
+internal/gui/shutdown_gateway_test.go
+
+# --- Shared GUI files: Cursor, updates, CodeZ and sessions strings
+internal/gui/assets/app.js
+internal/gui/assets/i18n.js
+
+# --- Own releases and in-app updates (va.<official>-vb.<fork>)
+internal/update/update.go
+internal/update/notes.go
+internal/update/image.go
+internal/update/mirror.go
+internal/update/fallback.go
+internal/update/fallback_test.go
+internal/cli/update_cli.go
+internal/gui/update.go
+internal/gui/update_remote.go
+internal/gui/stable_install.go
+internal/gui/assets/updatesource.js
+internal/gui/assets/updatetrust.js
+docs/reference.md
+docs/subsystems/gui-shell.md
+internal/update/attest_site_test.go
+internal/update/channel_test.go
+internal/update/download_test.go
+internal/update/image_test.go
+internal/update/signed_test.go
+internal/update/source_test.go
+internal/update/winarm_test.go
+internal/cli/update_container_cli_test.go
+internal/cli/update_flags_test.go
+internal/gui/stable_install_test.go
+internal/gui/update_blocked_test.go
+internal/gui/update_container_test.go
+internal/gui/update_remote_test.go
+internal/gui/whatsnew_fail_test.go
+internal/gui/whatsnew_test.go
+internal/gui/tests/about-website.test.cjs
+internal/gui/tests/remote-update.test.cjs
+internal/gui/tests/settings-update-source.test.cjs
+internal/gui/tests/update-auto.test.cjs
+internal/gui/tests/update-mirror.test.cjs
+internal/gui/tests/update-stuck.test.cjs
+site/docker-tags.test.mjs
+
+# --- CodeZ preset and partner promotions off by default
+internal/provider/partner_events.go
+internal/provider/partners.go
+internal/provider/presets.go
+internal/provider/provider.go
+docs/subsystems/providers-accounts.md
+internal/provider/partners_test.go
+internal/stats/stats_test.go
+
+# --- Sessions: custom Claude folders, Claude Desktop resume and
+# --- carry, and handoff to any agent
+internal/sessions/access.go
+internal/sessions/calls.go
+internal/sessions/carry.go
+internal/sessions/carry_convert.go
+internal/sessions/manage.go
+internal/sessions/relocate_claude.go
+internal/sessions/said_index.go
+internal/sessions/sessions.go
+internal/sessions/subagents.go
+internal/sessions/traces.go
+internal/sessions/transcript.go
+internal/cli/sessions_cli.go
+internal/gui/sessions_manage.go
+internal/gui/assets/plugins/sessions/client.js
+internal/gui/assets/plugins/sessions/i18n.js
+internal/gui/assets/plugins/sessions/sessions.css
+docs/subsystems/gateway-sessions.md
+internal/sessions/carry_convert_test.go
+
+# --- Library: MCP program and key folders, MCP programs updated from a
+# --- repository, profiles that follow their agent (ReClaude's and hand-added
+# --- Claude Code folders as claude# rows, their project MCP scope)
+internal/agent/claude_dirs.go
+internal/library/backup.go
+internal/library/carry.go
+internal/library/instructions.go
+internal/library/mcp_check.go
+internal/library/mcp_copy.go
+internal/library/mcp_run.go
+internal/library/mcp_wsl.go
+internal/library/project_mcp.go
+internal/library/project_scope.go
+internal/library/projects.go
+internal/library/sync.go
+internal/library/mcp.go
+internal/library/mcp_local.go
+internal/gui/library.go
+internal/gui/assets/plugins/library/client.js
+internal/gui/assets/plugins/library/library.css
+internal/cli/library_cli.go
+docs/subsystems/library.md
+internal/library/project_claude_plugins_test.go
+internal/library/project_plugins_test.go
+
+# --- Guards that list routes, budgets and models, given the fork's own
+internal/cli/settings_parity_test.go
+internal/gui/core_budget_test.go
+internal/gui/tests/icon-tile.test.cjs
+internal/proc/path_other_test.go
+internal/provider/multiproto_dedup_test.go
+
+# --- CI, packaging and READMEs (sponsor banners out)
+.github/ui-preview/README.md
+.github/ui-preview/publish.mjs
+.github/workflows/docker.yml
+.github/workflows/notes-mirror.yml
+.github/workflows/privacy-filter.yml
+.github/workflows/release.yml
+.github/workflows/test.yml
+.github/workflows/ui-preview.yml
+README.md
+README.zh-CN.md
+AGENTS.md
+
+# --- Fixes to upstream behaviour (FORK.md, "Fixes inside upstream code")
+internal/gateway/fastjson.go
+internal/gateway/textcalls_anthropic.go
+internal/gateway/gateway.go
+internal/gateway/handover.go
+internal/gui/handover_unix_test.go
+internal/pii/serve.go
+internal/pii/serve_test.go
+internal/awake/awake.go
+internal/awake/awake_test.go
+internal/testenv/testenv.go
+internal/testenv/testenv_test.go
+internal/agent/applied.go
+internal/agent/claude.go
+internal/agent/connectinfo.go
+docs/subsystems/gateway-routing.md
+docs/subsystems/claude-subscription-bridge.md
+
+# --- Upstream tests made to pass here (timing, Windows/WSL, race), the
+# --- code they test unchanged
+internal/agent/cliupdate_test.go
+internal/gateway/body_cap_test.go
+internal/gateway/body_limit_images_test.go
+internal/gateway/unrouted_test.go
+internal/gui/settings_keep_test.go
+internal/proc/env_test.go
+internal/proc/folder_linux_test.go
+internal/provider/codex_app_server_test.go
+internal/provider/keepalive_claude_test.go
+internal/provider/logins_unread_test.go
+internal/sessions/agy_test.go
+internal/sessions/cc_names_test.go
+internal/library/library_test.go
+internal/library/shared_skills_test.go
+internal/library/skillgit_test.go
+internal/usage/request_disk_test.go

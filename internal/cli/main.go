@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/coderun"
 	"os"
 	"slices"
 	"strings"
@@ -54,7 +55,7 @@ const usage = `magpie — one place to pick every agent's model
   magpie tui                      the same thing, in the terminal (serves the gateway while open when no magpie does)
   magpie web [--addr host:port] [--lan] [--no-open] [--gateway] [--tls-cert <file> --tls-key <file>]
                                   the app's window in a browser, with the gateway (no desktop needed: WSL, a server over SSH)
-                                  a new key each run; MAGPIE_WEB_KEY (16+ letters, digits, - . _ ~) keeps one, signed in for 400 days
+                                  a new key each run, signed in until the next; MAGPIE_WEB_KEY (16+ letters, digits, - . _ ~) keeps one, signed in for 400 days
                                   behind a reverse proxy, MAGPIE_WEB_URL=https://<the page there> prints the link through it
                                   --gateway: gateway mode, no Agents, Sessions or Library (on by itself with no agents here; Settings › General turns it off)
                                   --tls-cert/--tls-key: the page and the gateway over https:// to other computers
@@ -97,7 +98,7 @@ const usage = `magpie — one place to pick every agent's model
   magpie model name <provider/model> <name>|--reset       the name a model goes by, everywhere
   magpie model efforts <provider/model> <l>,<l>|--reset   the reasoning levels a model offers (magpie model help)
   magpie model api <provider/model> chat|responses|anthropic|gemini|auto   the API a model is asked on
-  magpie visible [<agent> <family|provider|group>,… | all | --only-picked | --show-new]
+  magpie visible [<agent> <family|provider|group>,… | all | --only-picked | --show-new | --provider-picks]
                                   which models an agent is shown: families (magpie provider/group set <id> family=…),
                                   or only the models ticked for it, a new one off until it is ticked
   magpie search [add <api> <key>|rm <api>]   Tavily, Brave, Exa, Firecrawl, You.com, DeepSeek, Doubao Search (Volcengine), Yuanbao Search (Tencent Cloud), TinyFish or SearXNG for web search when no provider can search
@@ -219,6 +220,11 @@ var (
 // Main runs magpie with os.Args, at the version the build was stamped with.
 func Main(v string) {
 	version = v
+	if coderun.Helping() {
+		// internal: a run_code script, in a process of its own; it reads
+		// and writes no file of magpie's
+		os.Exit(coderun.Main())
+	}
 	// before anything reads or writes a file: no home, or a relative one,
 	// would put the agents' configs and magpie's keys under the working
 	// folder. What needs no file still answers (magpie version in a

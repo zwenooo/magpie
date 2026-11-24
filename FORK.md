@@ -2,8 +2,25 @@
 
 This repository is an independently maintained fork of
 [yetone/magpie](https://github.com/yetone/magpie). The upstream license and
-attribution remain intact. Our main branch includes Cursor BYOK integration;
-upstream's installation links and releases do not include it.
+attribution remain intact. Our main branch adds these to upstream, and
+upstream's installation links and releases include none of them:
+
+- Cursor BYOK: Cursor uses magpie's models through a backend bundled in
+  magpie.
+- Our own releases and in-app updates (`va.<official>-vb.<fork>` tags).
+- The CodeZ preset, and partner promotions off by default.
+- Sessions: Claude history folders of any account imported read-only,
+  Claude Desktop histories resumed and carried into Claude Code or Codex,
+  and any conversation handed to any agent with a prompt.
+- Library: MCP servers' program and key folders carried by sync, an MCP
+  program updated from a reviewed GitHub commit, and any agent's profile
+  (another config folder of it) following that agent's Library, with
+  ReClaude's account folders as Claude Code profiles.
+
+It also carries a few fixes to upstream code that upstream doesn't have
+([Fixes inside upstream code](#fixes-inside-upstream-code)). Every upstream
+file the fork changes is listed, by reason, in
+[`build/fork/upstream-edits.txt`](build/fork/upstream-edits.txt).
 
 ## Local features and boundaries
 
@@ -20,10 +37,14 @@ internal/provider/fork_partners.go Partner-feed policy (off by default)
 internal/sessions/sources.go     Custom read-only session directory registration
 internal/gui/sessions_sources.go Session directory scan/import API
 internal/library/mcp_folders.go  MCP servers' program and key folders carried by sync
-internal/library/claude_dirs.go  The library given to Claude Code's other config folders
+internal/library/mcp_repo*.go    An MCP program updated from a reviewed GitHub commit
+internal/library/profile_follow.go  A profile agent that follows its agent's Library
+internal/library/fork_claude_dirs.go  Claude Code folders added by hand; the old claude-dirs records migrated
+internal/agent/fork_claude_homes.go  ReClaude's and hand-added Claude Code folders as claude# rows
 internal/sessions/handoff.go     A conversation condensed for any agent to carry on
 docs/cursor-byok.md              Setup and synchronization contract
 build/fork/                     Fork build and upstream merge commands
+build/fork/upstream-edits.txt   Every upstream file the fork changes, by reason
 .github/workflows/fork.yml       Fork integration checks on three platforms
 .github/workflows/release.yml    Full native packaging and gated own releases
 .github/workflows/fork-apt-cache.yml  Ubuntu archives for Linux builds, saved on main
@@ -81,29 +102,78 @@ is never copied into the backups, and is written 0700/0600. The state folder
 is never carried. The upstream hooks are small: `Bundle.Folders` and its
 calls in `carry.go`, `here` where a server is written or run (`sync.go`,
 `mcp_run.go`, `mcp_check.go`, `mcp_copy.go`, `project_mcp.go`), the folders
-following a rename or removal in `sync.go`, and `holdsSkills` keeping a
-program set aside in `backup.go`.
+following a rename or removal in `sync.go`, `holdsSkills` keeping a
+program set aside in `backup.go`, and `side` in `mcp_wsl.go` refusing a
+server whose program is kept in the library to an agent in WSL.
 
-Claude Code run in config folders of its own (`CLAUDE_CONFIG_DIR`: an account
-switcher's, such as ReClaude's `~/.rec/claude/accounts/<id>/config`, or
-magpie's saved accounts under `claude-accounts`) gets the library too
-(`internal/library/claude_dirs.go`). The last step of every sync gives each
-such folder that Claude Code has run in (it has a `.claude.json`), and each
-one added by hand (`magpie library claude-dirs add <folder>`), what Claude
-Code here was given, as written there: the same MCP entries (under Claude
-Code's own lock on that `.claude.json`, the file kept with the sync's
-backups first), project-local disabled servers and Hub routes, links to the
-same library skills and their generated slash commands, and the same
-instructions part in its `CLAUDE.md`. A same-named server there is replaced
-with the library's; an account's own skill folder by a skill's name is left
-and reported; a link to another copy is replaced. What magpie put in each
-folder is recorded in `claude-dirs.json` in magpie's folder, on this
-computer only and never carried, so what the library stops giving is taken
-out again and the user's own entries are never touched. Hooks, subagents
-and tool deny rules stay Claude Code here's. The upstream hooks are one step
-at the end of `syncSteps` (`sync.go`) and one after `changeInstructions`
-(`instructions.go`); `magpie library claude-dirs` lists the folders and what
-each holds of magpie's.
+Such a server can opt in to updates from a GitHub repository
+(`internal/library/mcp_repo*.go`; the steps are in
+[the library reference](docs/subsystems/library.md#updating-an-mcp-program-from-a-repository-fork)).
+`magpie library mcp repo-check` previews a ref's commit, and `repo-update`
+installs the commit the user reviewed as the server's program; a private
+repository is read through the local GitHub CLI's sign-in, never a token
+in the server. The library carries the source and revision, not the
+program, so another computer installs it only when asked there. The
+upstream hooks are the `Repo*` fields on `Server` (`mcp.go`), `putServers`
+keeping the commit this computer installed when a synced copy comes in
+(`mcp_local.go`), the `servers/repo-check` and `servers/repo-update`
+routes (`internal/gui/library.go`), their commands in `library_cli.go`, and
+the server sheet's repository section, with Check for updates, Preview
+commit and Apply this commit (`client.js`, `library.css`).
+
+An agent kept in more than one config folder is an agent of its own per
+folder upstream: `claude#work` for `~/.claude-work`, `hermes#coder`,
+`omp#work`, each ticked on its own. The fork lets such a profile follow its
+agent's Library instead (`internal/library/profile_follow.go`): each sync's
+first step ticks a follower wherever its agent is ticked and nowhere else,
+in every agents list of the library, and the rest of the sync gives it what
+it gives any agent, recorded in its own `Applied`. This works for any agent
+with profiles; `magpie library follow` lists them and `magpie library
+follow <agent> on|off` switches one. One turned off keeps its ticks, its
+own from then on; one gone from the computer loses them.
+
+ReClaude's account folders (`~/.rec/claude/accounts/<id>/config`) and
+Claude Code folders added by hand (`magpie library claude-dirs add
+<folder>`, listed in `claude-dirs.json`) are `claude#` rows too
+(`internal/agent/fork_claude_homes.go`, `claude#rec-<id>`), and follow
+Claude Code by default. They get what upstream gives a `claude#` row: MCP
+servers, skills and instructions; the skill router's slash commands, hooks,
+subagents and tool deny rules stay Claude Code's own folder's. Claude Code
+keeps a project's disabled servers and Hub entry in the folder's own
+`.claude.json`, so a following folder gets Claude Code's there too, with
+what magpie wrote kept in `library-follow.json` on this computer only.
+magpie's saved accounts (`claude-accounts`) are no rows: the gateway runs
+Claude Code there. The fork's earlier sync of these folders recorded what it
+wrote in `claude-dirs.json`'s `given`; the first sync after the change hands
+that to each folder's own record (`internal/library/fork_claude_dirs.go`),
+so nothing is written twice or left behind as the user's, and takes it out
+of a folder that is no row.
+
+The upstream hooks are one line in `claudeDirAgents`
+(`internal/agent/claude_dirs.go`), a first step in `syncSteps` (`sync.go`),
+one before each instructions-only write (`instructions.go`),
+`syncClaudeLocal` given its file's path as `syncClaudeLocalIn` and calling
+the followers' after Claude Code's (`project_scope.go`), and `RemoveProject`
+forgetting their records with Keep (`projects.go`).
+
+A Claude history folder magpie doesn't read on its own (another account's
+`CLAUDE_CONFIG_DIR`, a copy from another computer, Claude Desktop's) can be
+added as a read-only source on the Sessions page
+(`internal/sessions/sources.go`, `internal/gui/sessions_sources.go`): a
+scan, after the user allows it, previews up to fifty sessions and imports
+the whole folder, and sessions added there later show up too. magpie never
+writes a source: an imported session can't be deleted or moved, and a
+project move through a source or into one is refused, through links too.
+An imported session, and a Claude Desktop one, is resumed where it is
+(`claude --resume <id>` in its working folder, `CLAUDE_CONFIG_DIR` naming
+its config folder unless that is Claude Code's own, compared by real path),
+and Continue in copies it into Claude Code or Codex as a new session. The
+upstream hooks are `sourcesForRead` in `Dirs` and `resumeOf` in `assemble`
+(`sessions.go`) and `manage.go`, the readers that walk a folder
+(`access.go`, `calls.go`, `subagents.go`, `traces.go`, `transcript.go`,
+`said_index.go`), `relocate_claude.go` refusing moves, `carry.go` and
+`carry_convert.go` for Claude Desktop's copy, and the Sessions plugin's
+import dialog (`client.js`, `i18n.js`, `sessions.css`).
 
 Any conversation magpie reads can be carried on in any installed agent
 with a prompt, nothing converted (`internal/sessions/handoff.go`). The
@@ -133,6 +203,36 @@ upstream hooks are `sessionHandoffRoutes` in `sessions_manage.go`, the
 `handoff` case in `sessions_cli.go`, and the menu and its words in the
 Sessions plugin (`client.js`, `i18n.js`).
 
+## Fixes inside upstream code
+
+These change upstream's own behaviour, not a fork feature. Each is checked
+against upstream's code on every merge; one upstream has fixed, in its own
+way or ours, comes out of the fork. Upstream state below is as of
+upstream `feb0d8d7f` (2026-11-24).
+
+| Fix | Where | Upstream |
+| --- | --- | --- |
+| A held empty text block's start goes out before the next Messages block's start, so later deltas and stops for its index refer to a block the client has seen (c9202b01a) | `gateway/textcalls_anthropic.go` | not fixed |
+| pf-serve's timeout cause is kept when the reader sees a closed pipe instead of EOF (92b1c5ef7) | `pii/serve.go` | not fixed |
+| JSON padding is skipped 1 KiB at a time, so a body padded past 64 MiB doesn't spend the pre-routing deadline under `-race` (ce01f86c0, bb7de239e) | `gateway/fastjson.go` | not fixed |
+| `httpServer` gives the serving loop and the handover tests one server, and the comments say an idle keep-alive connection to the old process may close (a8a349eed, 363e7b09d); the drain itself is upstream's | `gateway/gateway.go`, `gateway/handover.go` | test seam only |
+| `nextBeat` lets the keep-awake tests drive wakeups by events (e1f42fc0c) | `awake/awake.go` | test seam only |
+| The isolated test process pins `GOTMPDIR` to its sandbox's temporary root: Go 1.26's testing takes `GOTMPDIR` over `TMP`, so fixtures landed outside the folder the re-run child's HOME check expects (8362cae64) | `testenv/testenv.go` | not fixed |
+| An agent magpie set up whose config still sends every request to magpie's gateway is connected (`Wired`), whatever model it names: Claude Code with a model picked by `/model` that magpie doesn't list showed "not connected · on its Claude subscription" while its `ANTHROPIC_BASE_URL` was magpie's. Claude Code now has `Routed`, as Codex has | `agent/applied.go`, `agent/claude.go` | not fixed |
+| One not connected whose config still sends to magpie (an address written by hand) says so (`Source` "magpie", one line in `connectLine`, its words in four languages), not its own sign-in. Switching Claude Code off also takes out a model name magpie serves and Anthropic doesn't (`magpieOnlyName`: gpt-6.2-astra, not a Claude name, not one magpie doesn't serve) | `agent/connectinfo.go`, `agent/claude.go`, `gui/assets/app.js`, `gui/assets/i18n.js` | not fixed |
+
+Taken out because upstream fixed it:
+
+- `summaryTooLarge` reading a size refusal from a 200 stream's error event
+  (890c0803b). Upstream 5ee9a1874 fixed #4862 by never keeping magpie's own
+  summary ask alive, so its refusal keeps its 413.
+- The routing strategies row saying "besides Quota first" (d2f7c3290):
+  upstream's 4d92af050 is the same change, merged at feb0d8d7f.
+
+The last group in `build/fork/upstream-edits.txt` is upstream tests changed
+so they pass on Windows, in WSL or under `-race`; the code they test is
+upstream's.
+
 ## Remotes and branches
 
 - `origin`: `https://github.com/zwenooo/magpie.git` (our normal push target).
@@ -154,6 +254,13 @@ Fetches don't automatically import new upstream tags.
 
 On each merge, pay attention to:
 
+- `./build/fork/check-upstream-edits.ps1` passes: every upstream file the
+  fork changes is in `build/fork/upstream-edits.txt`, and nothing listed is
+  upstream's again. `sync-upstream.ps1` runs it after a merge without
+  conflicts; after resolving conflicts, run it once the merge is committed.
+  `fork.yml` runs it on every pull request and every release.
+- Each fix in [Fixes inside upstream code](#fixes-inside-upstream-code)
+  against upstream's new code: one upstream has fixed comes out.
 - Keep sponsor banners and promotional links out of both READMEs; retain
   upstream attribution, license notices and privacy disclosures.
 - Agent registration, catalog fields, protocol names, key generation and
@@ -241,6 +348,7 @@ Run tests in the repository's sandbox (`TestMain`/`testenv` isolates agent
 files). Pin `GOPATH`, `GOMODCACHE` and `GOCACHE` before changing HOME.
 
 ```text
+pwsh ./build/fork/check-upstream-edits.ps1
 go test -tags nogui ./internal/cursorbyok ./internal/agent ./internal/update -run 'TestCursorBYOK|TestPortMovesEveryAgent|TestDisconnectStaysThroughSync|TestGrokInstalled|TestFork' -count=1
 go test -tags nogui ./internal/provider ./internal/stats -run 'TestFork|TestPartners|TestPartner|TestCountPartner|TestNoticePartners|TestSendPartnerCounts' -count=1
 go test -tags nogui ./internal/update -run '^TestFork' -count=1

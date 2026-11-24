@@ -79,7 +79,14 @@ func TestSourceResumeInItsConfigFolder(t *testing.T) {
 	path := resumeSourceFixture(t, filepath.Join(config, "projects"), cwd)
 	before, _ := os.ReadFile(path)
 	s := listedSource(t)
-	for _, want := range []string{"claude --resume " + resumeSourceID, "CLAUDE_CONFIG_DIR", config, cwd} {
+	// a source is kept by its real path, so the config folder is named the
+	// way the disk spells it: D:\temp under TMP's D:\Temp, macOS's
+	// /private/var under /var
+	real, err := sourceRealPath(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"claude --resume " + resumeSourceID, "CLAUDE_CONFIG_DIR", real, cwd} {
 		if !strings.Contains(s.Resume, want) {
 			t.Fatalf("resume %q lacks %q", s.Resume, want)
 		}

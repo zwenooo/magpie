@@ -65,6 +65,10 @@ type Project struct {
 	// (project_subagents.go)
 	Subagents  map[string][]string `json:"subagents,omitempty"`
 	AgentFiles []SubagentFile      `json:"agentFiles,omitempty"`
+	// Hooks are the library's hooks the project has on their own, and for
+	// which agents, written into each agent's project hooks file like
+	// those of its plugins (HookRecs; project_plugins.go)
+	Hooks map[string][]string `json:"hooks,omitempty"`
 	// Instr is the project's own instructions, InstrAgents the agents
 	// whose project file they're written into, InstrFiles the files
 	// magpie wrote them in (project_instructions.go)
@@ -83,6 +87,14 @@ type Project struct {
 	// ones it takes out (project_claude_plugins.go)
 	ClaudePlugins []string `json:"claudePlugins,omitempty"`
 	ClaudeWrote   []string `json:"claudeWrote,omitempty"`
+	// Pi are the Pi packages the project wants in its .pi/settings.json by
+	// source ("on" or "off"), PiRecs the entries magpie wrote or adopted
+	// (project_pi.go)
+	Pi     map[string]string `json:"pi,omitempty"`
+	PiRecs []PiRec           `json:"piRecs,omitempty"`
+	// reshaped: claudePlugins or pi was read in another build's shape
+	// (project_shapes.go)
+	reshaped bool
 }
 
 // projectSkillsDirs is where, in a project, each agent reads skills of its
@@ -96,7 +108,9 @@ type Project struct {
 // (getProjectSkillsDir, @qoder-ai/qodercli 1.1.69, whose .agents/skills
 // a setting can turn off), CodeBuddy Code .codebuddy/skills
 // (getProjectSkillsDir, @tencent-ai/codebuddy-code 2.164.0) and Command
-// Code .commandcode/skills (commandcode.ai/docs/skills). DeepSeek Harness
+// Code .commandcode/skills (commandcode.ai/docs/skills), TRAE CN
+// .trae/skills (its workbench's joinPath(workspace, ".trae", "skills"),
+// 2.3.105403; docs.trae.cn/ide_skills). DeepSeek Harness
 // reads <projectRoot>/.dsh/skills and <projectRoot>/.agents/skills, the
 // project root being the nearest folder up from where it runs with a .git
 // in it, else that folder itself (the provider's roots and findProjectRoot,
@@ -127,6 +141,7 @@ var projectSkillsDirs = map[string]string{
 	"qoder-cn":    ".qoder/skills",
 	"codebuddy":   ".codebuddy/skills",
 	"commandcode": ".commandcode/skills",
+	"trae-cn":     ".trae/skills",
 }
 
 // ProjectSkillsDir is the folder, in a project, an agent reads its skills
@@ -157,7 +172,7 @@ func (l *Library) syncProjects(res *Result) {
 
 func (l *Library) syncProject(p *Project, res *Result) {
 	if fi, err := os.Stat(p.Dir); err != nil || !fi.IsDir() {
-		if len(p.Skills) > 0 || len(p.Servers) > 0 || len(p.Subagents) > 0 || len(p.Plugins) > 0 || len(p.ClaudePlugins) > 0 || len(p.ServersOff) > 0 || len(p.SkillsOff) > 0 || p.Instr != "" && len(p.InstrAgents) > 0 || p.holds() {
+		if len(p.Skills) > 0 || len(p.Servers) > 0 || len(p.Subagents) > 0 || len(p.Plugins) > 0 || len(p.Hooks) > 0 || len(p.ClaudePlugins) > 0 || len(p.Pi) > 0 || len(p.ServersOff) > 0 || len(p.SkillsOff) > 0 || p.Instr != "" && len(p.InstrAgents) > 0 || p.holds() {
 			res.Problems = append(res.Problems, Problem{Agent: p.Dir, What: "project:", Error: "the folder is gone"})
 		}
 		return
@@ -187,9 +202,9 @@ func (l *Library) syncFolder(p *Project, res *Result, hubs map[string]*Server) {
 	}
 	want := map[string]string{} // entry → the skill
 	// the entries given as copies: all of them in a project that takes
-	// copies, else those an agent reads that skips a junction
-	// (skipsJunctions), which is magpie's link on Windows without the
-	// right to make a symlink
+	// copies, else those an agent reads that skips magpie's link there
+	// (projectCopies): Antigravity's on every system, and on Windows a
+	// junction, magpie's link without the right to make a symlink
 	copies := map[string]bool{}
 	for name, agents := range p.Skills {
 		if s := l.skill(name); s == nil || s.Dangling { // none, or its source is gone (skill_dangling.go)
@@ -199,7 +214,7 @@ func (l *Library) syncFolder(p *Project, res *Result, hubs map[string]*Server) {
 			if d := ProjectSkillsDir(id); d != "" {
 				e := d + "/" + name
 				want[e] = name
-				copies[e] = copies[e] || p.Copy || skipsJunctions(id)
+				copies[e] = copies[e] || p.Copy || projectCopies(id)
 			}
 		}
 	}
@@ -253,6 +268,7 @@ func (l *Library) syncFolder(p *Project, res *Result, hubs map[string]*Server) {
 	l.syncProjectInstr(p, fail)
 	l.syncProjectHooks(p, fail)
 	l.syncProjectClaudePlugins(p, fail)
+	l.syncProjectPi(p, fail)
 	p.tidy()
 }
 
@@ -536,7 +552,7 @@ func RemoveProject(dir string, keep bool) (*Result, error) {
 			return fmt.Errorf("no project %s", dir)
 		}
 		if keep {
-			if err := forgetClaudeDirProject(claudeRoot(p.Dir)); err != nil {
+			if err := forgetFollowersProject(p.Dir); err != nil {
 				return err
 			}
 			l.Projects = slices.DeleteFunc(l.Projects, func(x *Project) bool { return x == p })
@@ -555,7 +571,7 @@ func RemoveProject(dir string, keep bool) (*Result, error) {
 			l.Projects = slices.DeleteFunc(l.Projects, func(x *Project) bool { return x == p })
 			return nil
 		}
-		p.Skills, p.Servers, p.ServersOff, p.SkillsOff, p.Subagents, p.InstrAgents, p.Plugins, p.ClaudePlugins = nil, nil, nil, nil, nil, nil, nil, nil
+		p.Skills, p.Servers, p.ServersOff, p.SkillsOff, p.Subagents, p.InstrAgents, p.Plugins, p.ClaudePlugins, p.Hooks, p.Pi = nil, nil, nil, nil, nil, nil, nil, nil, nil, nil
 		l.syncProject(p, &Result{})
 		if !p.holds() && p.Claude == nil && !slices.ContainsFunc(p.Trees, (*Project).holds) {
 			l.Projects = slices.DeleteFunc(l.Projects, func(x *Project) bool { return x == p })
@@ -655,13 +671,30 @@ type ProjectView struct {
 	// ClaudePlugins are the plugins Claude Code has installed that the
 	// project turns on for itself
 	ClaudePlugins []string `json:"claudePlugins"`
-	Missing       bool     `json:"missing,omitempty"` // the folder is gone
+	// ClaudeNative are, by plugin, the ids Claude Code loads the project's
+	// plugins under itself here: magpie doesn't give them to Claude Code
+	// in the project. ClaudeTwice are those given to Claude Code
+	// user-wide that it loads itself here alone, which run twice in the
+	// project (claude_native_overlap.go)
+	ClaudeNative map[string]string `json:"claudeNative,omitempty"`
+	ClaudeTwice  map[string]string `json:"claudeTwice,omitempty"`
+	// Pi are the Pi packages the project has by magpie (#7249)
+	Pi []ProjectPiView `json:"pi"`
+	// Hooks are the library's hooks the project has on their own, for
+	// the agents given
+	Hooks map[string][]string `json:"hooks"`
+	// Own are, by kind (skills, servers, hooks, subagents), what the
+	// project's own files already give agents and magpie didn't place:
+	// read-only (#7245)
+	Own     map[string][]OwnResource `json:"own,omitempty"`
+	Missing bool                     `json:"missing,omitempty"` // the folder is gone
 	// Problems are, by skill ("" for the project's own), what couldn't be done
 	Problems map[string]string `json:"problems,omitempty"`
 }
 
 func projectViews(l *Library, problems []Problem) []ProjectView {
 	out := []ProjectView{}
+	userNatives := l.claudeNatives("")
 	for _, p := range l.Projects {
 		v := ProjectView{Dir: p.Dir, Name: filepath.Base(p.Dir), Copy: p.Copy, Skills: map[string][]string{}, Placed: append([]string{}, p.Placed...)}
 		for k, a := range p.Skills {
@@ -698,11 +731,19 @@ func projectViews(l *Library, problems []Problem) []ProjectView {
 			v.Plugins[k] = append([]string{}, a...)
 		}
 		v.ClaudePlugins = append([]string{}, p.ClaudePlugins...)
+		v.ClaudeNative, v.ClaudeTwice = l.projectClaudeOverlap(p, userNatives)
+		v.Pi = append([]ProjectPiView{}, p.piViews()...)
+		v.Hooks = map[string][]string{}
+		for k, a := range p.Hooks {
+			v.Hooks[k] = append([]string{}, a...)
+		}
 		for _, t := range p.Trees {
 			v.Trees = append(v.Trees, t.Dir)
 		}
 		if fi, err := os.Stat(p.Dir); err != nil || !fi.IsDir() {
 			v.Missing = true
+		} else {
+			v.Own = p.ownResources()
 		}
 		for _, x := range problems {
 			if x.Agent == p.Dir {

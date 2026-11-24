@@ -14,7 +14,7 @@ unchanged for source compatibility.
 | Release | `v*` tag, or manual dispatch | All native packages and checks; a dispatch without `publish` builds only. Pushes to `main` and branches don't run it (the tag's run is the one that counts) |
 | Promote verified release | Manual dispatch from `main` with a successful Release run ID and matching public tag | Publish that run's already validated artifacts without rebuilding |
 | Test | Called by Release for its resolved SHA, PR, or manual dispatch | Upstream Linux/macOS tests and races, Windows compile/native tests, Linux/Android CLI and site checks. Release asks for Linux and Windows only (`oses`): macOS keeps the fork checks and native builds, not the 50-minute suite, whose GUI tests flake on its runners |
-| Fork integration checks | Called by Release for the same SHA, PR, or manual dispatch | Cursor BYOK and update-policy tests on Linux, macOS and Windows |
+| Fork integration checks | Called by Release for the same SHA, PR, or manual dispatch | Cursor BYOK and update-policy tests on Linux, macOS and Windows; on Linux, every upstream file the fork changes is listed in `build/fork/upstream-edits.txt` (`check-upstream-edits.ps1` against upstream's fetched `main`) |
 | Docker | `v*`, relevant PR, manual dispatch | Native amd64/arm64 smoke builds; trusted runs publish this fork's GHCR image and provenance |
 | privacy-filter | Relevant source changes, `pf-v*`, manual dispatch | Five native helper targets; `pf-v*` publishes a separate prerelease |
 | UI preview | Opt-in PR/manual dispatch | Screenshots/video for trusted same-repository PRs, with separate read-only recording and publishing jobs |

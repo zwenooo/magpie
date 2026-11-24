@@ -50,9 +50,10 @@ const libraryUsage = `magpie library                     what the library gives 
   magpie library skill hand-over <name…>|--all   move skills kept in ~/.agents/skills into the library's folder: the agents that read them
                                      there keep them, ticked, and you can turn each off
   magpie library skill hand-back <name>  …and back into ~/.agents/skills, where those agents read it whatever is ticked
-  magpie library skill rm <name>     (skills are installed from the app's Library page)
-  magpie library skill rm --all [--yes]   every skill out of the library and the agents (asks first; --yes doesn't)
-  magpie library skill rm --gone [--yes]  every skill an update found removed from its source (asks first; --yes doesn't)
+  magpie library skill rm <name> [--no-backup]   (skills are installed from the app's Library page)
+                                     its folder goes to magpie's backups; --no-backup deletes it (a folder of yours it links to stays)
+  magpie library skill rm --all [--yes] [--no-backup]   every skill out of the library and the agents (asks first; --yes doesn't)
+  magpie library skill rm --gone [--yes] [--no-backup]  every skill an update found removed from its source (asks first; --yes doesn't)
   magpie library skill update [name] fetch a skill from GitHub again; with no name, every one from there
                                      (one changed here is left as it is; update it by name with --replace-edits)
   magpie library skill how link|copy [agent]   give skills as links to the library's or as copies: every agent's way, or one agent's
@@ -61,12 +62,15 @@ const libraryUsage = `magpie library                     what the library gives 
   magpie library skill auto-update on|off      fetch each skill from GitHub or git again by itself when it changes there (one changed here stays)
   magpie library skill use-library <name> <agent>   an agent's own skill by that name is in the way: set it aside, link the library's
   magpie library skill keep-own <name> <agent>      …or keep the agent's, and take the agent off the library's
-  magpie library claude-dirs         Claude Code's other config folders (ReClaude's accounts, magpie's saved ones):
-                                     each gets what Claude Code here is given, at every sync
-  magpie library claude-dirs add <folder>   one more, by hand
+  magpie library plugin [list]       the library's plugins (Library › Claude plugins): magpie library plugin help
+  magpie library plugin import <folder | owner/repo | git address> [plugin…] [agents=a,b…|none]   put a source's plugins in the library, as Library › Claude plugins does
+  magpie library follow              the agents' profiles (claude#work, a ReClaude account's claude#rec-…), and which follow their agent's Library
+  magpie library follow <agent> on|off   one is given what its agent is given at every sync, or is ticked on its own
+  magpie library claude-dirs         the Claude Code folders that are rows of their own (claude#…)
+  magpie library claude-dirs add <folder>   one more, by hand: a claude# row that follows Claude Code
   magpie library claude-dirs rm <folder>    one added by hand off again, with what magpie put there
   magpie library project …           a project folder's own skills (Library › Projects): magpie library project help
-  magpie library native              what plugins Codex and packages Pi installed themselves declare (read only; the agent loads them)
+  magpie library native              what plugins Codex and Claude Code and packages Pi installed themselves declare (read only; the agent loads them)
   magpie library rtk                 which agents run their shell commands through RTK (rtk-ai.app), to save tokens
   magpie library rtk on|off <agent>  switch it (on with RTK's own installer; off works with RTK gone)
   magpie library rtk install         install RTK (Homebrew, winget, or RTK's own script)
@@ -334,8 +338,8 @@ func libraryCmd(args []string) error {
 			if res, err = library.HandBackSkill(rest[1]); err == nil {
 				fmt.Println(green.Render("✓"), rest[1], "is back in", filepath.Join("~", ".agents", "skills", rest[1]))
 			}
-		case len(rest) == 2 && rest[0] == "rm":
-			res, err = library.RemoveSkill(rest[1])
+		case (len(rest) == 2 || len(rest) == 3 && rest[2] == "--no-backup") && rest[0] == "rm" && !strings.HasPrefix(rest[1], "-"):
+			res, err = library.RemoveSkillsHow([]string{rest[1]}, len(rest) == 2)
 		case len(rest) == 3 && rest[0] == "use-library":
 			res, err = library.UseLibrarySkill(rest[1], rest[2])
 		case len(rest) == 3 && rest[0] == "keep-own":
@@ -380,11 +384,21 @@ func libraryCmd(args []string) error {
 		return libraryNativeCmd(rest)
 	case "rtk":
 		return rtkCmd(rest)
-	case "claude-dirs":
-		// Claude Code's other config folders (claude_dirs.go, zwenooo/magpie fork)
+	case "follow":
+		// profiles that follow their agent (profile_follow.go, zwenooo/magpie fork)
 		switch {
 		case len(rest) == 0:
-			return printClaudeDirs(true)
+			return printFollow(true, "")
+		case len(rest) == 2 && (rest[1] == "on" || rest[1] == "off"):
+			res, err = library.Follow(rest[0], rest[1] == "on")
+		default:
+			return fmt.Errorf("usage:\n  %s", libraryUsage)
+		}
+	case "claude-dirs":
+		// Claude Code folders that are rows of their own (fork_claude_dirs.go, zwenooo/magpie fork)
+		switch {
+		case len(rest) == 0:
+			return printFollow(true, "claude")
 		case len(rest) == 2 && rest[0] == "add":
 			res, err = library.AddClaudeDir(rest[1])
 		case len(rest) == 2 && (rest[0] == "rm" || rest[0] == "remove"):
@@ -394,6 +408,8 @@ func libraryCmd(args []string) error {
 		}
 	case "project", "projects":
 		return libraryProjectCmd(rest)
+	case "plugin", "plugins":
+		return libraryPluginCmd(rest)
 	case "help", "-h", "--help":
 		fmt.Print("  " + libraryUsage)
 		return nil
@@ -419,10 +435,12 @@ func libraryCmd(args []string) error {
 // terminal; with no terminal to ask on, only --yes takes them. A library
 // with no skills is said, and answers a nil result.
 func removeEverySkill(args []string) (*library.Result, error) {
-	yes := false
+	yes, keep := false, true
 	for _, a := range args {
 		switch a {
 		case "--all":
+		case "--no-backup":
+			keep = false
 		case "--yes", "-y":
 			yes = true
 		default:
@@ -445,14 +463,18 @@ func removeEverySkill(args []string) (*library.Result, error) {
 		if !term.IsTerminal(int(os.Stdin.Fd())) {
 			return nil, fmt.Errorf("this removes all %s; run it with --yes to do so without being asked", plural(len(names), "skill"))
 		}
-		fmt.Printf("Remove all %s (%s) from the library and every agent? Folders magpie keeps go to its backups; folders of your own are only unlinked. [y/N] ",
-			plural(len(names), "skill"), strings.Join(names, ", "))
+		where := "Folders magpie keeps go to its backups"
+		if !keep {
+			where = "Folders magpie keeps are deleted, with no backup"
+		}
+		fmt.Printf("Remove all %s (%s) from the library and every agent? %s; folders of your own are only unlinked. [y/N] ",
+			plural(len(names), "skill"), strings.Join(names, ", "), where)
 		line, _ := stdin().ReadString('\n')
 		if a := strings.ToLower(strings.TrimSpace(line)); a != "y" && a != "yes" {
 			return nil, fmt.Errorf("nothing removed")
 		}
 	}
-	res, err := library.RemoveSkills(names)
+	res, err := library.RemoveSkillsHow(names, keep)
 	if err != nil {
 		return nil, err
 	}
@@ -470,10 +492,12 @@ func removeEverySkill(args []string) (*library.Result, error) {
 // update or a check found its source without, asked about first, naming
 // the ones changed here.
 func removeGoneSkills(args []string) (*library.Result, error) {
-	yes := false
+	yes, keep := false, true
 	for _, a := range args {
 		switch a {
 		case "--gone":
+		case "--no-backup":
+			keep = false
 		case "--yes", "-y":
 			yes = true
 		default:
@@ -504,14 +528,18 @@ func removeGoneSkills(args []string) (*library.Result, error) {
 		if !term.IsTerminal(int(os.Stdin.Fd())) {
 			return nil, fmt.Errorf("this removes %s removed from their source; run it with --yes to do so without being asked", plural(len(names), "skill"))
 		}
-		fmt.Printf("Remove %s removed from their source (%s) from the library and every agent? The library's folders go to magpie's backups. [y/N] ",
-			plural(len(names), "skill"), strings.Join(shown, ", "))
+		where := "The library's folders go to magpie's backups."
+		if !keep {
+			where = "The library's folders are deleted, with no backup."
+		}
+		fmt.Printf("Remove %s removed from their source (%s) from the library and every agent? %s [y/N] ",
+			plural(len(names), "skill"), strings.Join(shown, ", "), where)
 		line, _ := stdin().ReadString('\n')
 		if a := strings.ToLower(strings.TrimSpace(line)); a != "y" && a != "yes" {
 			return nil, fmt.Errorf("nothing removed")
 		}
 	}
-	res, err := library.RemoveGoneSkills(names)
+	res, err := library.RemoveGoneSkillsHow(names, keep)
 	if err != nil {
 		return nil, err
 	}
@@ -695,39 +723,46 @@ func libraryStatus() error {
 			fmt.Println("   ", muted.Render("off on this computer · magpie library skill on-here "+s.Name))
 		}
 	}
-	if err := printClaudeDirs(false); err != nil {
+	if err := printFollow(false, ""); err != nil {
 		return err
 	}
 	fmt.Println(muted.Render("  kept in " + v.Dir + " · magpie library help"))
 	return nil
 }
 
-// printClaudeDirs lists Claude Code's other config folders, each with what
-// magpie put there at the last sync (claude_dirs.go); alone, it also says
-// when there is none.
-func printClaudeDirs(alone bool) error {
-	dirs, err := library.ClaudeDirsView()
+// printFollow lists the agents' profiles here (of parent alone, when set),
+// each with whether it follows its agent and what magpie last gave it;
+// alone, it also says when there is none.
+func printFollow(alone bool, parent string) error {
+	views, err := library.FollowViews()
 	if err != nil {
 		return err
 	}
-	if len(dirs) == 0 {
+	views = slices.DeleteFunc(views, func(v library.FollowView) bool { return parent != "" && v.Parent != parent })
+	if len(views) == 0 {
 		if alone {
-			fmt.Println(muted.Render("No other Claude Code folder here: only Claude Code's own gets the library."))
-			fmt.Println(muted.Render("  magpie library claude-dirs add <folder> gives it to another"))
+			fmt.Println(muted.Render("No agent here has a profile of its own (another config folder)."))
+			fmt.Println(muted.Render("  magpie library claude-dirs add <folder> makes a Claude Code folder one"))
 		}
 		return nil
 	}
-	fmt.Println(bold.Render("Claude Code's other folders") + muted.Render(" · each gets what Claude Code here is given"))
-	for _, d := range dirs {
-		what := fmt.Sprintf("%d MCP servers, %d skills", len(d.MCP), len(d.Skills))
-		if d.Instructions {
-			what += ", instructions"
+	fmt.Println(bold.Render("Profiles") + muted.Render(" · an agent's other config folders, each an agent of its own"))
+	for _, v := range views {
+		how := "ticked on its own"
+		if v.Follows {
+			how = "follows " + v.Parent
 		}
-		line := "  " + bold.Render(d.Dir) + " " + muted.Render(what)
-		if d.ByHand {
+		if !v.Chosen {
+			how += " (default)"
+		}
+		line := "  " + bold.Render(v.ID) + " " + muted.Render(fmt.Sprintf("%s · %d MCP servers, %d skills · %s", how, len(v.MCP), len(v.Skills), v.Dir))
+		if v.ByHand {
 			line += muted.Render(" · added by hand")
 		}
 		fmt.Println(line)
+	}
+	if alone {
+		fmt.Println(muted.Render("  magpie library follow <agent> on|off switches one"))
 	}
 	return nil
 }

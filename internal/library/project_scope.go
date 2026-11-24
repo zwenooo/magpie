@@ -11,8 +11,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/jsonc"
 	"github.com/yetone/magpie/internal/claudelock"
 	"github.com/yetone/magpie/internal/edit"
 	"github.com/yetone/magpie/internal/gateway"
@@ -167,11 +165,25 @@ func (l *Library) projectByKey(key string) *Project {
 // turns off in its disabledMcpServers; what magpie wrote there before and
 // no longer wants comes out, and nothing else of the record changes.
 func (l *Library) syncClaudeLocal(p *Project, hub *Server, fail func(what string, err error)) {
-	want := l.claudeOff(p)
-	if p.Claude == nil && hub == nil && len(want) == 0 {
+	l.syncClaudeLocalIn(claudeJSON(), &p.Claude, p, hub, fail)
+	// and in each Claude Code folder that follows Claude Code's Library
+	// (profile_follow.go, zwenooo/magpie fork)
+	l.syncFollowersClaudeLocal(p, hub, fail)
+}
+
+// syncClaudeLocalIn is syncClaudeLocal in the Claude Code record at path,
+// kept being what magpie wrote in it.
+func (l *Library) syncClaudeLocalIn(path string, kept **claudeLocal, p *Project, hub *Server, fail func(what string, err error)) {
+	var want []string
+	for _, name := range offFor(p.ServersOff, "claude") {
+		if l.server(name) != nil {
+			want = append(want, name)
+		}
+	}
+	root := claudeRoot(p.Dir)
+	if *kept == nil && hub == nil && len(want) == 0 {
 		return
 	}
-	path := claudeJSON()
 	if !exists(path) {
 		if hub != nil || len(want) > 0 {
 			fail("claude", fmt.Errorf("Claude Code hasn't run on this computer yet: %s isn't there", path))
@@ -184,59 +196,32 @@ func (l *Library) syncClaudeLocal(p *Project, hub *Server, fail func(what string
 		return
 	}
 	defer release()
-	root := claudeRoot(p.Dir)
-	if p.Claude != nil && p.Claude.Root != root {
-		if _, _, err := writeClaudeLocal(path, p.Claude.Root, p.Claude, nil, nil, nil); err != nil {
+	// a record under another key (the folder became a repository's) goes
+	if *kept != nil && (*kept).Root != root {
+		if err := clearClaudeLocal(path, *kept); err != nil {
 			fail("claude", err)
 			return
 		}
-		p.Claude = nil
+		*kept = nil
 	}
-	p.Claude, _, err = writeClaudeLocal(path, root, p.Claude, hub, want, nil)
-	if err != nil {
-		fail("claude", err)
+	if hub == nil && len(want) == 0 && *kept == nil {
+		return
 	}
-}
-
-func (l *Library) claudeOff(p *Project) []string {
-	var want []string
-	for _, name := range offFor(p.ServersOff, "claude") {
-		if l.server(name) != nil {
-			want = append(want, name)
-		}
-	}
-	return want
-}
-
-// writeClaudeLocal reconciles one project under the target file's Claude lock.
-// Receipts never cross account boundaries, even for the same project root.
-func writeClaudeLocal(path, root string, prev *claudeLocal, hub *Server, want []string, backup func() error) (*claudeLocal, bool, error) {
 	k, ok := jsonKey(root)
 	if !ok {
-		return prev, false, fmt.Errorf("Claude Code's record of %s can't be written by magpie", root)
+		fail("claude", fmt.Errorf("Claude Code's record of %s can't be written by magpie", root))
+		return
 	}
 	base := "projects." + k
-	raw, err := edit.Read(path)
-	if err != nil {
-		return prev, false, err
-	}
-	plain := jsonc.ToJSON(raw)
-	if len(raw) > 0 && (!json.Valid(plain) || !gjson.ParseBytes(plain).IsObject()) {
-		return prev, false, fmt.Errorf("%s: expected a JSON object", path)
-	}
-	for _, key := range []string{"projects", base, base + ".mcpServers"} {
-		if value := gjson.GetBytes(plain, key); value.Exists() && !value.IsObject() {
-			return prev, false, fmt.Errorf("%s: expected an object at %s", path, key)
+	if _, there := edit.GetJSONRaw(path, base); !there && (hub != nil || len(want) > 0) {
+		if err := edit.SetJSON(path, edit.KV{Path: base, Value: claudeDefaults()}); err != nil {
+			fail("claude", err)
+			return
 		}
 	}
-	var put []edit.KV
-	var del []string
-	if !gjson.GetBytes(plain, base).Exists() && (hub != nil || len(want) > 0) {
-		put = append(put, edit.KV{Path: base, Value: claudeDefaults()})
-	}
 	rec := &claudeLocal{Root: root}
-	if prev != nil {
-		rec.Servers, rec.Off = prev.Servers, prev.Off
+	if *kept != nil {
+		rec.Servers, rec.Off = (*kept).Servers, (*kept).Off
 	}
 	// the hub's entry
 	var servers []string
@@ -244,67 +229,85 @@ func writeClaudeLocal(path, root string, prev *claudeLocal, hub *Server, want []
 		if hub != nil && name == hub.Name {
 			continue
 		}
-		key := base + ".mcpServers." + name
-		if gjson.GetBytes(plain, key).Exists() {
-			del = append(del, key)
+		if err := edit.DelJSON(path, base+".mcpServers."+name); err != nil {
+			fail("claude", err)
+			servers = append(servers, name)
 		}
 	}
-	var conflict error
 	if hub != nil {
 		var old map[string]any
-		key := base + ".mcpServers." + hub.Name
-		value := gjson.GetBytes(plain, key)
-		raw, exists := value.Raw, value.Exists()
-		if exists && !slices.Contains(rec.Servers, hub.Name) {
-			conflict = fmt.Errorf("Claude Code has a server called %s for %s already that isn't magpie's: it's left as it is", hub.Name, root)
-		} else {
-			if exists {
-				if err := json.Unmarshal([]byte(raw), &old); err != nil {
-					return prev, false, err
-				}
+		if raw, ok := edit.GetJSONRaw(path, base+".mcpServers."+hub.Name); ok {
+			_ = json.Unmarshal([]byte(raw), &old)
+			if old != nil && !slices.Contains(rec.Servers, hub.Name) {
+				fail("claude", fmt.Errorf("Claude Code has a server called %s for %s already that isn't magpie's: it's left as it is", hub.Name, root))
+				old = nil
+				hub = nil
 			}
-			body, err := json.Marshal((&mcpFile{Format: fmtClaude}).merged(hub, old))
-			if err != nil {
-				return prev, false, err
+		}
+		if hub != nil {
+			if err := edit.SetJSON(path, edit.KV{Path: base + ".mcpServers." + hub.Name, Value: (&mcpFile{Format: fmtClaude}).merged(hub, old)}); err != nil {
+				fail("claude", err)
+			} else {
+				servers = append(servers, hub.Name)
 			}
-			if !exists || !sameJSON(raw, string(body)) {
-				put = append(put, edit.KV{Path: key, Value: json.RawMessage(body)})
-			}
-			servers = append(servers, hub.Name)
 		}
 	}
 	rec.Servers = servers
 	// the servers turned off: the user's own names there stay theirs
 	var cur []string
-	if value := gjson.GetBytes(plain, base+".disabledMcpServers"); value.Exists() {
-		if err := json.Unmarshal([]byte(value.Raw), &cur); err != nil {
-			return prev, false, err
+	if raw, ok := edit.GetJSONRaw(path, base+".disabledMcpServers"); ok {
+		_ = json.Unmarshal([]byte(raw), &cur)
+	}
+	next := slices.DeleteFunc(slices.Clone(cur), func(n string) bool { return slices.Contains(rec.Off, n) && !slices.Contains(want, n) })
+	var mine []string
+	for _, n := range want {
+		if !slices.Contains(cur, n) {
+			next = append(next, n)
+			mine = append(mine, n)
+		} else if slices.Contains(rec.Off, n) {
+			mine = append(mine, n)
 		}
 	}
-	next, mine := offList(cur, rec.Off, want)
 	if !slices.Equal(next, cur) {
-		put = append(put, edit.KV{Path: base + ".disabledMcpServers", Value: next})
+		if next == nil {
+			next = []string{}
+		}
+		if err := edit.SetJSON(path, edit.KV{Path: base + ".disabledMcpServers", Value: next}); err != nil {
+			fail("claude", err)
+			mine = rec.Off
+		}
 	}
+	sort.Strings(mine)
 	rec.Off = mine
-	changed := len(put)+len(del) > 0
-	if changed {
-		body, err := edit.PatchJSON(raw, put, del)
-		if err != nil {
-			return prev, false, err
-		}
-		if backup != nil {
-			if err := backup(); err != nil {
-				return prev, false, err
-			}
-		}
-		if err := edit.WriteAtomic(path, body); err != nil {
-			return prev, false, err
-		}
-	}
 	if len(rec.Servers) == 0 && len(rec.Off) == 0 {
-		rec = nil
+		*kept = nil
+		return
 	}
-	return rec, changed, conflict
+	*kept = rec
+}
+
+// clearClaudeLocal takes what magpie wrote out of Claude Code's record
+// rec names, its lock held.
+func clearClaudeLocal(path string, rec *claudeLocal) error {
+	k, ok := jsonKey(rec.Root)
+	if !ok {
+		return nil
+	}
+	base := "projects." + k
+	for _, name := range rec.Servers {
+		if err := edit.DelJSON(path, base+".mcpServers."+name); err != nil {
+			return err
+		}
+	}
+	var cur []string
+	if raw, ok := edit.GetJSONRaw(path, base+".disabledMcpServers"); ok {
+		_ = json.Unmarshal([]byte(raw), &cur)
+	}
+	next := slices.DeleteFunc(slices.Clone(cur), func(n string) bool { return slices.Contains(rec.Off, n) })
+	if len(next) == len(cur) {
+		return nil
+	}
+	return edit.SetJSON(path, edit.KV{Path: base + ".disabledMcpServers", Value: append([]string{}, next...)})
 }
 
 // codexOffRel is Codex's file in a project.
@@ -466,7 +469,7 @@ func (l *Library) syncTrees(p *Project, res *Result, hubs map[string]*Server) {
 			t = &Project{Dir: d}
 		}
 		t.Copy, t.Skills, t.Servers, t.ServersOff, t.SkillsOff, t.Subagents = p.Copy, p.Skills, p.Servers, p.ServersOff, p.SkillsOff, p.Subagents
-		t.Instr, t.InstrAgents, t.Plugins, t.ClaudePlugins = p.Instr, p.InstrAgents, p.Plugins, p.ClaudePlugins
+		t.Instr, t.InstrAgents, t.Plugins, t.ClaudePlugins, t.Hooks, t.Pi = p.Instr, p.InstrAgents, p.Plugins, p.ClaudePlugins, p.Hooks, p.Pi
 		l.syncFolder(t, res, hubs)
 		trees = append(trees, t)
 	}
@@ -480,7 +483,7 @@ func (l *Library) syncTrees(p *Project, res *Result, hubs map[string]*Server) {
 		// no longer one of the repository's worktrees, or no longer the
 		// project's: what magpie put there comes out
 		t.Skills, t.Servers, t.ServersOff, t.SkillsOff, t.Subagents = nil, nil, nil, nil, nil
-		t.Instr, t.InstrAgents, t.Plugins, t.ClaudePlugins = "", nil, nil, nil
+		t.Instr, t.InstrAgents, t.Plugins, t.ClaudePlugins, t.Hooks, t.Pi = "", nil, nil, nil, nil, nil
 		l.syncFolder(t, res, nil)
 		if t.holds() {
 			trees = append(trees, t)
@@ -503,7 +506,7 @@ func (p *Project) tree(dir string) *Project {
 
 // holds says whether magpie has anything of its own in the folder still.
 func (p *Project) holds() bool {
-	return len(p.Placed) > 0 || len(p.Wrote) > 0 || len(p.CodexOff) > 0 || len(p.Overrides) > 0 || len(p.MadeFiles) > 0 || len(p.AgentFiles) > 0 || len(p.InstrFiles) > 0 || len(p.HookRecs) > 0 || len(p.ClaudeWrote) > 0
+	return len(p.Placed) > 0 || len(p.Wrote) > 0 || len(p.CodexOff) > 0 || len(p.Overrides) > 0 || len(p.MadeFiles) > 0 || len(p.AgentFiles) > 0 || len(p.InstrFiles) > 0 || len(p.HookRecs) > 0 || len(p.ClaudeWrote) > 0 || len(p.PiRecs) > 0
 }
 
 // ignored are the files and folders of the project magpie put there, which
@@ -538,7 +541,7 @@ func (l *Library) treesChanged() bool {
 				}
 			}
 		}
-		if len(p.Skills)+len(p.Servers)+len(p.ServersOff)+len(p.SkillsOff)+len(p.Subagents)+len(p.InstrAgents)+len(p.Plugins)+len(p.ClaudePlugins) == 0 && len(p.Trees) == 0 {
+		if len(p.Skills)+len(p.Servers)+len(p.ServersOff)+len(p.SkillsOff)+len(p.Subagents)+len(p.InstrAgents)+len(p.Plugins)+len(p.Hooks)+len(p.ClaudePlugins)+len(p.Pi) == 0 && len(p.Trees) == 0 {
 			continue
 		}
 		dirs := p.treeDirs()

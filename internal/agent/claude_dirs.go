@@ -76,6 +76,8 @@ func claudeDirAgents(home string) []*Agent {
 		byName[name] = dir
 		names = append(names, name)
 	}
+	// account switchers' folders and those added by hand (fork_claude_homes.go, zwenooo/magpie fork)
+	names = addAccountClaudeDirs(home, main, byName, names)
 	// with CLAUDE_CONFIG_DIR elsewhere, the default folder is one of the others
 	if def := filepath.Join(home, ".claude"); def != main && isDir(def) && claudeDirIsClaude(def) {
 		byName["default"] = def

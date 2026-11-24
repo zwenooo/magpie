@@ -374,10 +374,11 @@ const claudeReviewEnv = "CLAUDE_CODE_AUTO_MODE_SERVER"
 // "true" also keeps it on in a conversation begun without it, which
 // Claude Code otherwise holds off until it is compacted. The gateway
 // carries deferred tools to Anthropic upstreams and loads them in place on
-// a Responses upstream that takes it (#2660); elsewhere it turns them away,
-// and Claude Code declares every tool for that conversation, so a load
-// doesn't cost the prompt cache (gateway/deferred_route.go).
-// One the user set is theirs.
+// a Responses upstream that takes it (#2660); elsewhere a loaded tool is
+// declared from its load on (a load changes the tools, so an OpenAI-style
+// prompt cache starts again there). It never turns them away: Claude Code
+// would keep tool search off for that conversation (lightwlh on X).
+// One the user set is theirs: false keeps every tool declared and the cache.
 const claudeSearchEnv = "ENABLE_TOOL_SEARCH"
 
 // Claude Code 2.1.295's Explore inherit cap can replace Desktop's
@@ -2549,6 +2550,9 @@ func claudeIn(at place) *Agent {
 		Fields:       fields,
 		ModelAliases: claudeAliases,
 		Telemetry:    claudeTelemetry(at, path),
+		// on magpie's address whatever model it names, as Codex's is
+		// (Wired, zwenooo/magpie fork)
+		Routed: routed,
 		// Claude Code as it was before magpie: its default puts it back as
 		// installed, on Anthropic's endpoint, where this brings back the
 		// endpoint, token and model the user had
@@ -2583,6 +2587,13 @@ func claudeIn(at place) *Agent {
 					return err
 				}
 			case isMagpie(get()):
+				if err := edit.DelJSON(path, "model"); err != nil {
+					return err
+				}
+			case magpieOnlyName(get()):
+				// a name only magpie serves, picked by /model while on it:
+				// Anthropic's endpoint has none, so Claude Code goes back to
+				// its own default (zwenooo/magpie fork)
 				if err := edit.DelJSON(path, "model"); err != nil {
 					return err
 				}

@@ -3,9 +3,11 @@ package library
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 )
 
 // A project's plugins (jinpwng on X): a plugin the library keeps is given
@@ -27,10 +29,55 @@ import (
 // .claude/settings.local.json (its local project settings, which it
 // keeps out of git itself), and Codex's .codex/hooks.json, which
 // codex-rs/hooks loads from a project's .codex folder in a project the
-// user trusts, each hook in it once the user has reviewed it in /hooks.
+// user trusts, each hook in it once the user has reviewed it in /hooks;
+// and Antigravity's .agents/hooks.json, which the Antigravity CLI and
+// Antigravity 2.0 load from a workspace the user trusts (agyHookSpec):
+// one file for both, written as the CLI's (projectHookID).
 var projectHookFiles = map[string]string{
-	"claude": claudeSettingsRel,
-	"codex":  ".codex/hooks.json",
+	"claude":      claudeSettingsRel,
+	"codex":       ".codex/hooks.json",
+	"agy":         agyProjectHooksRel,
+	"antigravity": agyProjectHooksRel,
+}
+
+const agyProjectHooksRel = ".agents/hooks.json"
+
+// projectHookID is the agent a project's hooks file is written as: the
+// Antigravity CLI's for Antigravity 2.0 too, so the one file has one set
+// of records and a hook given to both is written once.
+func projectHookID(id string) string {
+	if id == "antigravity" {
+		return "agy"
+	}
+	return id
+}
+
+// projectHookWhyNot is why agent a can't be given h in a project, nil
+// when it can.
+func projectHookWhyNot(h *Hook, a string) error {
+	if ProjectHooksFile(a) == "" {
+		return fmt.Errorf("magpie knows of no file %s reads a project's hooks from", a)
+	}
+	id := projectHookID(a)
+	if id != "agy" {
+		if !hookTakes(h, a) {
+			return fmt.Errorf("%s can't be given hook %s", a, h.Name)
+		}
+		return nil
+	}
+	sp := agyHookSpec("")
+	if _, err := sp.event(id, h); err != nil {
+		return fmt.Errorf("hook %s isn't one Antigravity runs: %w", h.Name, err)
+	}
+	if h.Event == "session-start" {
+		if _, err := startMatcher(id, h.Matcher); err != nil {
+			return fmt.Errorf("hook %s isn't one Antigravity runs: %w", h.Name, err)
+		}
+	}
+	if !strings.Contains(h.Event, ":") && h.Matcher != "" && h.Event != "session-start" && sp.tools[h.Matcher] == "" {
+		return fmt.Errorf("hook %s isn't one Antigravity runs: its tools for %s aren't known, and the hook would run for every tool", h.Name, h.Matcher)
+	}
+	return nil
 }
 
 // ProjectHooksFile is the file in a project an agent reads hooks from:
@@ -51,6 +98,8 @@ func projectHookSpec(p *Project, id string) *hookSpec {
 		return claudeHookSpec(abs)
 	case "codex":
 		return codexHookSpec(abs)
+	case "agy":
+		return agyHookSpec(abs)
 	}
 	return nil
 }
@@ -80,11 +129,13 @@ func (l *Library) withPlugins(p *Project) (skills, servers, subagents map[string
 			}
 		}
 	}
+	natives := l.projectClaudeNatives(p)
 	for name, agents := range p.Plugins {
 		b := l.plugin(name)
 		if b == nil || b.Off {
 			continue
 		}
+		agents = withoutClaudeNative(agents, natives, name)
 		for _, n := range b.Skills {
 			if s := l.skill(n); s != nil && s.Bundle == b.Name {
 				add(skills, n, agents, func(a string) bool { return ProjectSkillsDir(a) != "" })
@@ -107,6 +158,21 @@ func (l *Library) withPlugins(p *Project) (skills, servers, subagents map[string
 // projectHooks are, by agent, the hooks the project's plugins give it.
 func (l *Library) projectHooks(p *Project) map[string][]*Hook {
 	out := map[string][]*Hook{}
+	var natives map[string]string
+	if len(p.Plugins) > 0 {
+		natives = l.projectClaudeNatives(p)
+	}
+	for _, name := range slices.Sorted(maps.Keys(p.Hooks)) {
+		h := l.hook(name)
+		if h == nil {
+			continue
+		}
+		for _, a := range p.Hooks[name] {
+			if id := projectHookID(a); projectHookWhyNot(h, a) == nil && !slices.Contains(out[id], h) {
+				out[id] = append(out[id], h)
+			}
+		}
+	}
 	for _, name := range slices.Sorted(func(yield func(string) bool) {
 		for k := range p.Plugins {
 			if !yield(k) {
@@ -118,14 +184,15 @@ func (l *Library) projectHooks(p *Project) map[string][]*Hook {
 		if b == nil || b.Off {
 			continue
 		}
+		agents := withoutClaudeNative(p.Plugins[name], natives, name)
 		for _, n := range b.Hooks {
 			h := l.hook(n)
 			if h == nil || h.Bundle != b.Name {
 				continue
 			}
-			for _, a := range p.Plugins[name] {
-				if ProjectHooksFile(a) != "" && hookTakes(h, a) && !slices.Contains(out[a], h) {
-					out[a] = append(out[a], h)
+			for _, a := range agents {
+				if id := projectHookID(a); projectHookWhyNot(h, a) == nil && !slices.Contains(out[id], h) {
+					out[id] = append(out[id], h)
 				}
 			}
 		}
@@ -248,6 +315,68 @@ func ProjectPlugin(dir, name string, agents []string) (*Result, error) {
 		p.Plugins[name] = ids
 		return nil
 	})
+}
+
+// ProjectHooks sets which agents get each of some library hooks in a
+// project, one at a time, not as part of a plugin (#7253); none takes them
+// out, and with them only the entries magpie wrote.
+func ProjectHooks(dir string, names, agents []string) (*Result, error) {
+	return change(func(l *Library) error {
+		p := l.project(dir)
+		if p == nil {
+			return fmt.Errorf("no project %s", dir)
+		}
+		if len(names) == 0 {
+			return errors.New("no hooks given")
+		}
+		for _, n := range names {
+			if l.hook(n) == nil {
+				return fmt.Errorf("no hook called %s", n)
+			}
+		}
+		var ids []string
+		for _, id := range agents {
+			if ProjectHooksFile(id) == "" {
+				return fmt.Errorf("magpie knows of no file %s reads a project's hooks from", id)
+			}
+			// Antigravity's are said here: it takes fewer of the portable
+			// events and tools than the others (#7507)
+			if projectHookID(id) == "agy" {
+				for _, n := range names {
+					if err := projectHookWhyNot(l.hook(n), id); err != nil {
+						return err
+					}
+				}
+			}
+			ids = set(ids, id, true)
+		}
+		for _, n := range names {
+			if len(ids) == 0 {
+				delete(p.Hooks, n)
+				continue
+			}
+			if p.Hooks == nil {
+				p.Hooks = map[string][]string{}
+			}
+			p.Hooks[n] = slices.Clone(ids)
+		}
+		if len(p.Hooks) == 0 {
+			p.Hooks = nil
+		}
+		return nil
+	})
+}
+
+// dropProjectHooks takes hooks leaving the library out of every project.
+func (l *Library) dropProjectHooks(names []string) {
+	for _, p := range l.Projects {
+		for _, n := range names {
+			delete(p.Hooks, n)
+		}
+		if len(p.Hooks) == 0 {
+			p.Hooks = nil
+		}
+	}
 }
 
 // dropProjectPlugin takes a plugin out of every project, and their

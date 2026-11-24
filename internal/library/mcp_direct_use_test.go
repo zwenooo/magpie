@@ -114,15 +114,19 @@ func TestOpsDirectUseDistribution(t *testing.T) {
 		sync(a.id, base, a.f)
 		check(readEntry(a.f, s.Name), a.product)
 	}
-	// Account-switcher folders mirror the native launch. The directory's
-	// synthetic ID and the account's name must never become product labels.
+	// An account switcher's folder is a claude# profile that follows Claude
+	// Code (profile_follow.go) and gets the native launch. Its id and the
+	// account's name must never become product labels.
 	acc := reclaudeDir(t, h, "private-account", `{}`)
+	follower := &Target{Agent: &agent.Agent{ID: "claude#rec-private-account", Dir: acc, Gateway: func() string { return base }},
+		MCP: &mcpFile{Path: filepath.Join(acc, ".claude.json"), Format: fmtClaude}}
 	mirrored := &Result{}
-	l.syncClaudeDirs([]*Target{{Agent: &agent.Agent{ID: "claude"}, MCP: claude}}, newBackups(), mirrored, true)
+	l.keepFollowers([]*Target{{Agent: &agent.Agent{ID: "claude"}, MCP: claude}, follower}, mirrored)
+	l.syncMCP(follower, newBackups(), mirrored)
 	if len(mirrored.Problems) != 0 {
 		t.Fatal(mirrored.Problems)
 	}
-	check(readEntry(&mcpFile{Path: filepath.Join(acc, ".claude.json"), Format: fmtClaude}, s.Name), "claude")
+	check(readEntry(follower.MCP, s.Name), "claude")
 	res := sync("codex", base, codex)
 	if got := readEntry(codex, s.Name); got.URL != base+RunPath+s.Name || got.Env != nil {
 		t.Fatalf("Codex run route: %+v", got)
