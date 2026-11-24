@@ -511,9 +511,6 @@ input.lib-setname:focus { border-color: var(--accent); box-shadow: 0 0 0 3px col
 .lib-addpair { padding-left: 0; }
 .lib-cmdbox { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; }
 .lib-cmdbox .lib-cmd { width: 100%; }
-.lib-program-source, .lib-program-source label { display: grid; gap: 4px; min-width: 0; }
-.lib-program-source button { justify-self: start; }
-.lib-repo-preview { overflow-wrap: anywhere; }
 .lib-addpair:hover { background: none; }
 .lib-editor .lib-picks { grid-column: 1 / -1; max-height: 320px; }
 .lib-editor .lib-keep { grid-column: 1 / -1; margin: 0 -6px; }

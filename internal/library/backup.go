@@ -113,9 +113,9 @@ func pruneBackups() {
 }
 
 // holdsSkills is whether a backup has skill folders in it: <when>/skills,
-// or <when>/<agent>/skills; or a server's program set aside, <when>/mcp.
+// or <when>/<agent>/skills.
 func holdsSkills(dir string) bool {
-	for _, pat := range []string{"skills", "*/skills", "mcp"} {
+	for _, pat := range []string{"skills", "*/skills"} {
 		if m, _ := filepath.Glob(filepath.Join(dir, pat)); len(m) > 0 {
 			return true
 		}

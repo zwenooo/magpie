@@ -33,8 +33,6 @@ type Bundle struct {
 	// carried, which knew nothing of this computer's: Put keeps them. Collect
 	// always sets it, empty too, so taking the last one out is carried.
 	Subagents *[]*Subagent `json:"subagents,omitempty"`
-	// Folders are the servers' folders kept in the library (mcp_folders.go)
-	Folders []*CarriedFolders `json:"folders,omitempty"`
 	// Commands are nil in a bundle from a magpie before slash commands,
 	// as Subagents are: Put keeps this computer's.
 	Commands *[]*Command `json:"commands,omitempty"`
@@ -156,13 +154,9 @@ func Collect() (*Bundle, error) {
 		// magpie's own by name, each computer's own binary; a server
 		// started its own way here goes with the synced start (mcp_here.go)
 		c := *carried(carriedStart(s))
-		c.RepoLocalCommit, c.RepoLocalHash = "", ""
 		c.Agents = orNone(slices.Sorted(slices.Values(s.Agents)))
 		b.MCP = append(b.MCP, &c)
 	}
-	// a server's folders go first: a program left out is no program
-	folders, used := collectFolders(l, maxCarriedAll)
-	b.Folders = folders
 	skills := sorted(slices.DeleteFunc(slices.Clone(l.Skills), func(s *Skill) bool { return l.ownedPart(s.Bundle) }),
 		func(s *Skill) string { return s.Name })
 	// a skill carried as its source (skill_carry.go) takes only the room
@@ -179,12 +173,13 @@ func Collect() (*Bundle, error) {
 	// a plugin's files from a folder are read with the skills', in one
 	// budget
 	plugins, pdirs, at := l.carriedPlugins()
-	read := readSkillsMax(append(dirs, pdirs...), maxCarried, maxCarriedAll-used)
+	read := readSkills(append(dirs, pdirs...))
 	for i, f := range read[len(asFiles):] {
 		c := plugins[at[i]]
 		c.Files, c.Exec, c.Left = f.Files, f.Exec, f.Left
 	}
 	b.Plugins = &plugins
+	used := int64(0)
 	for _, c := range read {
 		for _, f := range c.Files {
 			used += int64(len(f))
@@ -391,19 +386,6 @@ func (b *Bundle) check() error {
 			}
 		}
 	}
-	for _, f := range b.Folders {
-		if f == nil {
-			return fmt.Errorf("empty server folders")
-		}
-		if err := checkName("server", f.Name); err != nil {
-			return err
-		}
-		for _, rel := range slices.Concat(slices.Collect(maps.Keys(f.Program)), slices.Collect(maps.Keys(f.Private))) {
-			if !localFile(rel) {
-				return fmt.Errorf("server %s: %q is not a file in its folder", f.Name, rel)
-			}
-		}
-	}
 	if b.Subagents != nil {
 		seen := map[string]bool{}
 		for _, s := range *b.Subagents {
@@ -557,8 +539,6 @@ func (b *Bundle) WithoutSecrets(secret func(string) bool) {
 		}
 		b.MCP[i] = &c
 	}
-	// a server's private files are its keys
-	b.Folders = withoutPrivate(b.Folders)
 }
 
 func blank(m map[string]string, secret func(string) bool) map[string]string {
@@ -616,7 +596,6 @@ func (b *Bundle) WithSecrets(have *Bundle, secret func(string) bool) *Bundle {
 		}
 		out.MCP = append(out.MCP, &c)
 	}
-	out.Folders = withPrivate(b.Folders, have.Folders)
 	return &out
 }
 
@@ -838,10 +817,6 @@ func Put(b *Bundle) (*Result, error) {
 			}
 		}
 
-		// before the servers change: which are kept to this computer decides
-		if err := putFolders(l, b, held.servers); err != nil {
-			return err
-		}
 		l.putServers(b.MCP)
 		l.Icons = maps.Clone(b.Icons)
 		// the agents are written on the sync change runs: what magpie

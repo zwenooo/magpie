@@ -50,6 +50,12 @@ func followView(t *testing.T, id string) *FollowView {
 	return nil
 }
 
+// opsServer is a command server Claude Code is given.
+func opsServer(t *testing.T) {
+	t.Helper()
+	ok(t)(SaveServer("", Server{Name: "ops", Transport: "stdio", Command: "python", Args: []string{"server.py"}, Agents: []string{"claude"}}))
+}
+
 // A ReClaude account's folder is a claude# agent that follows Claude Code:
 // what Claude Code is given, it is given, written as its own agent record,
 // and what the account has of its own stays.
@@ -63,7 +69,7 @@ func TestAccountFoldersFollowClaudeCode(t *testing.T) {
 	os.MkdirAll(never, 0o755)
 	const id = "claude#rec-54687"
 
-	keptServer(t, "print('v1')\n", "targets: {}\n")
+	opsServer(t)
 	ok(t)(SaveServer("", Server{Name: "codex-only", Transport: "stdio", Command: "x", Agents: []string{"codex"}}))
 	src := filepath.Join(h, "src/skills")
 	skill(t, filepath.Join(src, "pdf"), "pdf", "Read PDFs")
@@ -105,7 +111,7 @@ func TestAccountFoldersFollowClaudeCode(t *testing.T) {
 func TestAccountFolderLosesWhatClaudeCodeLoses(t *testing.T) {
 	h := sandbox(t)
 	acc := reclaudeDir(t, h, "1", `{"mcpServers": {"mine": {"command": "node"}}}`)
-	keptServer(t, "print('v1')\n", "targets: {}\n")
+	opsServer(t)
 	src := filepath.Join(h, "src/skills")
 	skill(t, filepath.Join(src, "pdf"), "pdf", "Read PDFs")
 	ok(t)(InstallSkills(src, []string{"pdf"}, []string{"claude"}))
@@ -175,7 +181,7 @@ func TestAccountFolderKeepsInstructionsOnAutomaticSync(t *testing.T) {
 // and taken off again it loses what magpie put there.
 func TestClaudeFolderAddedByHand(t *testing.T) {
 	h := sandbox(t)
-	keptServer(t, "print('v1')\n", "targets: {}\n")
+	opsServer(t)
 	other := filepath.Join(h, "work", "claude")
 	os.MkdirAll(other, 0o755)
 	if _, err := AddClaudeDir(other); err == nil {
@@ -325,7 +331,7 @@ func TestAccountFolderKeepsProjectFiles(t *testing.T) {
 func TestAccountFolderGoneLosesItsTicks(t *testing.T) {
 	h := sandbox(t)
 	acc := reclaudeDir(t, h, "1", `{}`)
-	keptServer(t, "print('v1')\n", "targets: {}\n")
+	opsServer(t)
 	if !slices.Contains(loaded(t).server("ops").Agents, "claude#rec-1") {
 		t.Fatal("the account isn't ticked")
 	}

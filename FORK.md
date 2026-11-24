@@ -36,8 +36,6 @@ internal/provider/fork_presets.go Fork-owned provider presets (CodeZ)
 internal/provider/fork_partners.go Partner-feed policy (off by default)
 internal/sessions/sources.go     Custom read-only session directory registration
 internal/gui/sessions_sources.go Session directory scan/import API
-internal/library/mcp_folders.go  MCP servers' program and key folders carried by sync
-internal/library/mcp_repo*.go    An MCP program updated from a reviewed GitHub commit
 internal/library/profile_follow.go  A profile agent that follows its agent's Library
 internal/library/fork_claude_dirs.go  Claude Code folders added by hand; the old claude-dirs records migrated
 internal/agent/fork_claude_homes.go  ReClaude's and hand-added Claude Code folders as claude# rows
@@ -90,36 +88,15 @@ available as an ordinary relay without sponsorship. The explicit
 `MAGPIE_PARTNERS` override is retained for private catalogs and isolated tests.
 The upstream GUI needs no separate fork layout or deleted partner components.
 
-A command MCP server can keep its program and its keys in the library, so a
-sync carries them like a skill's folder (`internal/library/mcp_folders.go`).
-It names `{{program}}` (`library/mcp/<name>/program`), `{{private}}`
-(`library/mcp/<name>/private`) or `{{state}}` (`mcp-state/<name>`) in its
-command, arguments or environment; agents, the check and the servers magpie
-runs get this computer's paths. The program is always carried, without what
-installing or running it writes. The private folder holds configuration and
-keys: it is carried only with the library's keys, as secret env values are,
-is never copied into the backups, and is written 0700/0600. The state folder
-is never carried. The upstream hooks are small: `Bundle.Folders` and its
-calls in `carry.go`, `here` where a server is written or run (`sync.go`,
-`mcp_run.go`, `mcp_check.go`, `mcp_copy.go`, `project_mcp.go`), the folders
-following a rename or removal in `sync.go`, `holdsSkills` keeping a
-program set aside in `backup.go`, and `side` in `mcp_wsl.go` refusing a
-server whose program is kept in the library to an agent in WSL.
-
-Such a server can opt in to updates from a GitHub repository
-(`internal/library/mcp_repo*.go`; the steps are in
-[the library reference](docs/subsystems/library.md#updating-an-mcp-program-from-a-repository-fork)).
-`magpie library mcp repo-check` previews a ref's commit, and `repo-update`
-installs the commit the user reviewed as the server's program; a private
-repository is read through the local GitHub CLI's sign-in, never a token
-in the server. The library carries the source and revision, not the
-program, so another computer installs it only when asked there. The
-upstream hooks are the `Repo*` fields on `Server` (`mcp.go`), `putServers`
-keeping the commit this computer installed when a synced copy comes in
-(`mcp_local.go`), the `servers/repo-check` and `servers/repo-update`
-routes (`internal/gui/library.go`), their commands in `library_cli.go`, and
-the server sheet's repository section, with Check for updates, Preview
-commit and Apply this commit (`client.js`, `library.css`).
+The fork no longer carries an MCP server's program or key folders, nor
+installs programs from a repository (both removed 2026-11-24): a synced
+server installs itself through its command, as upstream expects. A
+self-written server is a package its launcher installs from a pinned
+version, e.g. `uvx --from git+https://github.com/<owner>/<repo>@<tag> <name>`
+(ops-mcp does this); updating is changing the tag in the Library, which a
+sync takes to every computer. Its secrets go in an environment variable
+named like a key (`provider.SecretHeader`), which upstream syncs only with
+the library's keys, inside the passphrase-sealed sync file.
 
 An agent kept in more than one config folder is an agent of its own per
 folder upstream: `claude#work` for `~/.claude-work`, `hermes#coder`,

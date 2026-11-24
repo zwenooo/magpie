@@ -32,9 +32,6 @@ func isSelf(s *Server) bool {
 // agent in WSL, by the binary's path there; an error says why the agent
 // can't start s.
 func (f *mcpFile) side(s *Server) (*Server, error) {
-	if f.WSL && !s.Remote() && s.keptHere() {
-		return nil, errKeptInWSL
-	}
 	if !f.WSL || s.Remote() || !windowsPath.MatchString(s.Command) {
 		return s, nil
 	}

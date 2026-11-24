@@ -36,18 +36,13 @@ type Server struct {
 	Name   string `json:"name"`
 	Bundle string `json:"bundle,omitempty"` // the Claude Code plugin it came with (plugin.go)
 	// Transport is stdio for a command, http (streamable) or sse for a URL.
-	Transport       string            `json:"transport"`
-	Command         string            `json:"command,omitempty"`
-	Args            []string          `json:"args,omitempty"`
-	Env             map[string]string `json:"env,omitempty"`
-	URL             string            `json:"url,omitempty"`
-	Headers         map[string]string `json:"headers,omitempty"`
-	Agents          []string          `json:"agents"`
-	RepoSource      *MCPRepoSource    `json:"repoSource,omitempty"`
-	RepoCommit      string            `json:"repoCommit,omitempty"`
-	RepoHash        string            `json:"repoHash,omitempty"`
-	RepoLocalHash   string            `json:"repoLocalHash,omitempty"`
-	RepoLocalCommit string            `json:"repoLocalCommit,omitempty"`
+	Transport string            `json:"transport"`
+	Command   string            `json:"command,omitempty"`
+	Args      []string          `json:"args,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
+	URL       string            `json:"url,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	Agents    []string          `json:"agents"`
 	// DisabledTools are the server's tools its agents leave out, by the
 	// names the server gives them, written in each agent's own way where
 	// it has one (mcp_tools_off.go)

@@ -3094,7 +3094,7 @@ magpie.plugin("library", (ctx) => {
       // beside "needs sign-in" (新v学员 on Discord)
       // With no agent, the router is what starts them, so on it checks them too
       // One turned off is started for nobody, and checked only on a click.
-      const unchecked = lib.servers.filter((s) => !s.repoSource && (!s.hidden && (inUse(s) || (agentless() && lib.mcpHub && inHub(s))) || health.has(s.name)) && health.get(s.name)?.key !== healthKey(s));
+      const unchecked = lib.servers.filter((s) => (!s.hidden && (inUse(s) || (agentless() && lib.mcpHub && inHub(s))) || health.has(s.name)) && health.get(s.name)?.key !== healthKey(s));
       queueMicrotask(() => checkHealth(unchecked));
     }
     // an agent's own servers (Codex's node_repl, added each time it starts)
@@ -4005,10 +4005,10 @@ magpie.plugin("library", (ctx) => {
         // one in no use waits for a click (#1597); one in use is about
         // to be checked
         const s = lib.servers.find((x) => x.name === b.dataset.server);
-        b.hidden = !s || (!s.repoSource && inUse(s));
+        b.hidden = !s || inUse(s);
         b.className = "lib-health idle";
         b.replaceChildren(el("span", "", t("not checked")));
-        b.title = s?.repoSource ? t("Click to check it") : t(s && onAnywhere(s) ? "No agent shown here has it on, so it isn't checked on its own" : "No agent has it, so it isn't checked on its own") + "\n" + t("Click to check it");
+        b.title = t(s && onAnywhere(s) ? "No agent shown here has it on, so it isn't checked on its own" : "No agent has it, so it isn't checked on its own") + "\n" + t("Click to check it");
         continue;
       }
       b.hidden = false;
@@ -4454,74 +4454,6 @@ magpie.plugin("library", (ctx) => {
   // a server's own OAuth app, to tell a changed one: "" for none
   const appOf = (x) => (x?.transport === "http" && x.oauth?.clientId ? JSON.stringify([x.oauth.clientId, x.oauth.clientSecret || "", x.oauth.callbackPort || 0]) : "");
 
-  function repoProgram(server) {
-    if (server?.transport !== "stdio" || server.plugin || server.bundle) return false;
-    return [server.command, ...(server.args || [])].some((arg) => {
-      const parts = (arg || "").replaceAll("\\", "/").split("/");
-      return parts.shift() === "{{program}}" && parts.length && parts.every((part) => part && part !== "." && part !== ".." && !/[:\0]/.test(part));
-    });
-  }
-
-  function programSource(server) {
-    const box = el("div", "lib-program-source");
-    const saved = server.repoSource;
-    const open = button(saved ? t("Check for updates") : t("Choose a program repository…"), "lib-addpair", form);
-    box.append(open);
-    function form() {
-      const inputs = {};
-      const result = el("div", "lib-repo-preview");
-      result.setAttribute("aria-live", "polite");
-      const check = button(t("Preview commit"), "action", preview);
-      box.replaceChildren();
-      for (const [key, label, hint] of [["repo", t("Repository"), "https://github.com/owner/repo"], ["ref", t("Git ref (optional)"), "HEAD"], ["path", t("Subfolder (optional)"), "servers/example"]]) {
-        const input = field2(saved?.[key], hint, () => { result.replaceChildren(); check.disabled = !inputs.repo.value.trim(); });
-        inputs[key] = input;
-        input.onkeydown = (event) => {
-          if (event.key === "Enter" && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); event.stopPropagation(); check.click(); }
-        };
-        const row = el("label");
-        row.append(el("span", "hint", label), input);
-        box.append(row);
-      }
-      check.disabled = !inputs.repo.value.trim();
-      box.append(check, result);
-      if (saved) preview(); else inputs.repo.focus();
-
-      async function preview() {
-        const values = Object.fromEntries(Object.entries(inputs).map(([key, input]) => [key, input.value.trim()]));
-        const repoSource = saved && Object.keys(values).every((key) => values[key] === (saved[key] || "")) ? null : values;
-        const query = { name: server.name, repoSource };
-        check.disabled = true;
-        for (const input of Object.values(inputs)) input.disabled = true;
-        result.textContent = t("Checking…");
-        try {
-          const { current, latest } = await api("library/servers/repo-check", query);
-          if (!/^[0-9a-f]{40}$/.test(latest)) throw Error(t("The repository did not return a full commit ID."));
-          result.replaceChildren(el("div", "", current ? t("Current commit: {sha}", { sha: current }) : t("No repository commit installed")), el("div", "", t("Latest commit: {sha}", { sha: latest })));
-          if (!repoSource && current === latest) { result.append(el("div", "", t("Up to date"))); return; }
-          const apply = button(t("Apply this commit"), "action", async () => {
-            for (const input of Object.values(inputs)) input.disabled = true;
-            result.replaceChildren();
-            check.disabled = true;
-            const ok = await change("servers/repo-update", { ...query, expected: latest }, t("Program updated to {sha}", { sha: latest }));
-            if (ok) {
-              health.delete(server.name);
-              paintHealth(server.name);
-              const updated = lib.servers.find((entry) => entry.name === server.name);
-              if (updated && box.isConnected) box.replaceWith(programSource(updated));
-            } else {
-              check.disabled = false;
-              for (const input of Object.values(inputs)) input.disabled = false;
-            }
-          });
-          result.append(el("p", "hint", t("Replace the program files with this commit. No repository scripts will run.")), apply);
-        } catch (error) { result.textContent = error.message; }
-        finally { check.disabled = false; for (const input of Object.values(inputs)) input.disabled = false; }
-      }
-    }
-    return box;
-  }
-
   function editServer(s, prefill) {
     const all = mcpAgents();
     const d = prefill || (s ? structuredClone(s) : { name: "", transport: "stdio", command: "", args: [], env: {}, url: "", headers: {}, agents: all.map((a) => a.id) });
@@ -4713,8 +4645,6 @@ magpie.plugin("library", (ctx) => {
         }
         g.append(...field(t("Command"), cmdBox, d.shared ? t("This computer's own, with its environment below. Your other computers run {cmd}", { cmd: synced }) : t("The command and its arguments, as you'd type them")));
         g.append(...field(t("Environment"), pairs(d.env, "GITHUB_TOKEN", t("value"), (v) => { d.env = v; drawAgents(); }), refHint()));
-        const saved = s && lib.servers.find((entry) => entry.name === s.name);
-        if (repoProgram(saved)) g.append(...field(t("Program source"), programSource(saved)));
       } else {
         const url = field2(d.url, "https://example.com/mcp", (v) => { d.url = v.trim(); signBox?.redraw(); });
         url.classList.add("mono");

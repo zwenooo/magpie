@@ -102,26 +102,13 @@ internal/gui/assets/plugins/sessions/sessions.css
 docs/subsystems/gateway-sessions.md
 internal/sessions/carry_convert_test.go
 
-# --- Library: MCP program and key folders, MCP programs updated from a
-# --- repository, profiles that follow their agent (ReClaude's and hand-added
+# --- Library: profiles that follow their agent (ReClaude's and hand-added
 # --- Claude Code folders as claude# rows, their project MCP scope)
 internal/agent/claude_dirs.go
-internal/library/backup.go
-internal/library/carry.go
 internal/library/instructions.go
-internal/library/mcp_check.go
-internal/library/mcp_copy.go
-internal/library/mcp_run.go
-internal/library/mcp_wsl.go
-internal/library/project_mcp.go
 internal/library/project_scope.go
 internal/library/projects.go
 internal/library/sync.go
-internal/library/mcp.go
-internal/library/mcp_local.go
-internal/gui/library.go
-internal/gui/assets/plugins/library/client.js
-internal/gui/assets/plugins/library/library.css
 internal/cli/library_cli.go
 docs/subsystems/library.md
 internal/library/project_claude_plugins_test.go

@@ -52,14 +52,6 @@ func (l *Library) putServers(in []*Server) {
 	l.Away = nil
 	for _, s := range in {
 		c := *s
-		c.RepoLocalCommit, c.RepoLocalHash = "", ""
-		if previous := here[c.Name]; !own[c.Name] && previous != nil {
-			if c.RepoSource == nil || previous.RepoSource == nil {
-				c.keepRepo(previous)
-			} else {
-				c.RepoLocalCommit, c.RepoLocalHash = previous.RepoLocalCommit, previous.RepoLocalHash
-			}
-		}
 		c.Local = false // only this computer says what is its own
 		c.Bridge = ""   // and which of its providers a server is
 		c.Agents = slices.Sorted(slices.Values(orNone(s.Agents)))
