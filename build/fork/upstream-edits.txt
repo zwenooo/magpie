@@ -102,8 +102,8 @@ internal/gui/assets/plugins/sessions/sessions.css
 docs/subsystems/gateway-sessions.md
 internal/sessions/carry_convert_test.go
 
-# --- Library: MCP program and key folders, Claude Code's other config
-# --- folders, project MCP scope given to them
+# --- Library: MCP program and key folders, MCP programs updated from a
+# --- repository, Claude Code's other config folders, project MCP scope
 internal/library/backup.go
 internal/library/carry.go
 internal/library/instructions.go
@@ -115,6 +115,11 @@ internal/library/project_mcp.go
 internal/library/project_scope.go
 internal/library/projects.go
 internal/library/sync.go
+internal/library/mcp.go
+internal/library/mcp_local.go
+internal/gui/library.go
+internal/gui/assets/plugins/library/client.js
+internal/gui/assets/plugins/library/library.css
 internal/cli/library_cli.go
 docs/subsystems/library.md
 internal/library/project_claude_plugins_test.go
@@ -150,6 +155,8 @@ internal/pii/serve.go
 internal/pii/serve_test.go
 internal/awake/awake.go
 internal/awake/awake_test.go
+internal/testenv/testenv.go
+internal/testenv/testenv_test.go
 docs/subsystems/gateway-routing.md
 docs/subsystems/claude-subscription-bridge.md
 
@@ -167,4 +174,7 @@ internal/provider/keepalive_claude_test.go
 internal/provider/logins_unread_test.go
 internal/sessions/agy_test.go
 internal/sessions/cc_names_test.go
+internal/library/library_test.go
+internal/library/shared_skills_test.go
+internal/library/skillgit_test.go
 internal/usage/request_disk_test.go

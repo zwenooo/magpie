@@ -12,8 +12,9 @@ upstream's installation links and releases include none of them:
 - Sessions: Claude history folders of any account imported read-only,
   Claude Desktop histories resumed and carried into Claude Code or Codex,
   and any conversation handed to any agent with a prompt.
-- Library: MCP servers' program and key folders carried by sync, and the
-  library given to Claude Code's other config folders.
+- Library: MCP servers' program and key folders carried by sync, an MCP
+  program updated from a reviewed GitHub commit, and the library given to
+  Claude Code's other config folders.
 
 It also carries a few fixes to upstream code that upstream doesn't have
 ([Fixes inside upstream code](#fixes-inside-upstream-code)). Every upstream
@@ -35,6 +36,7 @@ internal/provider/fork_partners.go Partner-feed policy (off by default)
 internal/sessions/sources.go     Custom read-only session directory registration
 internal/gui/sessions_sources.go Session directory scan/import API
 internal/library/mcp_folders.go  MCP servers' program and key folders carried by sync
+internal/library/mcp_repo*.go    An MCP program updated from a reviewed GitHub commit
 internal/library/claude_dirs.go  The library given to Claude Code's other config folders
 internal/sessions/handoff.go     A conversation condensed for any agent to carry on
 docs/cursor-byok.md              Setup and synchronization contract
@@ -100,6 +102,21 @@ calls in `carry.go`, `here` where a server is written or run (`sync.go`,
 following a rename or removal in `sync.go`, `holdsSkills` keeping a
 program set aside in `backup.go`, and `side` in `mcp_wsl.go` refusing a
 server whose program is kept in the library to an agent in WSL.
+
+Such a server can opt in to updates from a GitHub repository
+(`internal/library/mcp_repo*.go`; the steps are in
+[the library reference](docs/subsystems/library.md#updating-an-mcp-program-from-a-repository-fork)).
+`magpie library mcp repo-check` previews a ref's commit, and `repo-update`
+installs the commit the user reviewed as the server's program; a private
+repository is read through the local GitHub CLI's sign-in, never a token
+in the server. The library carries the source and revision, not the
+program, so another computer installs it only when asked there. The
+upstream hooks are the `Repo*` fields on `Server` (`mcp.go`), `putServers`
+keeping the commit this computer installed when a synced copy comes in
+(`mcp_local.go`), the `servers/repo-check` and `servers/repo-update`
+routes (`internal/gui/library.go`), their commands in `library_cli.go`, and
+the server sheet's repository section, with Check for updates, Preview
+commit and Apply this commit (`client.js`, `library.css`).
 
 Claude Code run in config folders of its own (`CLAUDE_CONFIG_DIR`: an account
 switcher's, such as ReClaude's `~/.rec/claude/accounts/<id>/config`, or
@@ -186,6 +203,7 @@ upstream `feb0d8d7f` (2026-11-24).
 | JSON padding is skipped 1 KiB at a time, so a body padded past 64 MiB doesn't spend the pre-routing deadline under `-race` (ce01f86c0, bb7de239e) | `gateway/fastjson.go` | not fixed |
 | `httpServer` gives the serving loop and the handover tests one server, and the comments say an idle keep-alive connection to the old process may close (a8a349eed, 363e7b09d); the drain itself is upstream's | `gateway/gateway.go`, `gateway/handover.go` | test seam only |
 | `nextBeat` lets the keep-awake tests drive wakeups by events (e1f42fc0c) | `awake/awake.go` | test seam only |
+| The isolated test process pins `GOTMPDIR` to its sandbox's temporary root: Go 1.26's testing takes `GOTMPDIR` over `TMP`, so fixtures landed outside the folder the re-run child's HOME check expects (8362cae64) | `testenv/testenv.go` | not fixed |
 
 Taken out because upstream fixed it:
 
