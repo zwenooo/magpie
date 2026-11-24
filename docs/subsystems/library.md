@@ -96,21 +96,35 @@ repository keeps its existing folder-sync behavior.
 
 ## Constraints and failure behavior
 
-- In this fork, each additional `CLAUDE_CONFIG_DIR` has its own project records
-  in `.claude.json`. For a project, sync merges the Claude disabled-server names
-  and the project-specific Hub entry, not the main account's `projects` object.
-  A server supplied by a project's library plugin counts toward that Hub too.
-  Claude's project plugin switches and hooks stay in the project's own settings
-  (including each worktree), not in any account's global settings.
-  An existing local server named `magpie` is left alone and reported. Each
-  account records only the names it added in this computer's `claude-dirs.json`;
-  re-enabling a server or removing a project or account removes only those
-  entries. Removing a project with **Keep** relinquishes ownership instead.
-- The extra account's `commands` folder gets the main Claude skill router's
-  generated slash commands, pointing through its own router link. Pre-existing
-  commands are not adopted; an edited command survives cleanup. The journal
-  tracks generated files by hash. Other commands and permission rules are not
-  mirrored.
+- In this fork, a profile agent (`agent#profile`: `claude#work`,
+  `hermes#coder`, a ReClaude account's `claude#rec-<id>`) can follow its
+  agent's Library (`profile_follow.go`). Each sync's first step,
+  `keepFollowers`, ticks a follower wherever its agent is ticked and nowhere
+  else, in every agents list of the library (`forAgentLists`, which reaches
+  every `Agents` and `Paused` list; `TestFollowReachesEveryAgentsList` fails
+  on a new field that names agents and isn't reached). The rest of the sync
+  then gives it what it gives any agent, and records it in the follower's
+  own `Applied`. ReClaude's account folders and Claude Code folders added by
+  hand (`magpie library claude-dirs add`) are `claude#` rows
+  (`internal/agent/fork_claude_homes.go`) that follow Claude Code by
+  default; any other profile follows only once turned on
+  (`magpie library follow <agent> on`). One turned off keeps its ticks, its
+  own from then on; one gone from this computer loses them. magpie's saved
+  accounts (`claude-accounts`) are no rows: the gateway runs Claude Code
+  there.
+- Claude Code keeps a project's disabled servers and its Hub entry in its
+  config folder's `.claude.json`, not the project's. A following Claude Code
+  folder gets Claude Code's through `syncClaudeLocalIn` with that file's
+  path; what magpie wrote in each is kept in this computer's
+  `library-follow.json`. Removing a project with **Keep** relinquishes those
+  entries, as it does Claude Code's own.
+- A `claude#` row takes what upstream gives one: MCP servers, skills (the
+  skill router's entry too) and instructions. The router's slash commands,
+  hooks, subagents and tool deny rules stay Claude Code's own folder's.
+- `claude-dirs.json`'s `given`, what the fork's earlier sync of Claude Code's
+  other folders wrote, is handed once to each folder's own `Applied`
+  (`migrateClaudeDirs`), so nothing is written twice or left as the user's;
+  a folder that is no row has it taken out.
 
 - magpie takes away only what `Applied` or its mark says it wrote. A folder of the user's with a skill's name is never touched. The user's own fields in an MCP entry are kept.
 - A library with no instructions to give (no agent ticked, or no shared text) has lost them, as far as an automatic write knows. `Sync` (each start, and beside a change) then leaves every agent's part where it is and logs a line per agent, naming a record whose last write hashes empty; only the page's own write (`changeInstructions`) takes parts back. An automatic write never removes a whole instructions file: it empties one in place. A set's or an agent's extra text that is there but can't be read is a `Problem`, never an empty text (#5709: an emptied Library wiped nine agents' AGENTS.md at start, four deleted whole; `TestEmptyLibraryApplyLeavesAgentsFilesAlone`, `TestUntickedLibraryApplyLeavesFilesAlone`, `TestUnreadableTextLeavesFilesAlone`).

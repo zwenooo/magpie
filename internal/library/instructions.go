@@ -209,10 +209,10 @@ func PublishMemory(due bool) (*Result, error) {
 		b = newBackups()
 	}
 	all := Targets()
+	l.keepFollowers(all, res) // profiles that follow theirs (profile_follow.go, zwenooo/magpie fork)
 	for _, t := range all {
 		l.syncInstructions(t, all, b, res, true)
 	}
-	l.syncClaudeDirs(all, b, res, true)
 	res.Backup = b.dir
 	if b.dir != "" {
 		pruneBackups()
@@ -618,11 +618,10 @@ func changeInstructions(f func(l *Library) error) (*Result, error) {
 		b = newBackups()
 	}
 	all := Targets()
+	l.keepFollowers(all, res) // profiles that follow theirs (profile_follow.go, zwenooo/magpie fork)
 	for _, t := range all {
 		l.syncInstructions(t, all, b, res, false)
 	}
-	// Claude Code's other config folders too (claude_dirs.go, zwenooo/magpie fork)
-	l.syncClaudeDirs(all, b, res, false)
 	res.Backup = b.dir
 	if b.dir != "" {
 		pruneBackups()

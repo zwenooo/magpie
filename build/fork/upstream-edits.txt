@@ -103,7 +103,9 @@ docs/subsystems/gateway-sessions.md
 internal/sessions/carry_convert_test.go
 
 # --- Library: MCP program and key folders, MCP programs updated from a
-# --- repository, Claude Code's other config folders, project MCP scope
+# --- repository, profiles that follow their agent (ReClaude's and hand-added
+# --- Claude Code folders as claude# rows, their project MCP scope)
+internal/agent/claude_dirs.go
 internal/library/backup.go
 internal/library/carry.go
 internal/library/instructions.go

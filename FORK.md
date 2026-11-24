@@ -13,8 +13,9 @@ upstream's installation links and releases include none of them:
   Claude Desktop histories resumed and carried into Claude Code or Codex,
   and any conversation handed to any agent with a prompt.
 - Library: MCP servers' program and key folders carried by sync, an MCP
-  program updated from a reviewed GitHub commit, and the library given to
-  Claude Code's other config folders.
+  program updated from a reviewed GitHub commit, and any agent's profile
+  (another config folder of it) following that agent's Library, with
+  ReClaude's account folders as Claude Code profiles.
 
 It also carries a few fixes to upstream code that upstream doesn't have
 ([Fixes inside upstream code](#fixes-inside-upstream-code)). Every upstream
@@ -37,7 +38,9 @@ internal/sessions/sources.go     Custom read-only session directory registration
 internal/gui/sessions_sources.go Session directory scan/import API
 internal/library/mcp_folders.go  MCP servers' program and key folders carried by sync
 internal/library/mcp_repo*.go    An MCP program updated from a reviewed GitHub commit
-internal/library/claude_dirs.go  The library given to Claude Code's other config folders
+internal/library/profile_follow.go  A profile agent that follows its agent's Library
+internal/library/fork_claude_dirs.go  Claude Code folders added by hand; the old claude-dirs records migrated
+internal/agent/fork_claude_homes.go  ReClaude's and hand-added Claude Code folders as claude# rows
 internal/sessions/handoff.go     A conversation condensed for any agent to carry on
 docs/cursor-byok.md              Setup and synchronization contract
 build/fork/                     Fork build and upstream merge commands
@@ -118,29 +121,40 @@ routes (`internal/gui/library.go`), their commands in `library_cli.go`, and
 the server sheet's repository section, with Check for updates, Preview
 commit and Apply this commit (`client.js`, `library.css`).
 
-Claude Code run in config folders of its own (`CLAUDE_CONFIG_DIR`: an account
-switcher's, such as ReClaude's `~/.rec/claude/accounts/<id>/config`, or
-magpie's saved accounts under `claude-accounts`) gets the library too
-(`internal/library/claude_dirs.go`). The last step of every sync gives each
-such folder that Claude Code has run in (it has a `.claude.json`), and each
-one added by hand (`magpie library claude-dirs add <folder>`), what Claude
-Code here was given, as written there: the same MCP entries (under Claude
-Code's own lock on that `.claude.json`, the file kept with the sync's
-backups first), project-local disabled servers and Hub routes, links to the
-same library skills and their generated slash commands, and the same
-instructions part in its `CLAUDE.md`. A same-named server there is replaced
-with the library's; an account's own skill folder by a skill's name is left
-and reported; a link to another copy is replaced. What magpie put in each
-folder is recorded in `claude-dirs.json` in magpie's folder, on this
-computer only and never carried, so what the library stops giving is taken
-out again and the user's own entries are never touched. Hooks, subagents
-and tool deny rules stay Claude Code here's. The upstream hooks are one step
-at the end of `syncSteps` (`sync.go`), one after `changeInstructions`
-(`instructions.go`), `writeClaudeLocal` split out of `syncClaudeLocal` so
-each folder's project records are written the same way (`project_scope.go`),
-and `RemoveProject` forgetting what each folder was given for the project
-(`projects.go`); `magpie library claude-dirs` lists the folders and what
-each holds of magpie's.
+An agent kept in more than one config folder is an agent of its own per
+folder upstream: `claude#work` for `~/.claude-work`, `hermes#coder`,
+`omp#work`, each ticked on its own. The fork lets such a profile follow its
+agent's Library instead (`internal/library/profile_follow.go`): each sync's
+first step ticks a follower wherever its agent is ticked and nowhere else,
+in every agents list of the library, and the rest of the sync gives it what
+it gives any agent, recorded in its own `Applied`. This works for any agent
+with profiles; `magpie library follow` lists them and `magpie library
+follow <agent> on|off` switches one. One turned off keeps its ticks, its
+own from then on; one gone from the computer loses them.
+
+ReClaude's account folders (`~/.rec/claude/accounts/<id>/config`) and
+Claude Code folders added by hand (`magpie library claude-dirs add
+<folder>`, listed in `claude-dirs.json`) are `claude#` rows too
+(`internal/agent/fork_claude_homes.go`, `claude#rec-<id>`), and follow
+Claude Code by default. They get what upstream gives a `claude#` row: MCP
+servers, skills and instructions; the skill router's slash commands, hooks,
+subagents and tool deny rules stay Claude Code's own folder's. Claude Code
+keeps a project's disabled servers and Hub entry in the folder's own
+`.claude.json`, so a following folder gets Claude Code's there too, with
+what magpie wrote kept in `library-follow.json` on this computer only.
+magpie's saved accounts (`claude-accounts`) are no rows: the gateway runs
+Claude Code there. The fork's earlier sync of these folders recorded what it
+wrote in `claude-dirs.json`'s `given`; the first sync after the change hands
+that to each folder's own record (`internal/library/fork_claude_dirs.go`),
+so nothing is written twice or left behind as the user's, and takes it out
+of a folder that is no row.
+
+The upstream hooks are one line in `claudeDirAgents`
+(`internal/agent/claude_dirs.go`), a first step in `syncSteps` (`sync.go`),
+one before each instructions-only write (`instructions.go`),
+`syncClaudeLocal` given its file's path as `syncClaudeLocalIn` and calling
+the followers' after Claude Code's (`project_scope.go`), and `RemoveProject`
+forgetting their records with Keep (`projects.go`).
 
 A Claude history folder magpie doesn't read on its own (another account's
 `CLAUDE_CONFIG_DIR`, a copy from another computer, Claude Desktop's) can be

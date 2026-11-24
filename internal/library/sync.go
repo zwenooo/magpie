@@ -113,6 +113,9 @@ func syncSteps(all, gone []*Target, b *backups, res *Result) []func(*Library) {
 	// get the moved one (skill_moved.go)
 	// an edit made in a subagent's own file too (subagent_file.go)
 	steps := []func(*Library){func(l *Library) { l.followMovedSkills(); l.markDangling(); l.followSubagentFiles() }}
+	// a profile that follows its agent is ticked as it is, before any part
+	// is given (profile_follow.go, zwenooo/magpie fork)
+	steps = append([]func(*Library){func(l *Library) { l.keepFollowers(all, res) }}, steps...)
 	for _, t := range all {
 		steps = append(steps, func(l *Library) {
 			if claudeCode(t) {
@@ -165,10 +168,7 @@ func syncSteps(all, gone []*Target, b *backups, res *Result) []func(*Library) {
 	}
 	// magpie's copies in a WSL distro no agent there is linked to any more
 	steps = append(steps, func(l *Library) { l.sweepWSLStores(append(slices.Clone(all), gone...), res) })
-	steps = append(steps, func(l *Library) { l.syncProjects(res) }, func(l *Library) { l.writeSubagentFiles() })
-	// Claude Code's other config folders get what Claude Code here was
-	// given, after all of it is (claude_dirs.go, zwenooo/magpie fork)
-	return append(steps, func(l *Library) { l.syncClaudeDirs(all, b, res, true) })
+	return append(steps, func(l *Library) { l.syncProjects(res) }, func(l *Library) { l.writeSubagentFiles() })
 }
 
 // Sync writes the library into the agents again: after an agent is

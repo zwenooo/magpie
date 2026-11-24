@@ -58,9 +58,10 @@ const libraryUsage = `magpie library                     what the library gives 
   magpie library skill keep-own <name> <agent>      …or keep the agent's, and take the agent off the library's
   magpie library plugin [list]       the library's plugins (Library › Claude plugins): magpie library plugin help
   magpie library plugin import <folder | owner/repo | git address> [plugin…] [agents=a,b…|none]   put a source's plugins in the library, as Library › Claude plugins does
-  magpie library claude-dirs         Claude Code's other config folders (ReClaude's accounts, magpie's saved ones):
-                                     each gets what Claude Code here is given, at every sync
-  magpie library claude-dirs add <folder>   one more, by hand
+  magpie library follow              the agents' profiles (claude#work, a ReClaude account's claude#rec-…), and which follow their agent's Library
+  magpie library follow <agent> on|off   one is given what its agent is given at every sync, or is ticked on its own
+  magpie library claude-dirs         the Claude Code folders that are rows of their own (claude#…)
+  magpie library claude-dirs add <folder>   one more, by hand: a claude# row that follows Claude Code
   magpie library claude-dirs rm <folder>    one added by hand off again, with what magpie put there
   magpie library project …           a project folder's own skills (Library › Projects): magpie library project help
   magpie library native              what plugins Codex and Claude Code and packages Pi installed themselves declare (read only; the agent loads them)
@@ -295,11 +296,21 @@ func libraryCmd(args []string) error {
 		return libraryNativeCmd(rest)
 	case "rtk":
 		return rtkCmd(rest)
-	case "claude-dirs":
-		// Claude Code's other config folders (claude_dirs.go, zwenooo/magpie fork)
+	case "follow":
+		// profiles that follow their agent (profile_follow.go, zwenooo/magpie fork)
 		switch {
 		case len(rest) == 0:
-			return printClaudeDirs(true)
+			return printFollow(true, "")
+		case len(rest) == 2 && (rest[1] == "on" || rest[1] == "off"):
+			res, err = library.Follow(rest[0], rest[1] == "on")
+		default:
+			return fmt.Errorf("usage:\n  %s", libraryUsage)
+		}
+	case "claude-dirs":
+		// Claude Code folders that are rows of their own (fork_claude_dirs.go, zwenooo/magpie fork)
+		switch {
+		case len(rest) == 0:
+			return printFollow(true, "claude")
 		case len(rest) == 2 && rest[0] == "add":
 			res, err = library.AddClaudeDir(rest[1])
 		case len(rest) == 2 && (rest[0] == "rm" || rest[0] == "remove"):
@@ -624,39 +635,46 @@ func libraryStatus() error {
 			fmt.Println("   ", muted.Render("off on this computer · magpie library skill on-here "+s.Name))
 		}
 	}
-	if err := printClaudeDirs(false); err != nil {
+	if err := printFollow(false, ""); err != nil {
 		return err
 	}
 	fmt.Println(muted.Render("  kept in " + v.Dir + " · magpie library help"))
 	return nil
 }
 
-// printClaudeDirs lists Claude Code's other config folders, each with what
-// magpie put there at the last sync (claude_dirs.go); alone, it also says
-// when there is none.
-func printClaudeDirs(alone bool) error {
-	dirs, err := library.ClaudeDirsView()
+// printFollow lists the agents' profiles here (of parent alone, when set),
+// each with whether it follows its agent and what magpie last gave it;
+// alone, it also says when there is none.
+func printFollow(alone bool, parent string) error {
+	views, err := library.FollowViews()
 	if err != nil {
 		return err
 	}
-	if len(dirs) == 0 {
+	views = slices.DeleteFunc(views, func(v library.FollowView) bool { return parent != "" && v.Parent != parent })
+	if len(views) == 0 {
 		if alone {
-			fmt.Println(muted.Render("No other Claude Code folder here: only Claude Code's own gets the library."))
-			fmt.Println(muted.Render("  magpie library claude-dirs add <folder> gives it to another"))
+			fmt.Println(muted.Render("No agent here has a profile of its own (another config folder)."))
+			fmt.Println(muted.Render("  magpie library claude-dirs add <folder> makes a Claude Code folder one"))
 		}
 		return nil
 	}
-	fmt.Println(bold.Render("Claude Code's other folders") + muted.Render(" · each gets what Claude Code here is given"))
-	for _, d := range dirs {
-		what := fmt.Sprintf("%d MCP servers, %d skills", len(d.MCP), len(d.Skills))
-		if d.Instructions {
-			what += ", instructions"
+	fmt.Println(bold.Render("Profiles") + muted.Render(" · an agent's other config folders, each an agent of its own"))
+	for _, v := range views {
+		how := "ticked on its own"
+		if v.Follows {
+			how = "follows " + v.Parent
 		}
-		line := "  " + bold.Render(d.Dir) + " " + muted.Render(what)
-		if d.ByHand {
+		if !v.Chosen {
+			how += " (default)"
+		}
+		line := "  " + bold.Render(v.ID) + " " + muted.Render(fmt.Sprintf("%s · %d MCP servers, %d skills · %s", how, len(v.MCP), len(v.Skills), v.Dir))
+		if v.ByHand {
 			line += muted.Render(" · added by hand")
 		}
 		fmt.Println(line)
+	}
+	if alone {
+		fmt.Println(muted.Render("  magpie library follow <agent> on|off switches one"))
 	}
 	return nil
 }
