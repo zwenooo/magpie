@@ -2590,6 +2590,13 @@ func claudeIn(at place) *Agent {
 				if err := edit.DelJSON(path, "model"); err != nil {
 					return err
 				}
+			case magpieOnlyName(get()):
+				// a name only magpie serves, picked by /model while on it:
+				// Anthropic's endpoint has none, so Claude Code goes back to
+				// its own default (zwenooo/magpie fork)
+				if err := edit.DelJSON(path, "model"); err != nil {
+					return err
+				}
 			}
 			// put back, given up, or none to take over: the stash keeps no
 			// model past a Disconnect that went through

@@ -34,6 +34,12 @@ func (a *Agent) Source() string {
 	if a.WSL != "" || a.Path == "" {
 		return ""
 	}
+	// its config sends its requests to magpie's gateway, though magpie
+	// didn't set it up (an address written by hand): not on its own
+	// sign-in, whatever it has (zwenooo/magpie fork)
+	if a.Routed != nil && a.Routed() {
+		return "magpie"
+	}
 	dir := filepath.Dir(a.Path)
 	signIns := !settings.AccountDiscoveryOff()
 	switch a.ID {

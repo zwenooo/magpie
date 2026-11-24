@@ -219,6 +219,7 @@ upstream `feb0d8d7f` (2026-11-24).
 | `nextBeat` lets the keep-awake tests drive wakeups by events (e1f42fc0c) | `awake/awake.go` | test seam only |
 | The isolated test process pins `GOTMPDIR` to its sandbox's temporary root: Go 1.26's testing takes `GOTMPDIR` over `TMP`, so fixtures landed outside the folder the re-run child's HOME check expects (8362cae64) | `testenv/testenv.go` | not fixed |
 | An agent magpie set up whose config still sends every request to magpie's gateway is connected (`Wired`), whatever model it names: Claude Code with a model picked by `/model` that magpie doesn't list showed "not connected · on its Claude subscription" while its `ANTHROPIC_BASE_URL` was magpie's. Claude Code now has `Routed`, as Codex has | `agent/applied.go`, `agent/claude.go` | not fixed |
+| One not connected whose config still sends to magpie (an address written by hand) says so (`Source` "magpie", one line in `connectLine`, its words in four languages), not its own sign-in. Switching Claude Code off also takes out a model name magpie serves and Anthropic doesn't (`magpieOnlyName`: gpt-6.2-astra, not a Claude name, not one magpie doesn't serve) | `agent/connectinfo.go`, `agent/claude.go`, `gui/assets/app.js`, `gui/assets/i18n.js` | not fixed |
 
 Taken out because upstream fixed it:
 
