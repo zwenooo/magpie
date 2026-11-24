@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -62,8 +63,23 @@ func TestGitSourceReads(t *testing.T) {
 }
 
 // realGit is the machine's git, found before any test's sandbox takes
-// PATH away: looked up after it, every test of a git repository skipped.
-var realGit, _ = exec.LookPath("git")
+// PATH away. Git Bash exposes the internal binary; the Windows launcher
+// supplies the shell and transport helpers even with the sandbox PATH.
+var realGit = func() string {
+	git, _ := exec.LookPath("git")
+	if runtime.GOOS == "windows" {
+		path := strings.ToLower(filepath.ToSlash(git))
+		for _, prefix := range []string{"mingw64", "mingw32", "clangarm64"} {
+			if strings.HasSuffix(path, "/"+prefix+"/bin/git.exe") {
+				launcher := filepath.Join(filepath.Dir(git), "..", "..", "cmd", "git.exe")
+				if _, err := exec.LookPath(launcher); err == nil {
+					return launcher
+				}
+			}
+		}
+	}
+	return git
+}()
 
 // gitRemoved, as a file's body in a commit, removes that file or folder.
 const gitRemoved = "\x00removed"

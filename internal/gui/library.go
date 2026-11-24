@@ -766,6 +766,8 @@ func libraryRoutes(mux *http.ServeMux, w Windows) {
 			// Description is a new skill's (skills/create)
 			Description string `json:"description"`
 			Source      string
+			RepoSource  *library.MCPRepoSource `json:"repoSource"`
+			Expected    string                 `json:"expected"`
 			Paths       []string
 			Names       []string // the skills to update, of those a check found changed; to bring in, of those found in the agents
 			Server      library.Server
@@ -810,6 +812,16 @@ func libraryRoutes(mux *http.ServeMux, w Windows) {
 			res, err = library.SaveInstructions(c)
 		case "instructions/import":
 			res, err = library.ImportInstructions(in.Name)
+		case "servers/repo-check":
+			check, err := library.CheckMCPRepo(in.Name, in.RepoSource)
+			if err != nil {
+				fail(rw, err)
+				return
+			}
+			writeJSON(rw, check)
+			return
+		case "servers/repo-update":
+			res, err = library.ApplyMCPRepo(in.Name, in.RepoSource, in.Expected)
 		case "servers/save":
 			res, err = library.SaveServer(in.Old, in.Server)
 		case "servers/agents":

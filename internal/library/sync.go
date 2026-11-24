@@ -926,6 +926,7 @@ func readView(problems []Problem, glance bool) (*View, error) {
 
 // SaveServer adds a server, or replaces the one called old (renaming it).
 func SaveServer(old string, s Server) (*Result, error) {
+	s.keepRepo(nil)
 	if err := s.check(); err != nil {
 		return nil, err
 	}
@@ -949,6 +950,7 @@ func SaveServer(old string, s Server) (*Result, error) {
 					return err
 				}
 			}
+			s.keepRepo(l.MCP[i])
 			// the tools turned off stay, the editor not sending them
 			if s.DisabledTools == nil {
 				s.DisabledTools = l.MCP[i].DisabledTools

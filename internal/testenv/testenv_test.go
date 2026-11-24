@@ -43,6 +43,7 @@ func TestIsolate(t *testing.T) {
 		t.Setenv(k, os.Getenv(k)) // restored after the test
 	}
 	os.Setenv("CODEX_HOME", filepath.Join(t.TempDir(), "codex"))
+	t.Setenv("GOTMPDIR", t.TempDir())
 	// the machine's system folders, where a package keeps its autostart entry
 	os.Setenv("XDG_CONFIG_DIRS", "/etc/xdg")
 	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:9") // the machine's own, which net/http would freeze into its first read
@@ -51,6 +52,15 @@ func TestIsolate(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { remove(home) })
+	t.Run("fixture home is safe for a child", func(child *testing.T) {
+		if os.Getenv("GOTMPDIR") != os.TempDir() {
+			child.Fatal("fixture directories still follow the build tool's temporary directory")
+		}
+		SetHome(child, child.TempDir())
+		if err := checkChild(home); err != nil {
+			child.Fatal(err)
+		}
+	})
 	for _, k := range proxyVars {
 		if _, ok := os.LookupEnv(k); ok {
 			t.Errorf("%s is still set", k)
@@ -98,6 +108,7 @@ func TestIsolateStandsInForWSL(t *testing.T) {
 // A binary started again by a test keeps that test's homes, all in the
 // temporary folder; one pointing anywhere else is refused.
 func TestCheckChild(t *testing.T) {
+	t.Setenv("GOTMPDIR", os.TempDir())
 	sandbox, fixture := t.TempDir(), t.TempDir()
 	for _, k := range append(folderVars, "CODEX_HOME") {
 		t.Setenv(k, "")

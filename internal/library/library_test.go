@@ -63,6 +63,7 @@ func sandbox(t *testing.T) string {
 	}
 	t.Setenv("APPDATA", "")
 	t.Setenv("LOCALAPPDATA", "")
+	t.Setenv("DS_BOT_SHELL_DATA", filepath.Join(h, "DS Bot"))
 	// never the developer's own GitHub token, sent to a fake GitHub
 	for _, k := range GitHubTokenEnv {
 		t.Setenv(k, "")

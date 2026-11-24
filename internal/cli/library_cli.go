@@ -24,6 +24,8 @@ const libraryUsage = `magpie library                     what the library gives 
                                      header= is for a URL, env= for a command; the program's own words go after --
   magpie library mcp set <name> header=K=V | header-=K | env=K=V | env-=K | timeout=SECS   change one setting of a server
   magpie library mcp show <name>     print the server as the library keeps it, as JSON
+  magpie library mcp repo-check <name> [<repository-url> [<ref> [<subfolder>]]]   preview a managed program's commit
+  magpie library mcp repo-update <name> <expected-commit> [<repository-url> [<ref> [<subfolder>]]]   apply the reviewed commit
   magpie library mcp agents <name> <a,b…|none>
   magpie library mcp local <name> on|off   keep it to this computer: a sync or a backup never carries it, and one
                                      coming in neither takes it away nor puts another computer's in its place
@@ -119,6 +121,8 @@ func libraryCmd(args []string) error {
 		}
 	case "mcp":
 		switch {
+		case len(rest) > 0 && (rest[0] == "repo-check" || rest[0] == "repo-update"):
+			return libraryRepoCmd(rest)
 		case len(rest) >= 3 && rest[0] == "add":
 			var cmd, agents []string
 			var o library.ServerOpts
